@@ -1,0 +1,14 @@
+*.db
+*.csv
+*.json
+.DS_Store
+.DS_Store?
+.claude/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.ruby-lsp/

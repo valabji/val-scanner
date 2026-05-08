@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ValScanner
+GenericName=File Scanner
+Comment=Recursive file scanner with metadata, tagging, and duplicate detection
+Exec=valscanner-gui %f
+Icon=valscanner
+Terminal=false
+StartupNotify=true
+StartupWMClass=valscanner
+Categories=Utility;FileManager;
+Keywords=files;scanner;duplicates;metadata;search;index;
+MimeType=application/x-sqlite3;

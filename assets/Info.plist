@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+        <string>ValScanner</string>
+    <key>CFBundleDisplayName</key>
+        <string>ValScanner</string>
+    <key>CFBundleIdentifier</key>
+        <string>com.valabji.valscanner</string>
+    <key>CFBundleVersion</key>
+        <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+        <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+        <string>APPL</string>
+    <key>CFBundleSignature</key>
+        <string>????</string>
+    <key>CFBundleIconFile</key>
+        <string>icon</string>
+    <key>NSHighResolutionCapable</key>
+        <true/>
+    <key>NSRequiresAquaSystemAppearance</key>
+        <false/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+        <true/>
+    <key>LSApplicationCategoryType</key>
+        <string>public.app-category.utilities</string>
+    <key>NSHumanReadableCopyright</key>
+        <string>Copyright © 2026 Abdalrahman Valabji</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+                <string>ValScanner Database</string>
+            <key>CFBundleTypeExtensions</key>
+                <array><string>db</string></array>
+            <key>CFBundleTypeRole</key>
+                <string>Editor</string>
+            <key>LSHandlerRank</key>
+                <string>Owner</string>
+        </dict>
+    </array>
+    <key>NSAppleEventsUsageDescription</key>
+        <string>ValScanner uses Apple Events to open database files.</string>
+</dict>
+</plist>
