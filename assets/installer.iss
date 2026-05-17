@@ -4,16 +4,16 @@
 
 [Setup]
 AppName=ValScanner
-AppVersion=0.1.0
+AppVersion=0.1.3
 AppPublisher=Abdalrahman Valabji
 AppPublisherURL=https://github.com/valabji/valscanner
 AppSupportURL=https://github.com/valabji/valscanner/issues
 DefaultDirName={autopf}\ValScanner
 DefaultGroupName=ValScanner
 AllowNoIcons=yes
-OutputDir=dist
-OutputBaseFilename=ValScanner-0.1.0-setup
-SetupIconFile=assets\icon.ico
+OutputDir=..\dist
+OutputBaseFilename=ValScanner-0.1.3-setup
+SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\ValScanner.exe
 Compression=lzma2
 SolidCompression=yes
@@ -34,7 +34,7 @@ Name: "desktopicon"; \
     Flags: unchecked
 
 [Files]
-Source: "dist\ValScanner\*"; \
+Source: "..\dist\ValScanner\*"; \
     DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 

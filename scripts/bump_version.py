@@ -67,6 +67,13 @@ def main() -> None:
             [(r'^(\$Version\s*=\s*")[^"]+(")$', rf'\g<1>{v}\g<2>')],
         ),
         (
+            REPO / "assets/installer.iss",
+            [
+                (r'^(AppVersion=).+$', rf'\g<1>{v}'),
+                (r'^(OutputBaseFilename=ValScanner-)[^-]+(-setup)$', rf'\g<1>{v}\g<2>'),
+            ],
+        ),
+        (
             REPO / "assets/windows_version_info.txt",
             [
                 (
