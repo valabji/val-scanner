@@ -12,3 +12,4 @@ build/
 .venv/
 venv/
 .ruby-lsp/
+local_plans/
