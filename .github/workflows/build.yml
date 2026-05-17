@@ -1,0 +1,78 @@
+name: Build Executables
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest   # Apple Silicon (arm64)
+            label: macOS-arm64
+          - os: macos-13       # Intel x86_64
+            label: macOS-x86_64
+          - os: windows-latest # Windows x64
+            label: Windows-x64
+          - os: ubuntu-latest  # Linux x64
+            label: Linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[rich]" pyinstaller
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller valscanner.spec --noconfirm
+
+      # ── macOS: wrap .app into a DMG ─────────────────────────────────────────
+      - name: Package DMG
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil create \
+            -volname "ValScanner" \
+            -srcfolder "dist/ValScanner.app" \
+            -ov -format UDZO \
+            "dist/ValScanner-${{ matrix.label }}.dmg"
+
+      # ── Windows: build Inno Setup installer ────────────────────────────────
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" assets\installer.iss'
+
+      # ── Linux: tar up the output folder ────────────────────────────────────
+      - name: Create tarball
+        if: runner.os == 'Linux'
+        run: |
+          VERSION=$(python -c "import importlib.metadata; print(importlib.metadata.version('valscanner'))")
+          tar -czf "dist/ValScanner-${VERSION}-linux-x86_64.tar.gz" -C dist ValScanner
+
+      # ── upload whichever artifact this platform produced ───────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: |
+            dist/*.dmg
+            dist/*-setup.exe
+            dist/*.tar.gz
+          if-no-files-found: error
