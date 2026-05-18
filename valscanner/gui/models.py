@@ -10,6 +10,19 @@ COLUMNS = ["Filename", "Category", "Size", "Modified", "Tags", "Path"]
 COL_IDX = {c: i for i, c in enumerate(COLUMNS)}
 
 _GROUP_SENTINEL = "__group__"
+_FOLDER_SENTINEL = "__folder__"
+
+
+def make_folder_row(path: str, file_count: int, total_bytes: int, human_size: str = "") -> tuple:
+    """Create a folder row tuple compatible with FileTableModel.
+
+    Layout mirrors file rows: (path, filename, category, size_bytes, size_human, modified_at, tags, extra_meta)
+    For folders: category is _FOLDER_SENTINEL, tags is "<N> files".
+    """
+    from pathlib import Path as _Path
+    name = _Path(path).name or path
+    tag = f"{file_count:,} files" if file_count else "empty"
+    return (path, name, _FOLDER_SENTINEL, total_bytes or 0, human_size, "", tag, "")
 
 
 class FileTableModel(QAbstractTableModel):
@@ -69,6 +82,33 @@ class FileTableModel(QAbstractTableModel):
                 return Qt.AlignLeft | Qt.AlignVCenter
             return None
 
+        if row[2] == _FOLDER_SENTINEL:
+            mapping = {
+                COL_IDX["Filename"]: f"📁  {row[1]}",
+                COL_IDX["Category"]: "folder",
+                COL_IDX["Size"]:     row[4],
+                COL_IDX["Modified"]: "",
+                COL_IDX["Tags"]:     row[6],
+                COL_IDX["Path"]:     row[0],
+            }
+            if role == Qt.DisplayRole:
+                return mapping.get(col, "")
+            if role == Qt.ForegroundRole:
+                if col == COL_IDX["Category"]:
+                    return QColor(ACCENT)
+                if col in (COL_IDX["Path"], COL_IDX["Tags"]):
+                    return QColor(SUBTEXT)
+                return QColor("#dcdcfa")
+            if role == Qt.FontRole and col == COL_IDX["Filename"]:
+                f = QFont(); f.setBold(True); return f
+            if role == Qt.BackgroundRole:
+                return QColor(ROW_ALT if index.row() % 2 else DARK_BG)
+            if role == Qt.UserRole:
+                return row
+            if role == Qt.TextAlignmentRole and col == COL_IDX["Size"]:
+                return Qt.AlignRight | Qt.AlignVCenter
+            return None
+
         mapping = {
             COL_IDX["Filename"]: row[1],
             COL_IDX["Category"]: row[2],
@@ -96,7 +136,7 @@ class FileTableModel(QAbstractTableModel):
         self.beginResetModel()
         reverse = (order == Qt.DescendingOrder)
         if column == COL_IDX["Size"]:
-            self._rows.sort(key=lambda r: r[3], reverse=reverse)
+            inner_key = lambda r: r[3]
         else:
             key_map = {
                 COL_IDX["Filename"]: lambda r: r[1].lower(),
@@ -105,10 +145,22 @@ class FileTableModel(QAbstractTableModel):
                 COL_IDX["Tags"]:     lambda r: r[6],
                 COL_IDX["Path"]:     lambda r: r[0].lower(),
             }
-            self._rows.sort(
-                key=key_map.get(column, lambda r: r[1].lower()),
-                reverse=reverse,
-            )
+            inner_key = key_map.get(column, lambda r: r[1].lower())
+
+        # Folders always come first regardless of sort direction
+        def composite_key(r):
+            is_folder = (len(r) > 2 and r[2] == _FOLDER_SENTINEL)
+            # Negate the folder flag so folders (True -> 0) precede files (False -> 1)
+            return (0 if is_folder else 1, inner_key(r))
+
+        self._rows.sort(key=composite_key, reverse=False)
+        if reverse:
+            # Sort folders first then files separately, with files reversed
+            folders = [r for r in self._rows if len(r) > 2 and r[2] == _FOLDER_SENTINEL]
+            files = [r for r in self._rows if not (len(r) > 2 and r[2] == _FOLDER_SENTINEL)]
+            folders.sort(key=inner_key, reverse=True)
+            files.sort(key=inner_key, reverse=True)
+            self._rows = folders + files
         self.endResetModel()
 
 
@@ -191,10 +243,13 @@ class FileIconModel(QAbstractListModel):
         if not index.isValid():
             return None
         row = self._rows[index.row()]
+        is_folder = (row[2] == _FOLDER_SENTINEL)
         if role == Qt.DisplayRole:
-            return row[1]
+            return ("📁  " + row[1]) if is_folder else row[1]
         if role == Qt.UserRole:
             return row
         if role == Qt.ToolTipRole:
+            if is_folder:
+                return f"📁 {row[1]}\n{row[4]}  ·  {row[6]}\n{row[0]}"
             return f"{row[1]}\n{row[4]}  ·  {row[2]}\n{row[0]}"
         return None

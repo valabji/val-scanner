@@ -27,9 +27,9 @@ from .constants import (
     CATEGORY_COLORS,
     DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, SEL_BG, SEL_TEXT,
 )
-from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX
+from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX, make_folder_row, _FOLDER_SENTINEL
 from .delegates import FileCardDelegate, FileRowDelegate
-from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, PAGE_SIZE
+from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, PAGE_SIZE
 from .dialogs import ScanOptionsDialog, ViewFiltersDialog
 from .panels.detail import DetailPanel
 from .panels.folders import FolderPanel
@@ -67,6 +67,11 @@ class MainWindow(QMainWindow):
         self._lazy_worker: LazyLoadWorker | None = None
         self._total_row_count        = 0
         self._loaded_offset          = 0
+        # Browser mode
+        self._view_mode              = "browser"   # "browser" | "flat"
+        self._browser_path           = ""          # current path in browser mode
+        self._browser_worker: BrowserLoadWorker | None = None
+        self._browser_history: list[str] = []
 
         self._apply_palette()
         self._build_menu()
@@ -914,6 +919,16 @@ class MainWindow(QMainWindow):
             f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
             f"QPushButton:hover:!checked{{color:{TEXT};border-color:#5a5a7a;}}"
         )
+
+        self._browse_toggle = QPushButton("📁 Browse")
+        self._browse_toggle.setToolTip("Browse folders (drill down). Toggle off for flat all-files view.")
+        self._browse_toggle.setCheckable(True)
+        self._browse_toggle.setChecked(True)
+        self._browse_toggle.setFixedHeight(28)
+        self._browse_toggle.setStyleSheet(_vbtn_ss)
+        self._browse_toggle.toggled.connect(self._on_browse_toggled)
+        fl.addWidget(self._browse_toggle)
+
         self._view_btn_grp = QButtonGroup(self._filterbar)
         self._view_btn_grp.setExclusive(True)
         for i, (label, tip) in enumerate([
@@ -958,6 +973,18 @@ class MainWindow(QMainWindow):
         ftl      = QVBoxLayout(file_tab)
         ftl.setContentsMargins(0, 0, 0, 0)
         ftl.setSpacing(0)
+
+        # Breadcrumb bar (visible only in browser mode)
+        self._breadcrumb_bar = QWidget()
+        self._breadcrumb_bar.setStyleSheet(
+            f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        self._breadcrumb_bar.setFixedHeight(34)
+        self._breadcrumb_lay = QHBoxLayout(self._breadcrumb_bar)
+        self._breadcrumb_lay.setContentsMargins(12, 0, 12, 0)
+        self._breadcrumb_lay.setSpacing(4)
+        self._breadcrumb_lay.addStretch()
+        ftl.addWidget(self._breadcrumb_bar)
 
         self._view_stack = QStackedWidget()
 
@@ -1350,17 +1377,25 @@ class MainWindow(QMainWindow):
         if not self._db_path or not Path(self._db_path).exists():
             return
 
-        # Show loading state
+        if self._view_mode == "browser":
+            self._browser_path = ""
+            self._browser_history = []
+            self._load_browser_view()
+        else:
+            self._load_flat_view()
+
+    def _load_flat_view(self) -> None:
+        """Flat list view: load all files paginated."""
+        self._breadcrumb_bar.hide()
+
         self.center_tabs.setTabText(1, "📄  Files (loading…)")
         self._stat_showing.setText("🔍  Loading…")
 
-        # Load database in background
         self._db_load_worker = DbLoadWorker(self._db_path, self._active_scan_id)
         self._db_load_worker.db_loaded.connect(self._on_db_loaded)
         self._db_load_worker.error.connect(lambda e: self._set_status(f"⚠ Error loading database: {e}"))
         self._db_load_worker.start()
 
-        # Register with process monitor
         reg = ProcessRegistry.instance()
         pid = reg.register(
             name="Loading database",
@@ -1371,7 +1406,7 @@ class MainWindow(QMainWindow):
         self._process_dock.show()
 
     def _on_db_loaded(self, data: dict) -> None:
-        """Callback when database load completes."""
+        """Callback when database flat-view load completes."""
         total = data["total"]
         total_size = data["total_size"]
         rows = data["rows"]
@@ -1384,7 +1419,6 @@ class MainWindow(QMainWindow):
         self._update_stats(total, total_size, len(self._all_rows))
         self.center_tabs.setTabText(1, f"📄  Files ({total:,})")
 
-        # Connect scroll handler for lazy loading
         sb = self.table.verticalScrollBar()
         try:
             sb.valueChanged.disconnect(self._on_table_scroll)
@@ -1392,9 +1426,146 @@ class MainWindow(QMainWindow):
             pass
         sb.valueChanged.connect(self._on_table_scroll)
 
-        # Mark load complete
         if hasattr(self, "_db_load_worker") and self._db_load_worker and self._db_load_worker._pid:
             ProcessRegistry.instance().mark_done(self._db_load_worker._pid)
+
+    def _load_browser_view(self) -> None:
+        """Browser view: load folders + files at the current path."""
+        if not self._db_path:
+            return
+        self._breadcrumb_bar.show()
+        self._update_breadcrumb()
+
+        self.center_tabs.setTabText(1, "📄  Files (loading…)")
+        self._stat_showing.setText("🔍  Loading…")
+
+        self._browser_worker = BrowserLoadWorker(
+            self._db_path, self._active_scan_id, self._browser_path
+        )
+        self._browser_worker.contents_ready.connect(self._on_browser_loaded)
+        self._browser_worker.error.connect(lambda e: self._set_status(f"⚠ Error: {e}"))
+        self._browser_worker.start()
+
+        reg = ProcessRegistry.instance()
+        pid = reg.register(
+            name=f"Loading: {Path(self._browser_path).name or 'root'}",
+            cancel_cb=None,
+            kill_cb=None,
+        )
+        self._browser_worker._pid = pid
+
+    def _on_browser_loaded(self, data: dict) -> None:
+        """Render folders + files at the current browser path."""
+        folders = data["folders"]
+        files = data["files"]
+        path = data["path"]
+
+        if path != self._browser_path:
+            # Stale response — ignore
+            return
+
+        rows: list = []
+        total_bytes = 0
+
+        for f in folders:
+            # f = (path, file_count, total_bytes, scan_id)
+            fp, fcount, fbytes = f[0], f[1] or 0, f[2] or 0
+            from ..core.schema import human_size as _hs
+            rows.append(make_folder_row(fp, fcount, fbytes, _hs(fbytes)))
+            total_bytes += fbytes
+
+        rows.extend(files)
+        for fr in files:
+            total_bytes += fr[3] or 0
+
+        self._all_rows = rows
+        self._total_row_count = len(rows)
+        self._loaded_offset = len(rows)  # no lazy paging needed in browser mode
+
+        # Disconnect scroll lazy loader in browser mode
+        sb = self.table.verticalScrollBar()
+        try:
+            sb.valueChanged.disconnect(self._on_table_scroll)
+        except RuntimeError:
+            pass
+
+        self._apply_filters()
+        self._update_stats(len(rows), total_bytes, len(rows))
+        label = Path(self._browser_path).name if self._browser_path else "root"
+        self.center_tabs.setTabText(1, f"📄  {label} ({len(folders)} folders, {len(files)} files)")
+
+        if self._browser_worker and self._browser_worker._pid:
+            ProcessRegistry.instance().mark_done(self._browser_worker._pid)
+
+    def _navigate_to(self, path: str) -> None:
+        """Navigate browser to the given path."""
+        if self._browser_path:
+            self._browser_history.append(self._browser_path)
+        self._browser_path = path
+        self._load_browser_view()
+
+    def _navigate_up(self) -> None:
+        """Navigate to parent folder."""
+        if not self._browser_path:
+            return
+        parent = str(Path(self._browser_path).parent)
+        if parent == self._browser_path:
+            self._browser_path = ""
+        else:
+            self._browser_path = "" if parent == "." else parent
+        self._load_browser_view()
+
+    def _update_breadcrumb(self) -> None:
+        """Rebuild breadcrumb buttons from the current path."""
+        # Clear existing buttons (everything except the trailing stretch)
+        while self._breadcrumb_lay.count() > 1:
+            item = self._breadcrumb_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        crumb_ss = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;"
+            f"padding:2px 6px;font-size:12px;}}"
+            f"QPushButton:hover{{color:{ACCENT};}}"
+        )
+
+        # Root segment
+        root_btn = QPushButton("🏠 Root")
+        root_btn.setStyleSheet(crumb_ss)
+        root_btn.setCursor(Qt.PointingHandCursor)
+        root_btn.clicked.connect(lambda: self._navigate_to_path(""))
+        self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 1, root_btn)
+
+        if self._browser_path:
+            # Split path into segments and build a button per segment
+            parts = Path(self._browser_path).parts
+            cumulative = ""
+            for i, part in enumerate(parts):
+                sep = QLabel("›")
+                sep.setStyleSheet(f"color: {SUBTEXT}; padding: 0 2px;")
+                self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 1, sep)
+
+                cumulative = str(Path(cumulative) / part) if cumulative else part
+                btn = QPushButton(part)
+                btn.setStyleSheet(crumb_ss)
+                btn.setCursor(Qt.PointingHandCursor)
+                # Capture cumulative path at this iteration
+                target_path = cumulative
+                btn.clicked.connect(lambda _c=False, p=target_path: self._navigate_to_path(p))
+                self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 1, btn)
+
+    def _navigate_to_path(self, path: str) -> None:
+        """Jump directly to a path (used by breadcrumb)."""
+        if path == self._browser_path:
+            return
+        self._browser_path = path
+        self._load_browser_view()
+
+    def _on_browse_toggled(self, checked: bool) -> None:
+        """Switch between browser and flat view modes."""
+        self._view_mode = "browser" if checked else "flat"
+        self._load_from_db()
 
     def _apply_filters(self) -> None:
         term        = self.search_edit.text().strip().lower()
@@ -1406,6 +1577,12 @@ class MainWindow(QMainWindow):
 
         filtered = []
         for r in self._all_rows:
+            # Folder rows are always shown in browser mode (only filtered by search term)
+            if len(r) > 2 and r[2] == _FOLDER_SENTINEL:
+                if term and term not in f"{r[1]} {r[0]}".lower():
+                    continue
+                filtered.append(r)
+                continue
             if folder_norm:
                 if self._folder_filter_recursive:
                     if not r[0].startswith(folder_norm + "/") and r[0] != folder_norm:
@@ -1578,11 +1755,17 @@ class MainWindow(QMainWindow):
         if not current.isValid():
             return
         row = self.icon_model.data(current, Qt.UserRole)
-        if row:
+        if row and (len(row) <= 2 or row[2] != _FOLDER_SENTINEL):
             self.detail.show_file(row)
 
     def _filter_by_folder(self, folder_path: str) -> None:
         if not folder_path:
+            return
+        # In browser mode, navigate to the folder instead of filtering
+        if self._view_mode == "browser":
+            self._browser_path = folder_path
+            self._load_browser_view()
+            self.center_tabs.setCurrentIndex(1)
             return
         self._active_folder_filter    = folder_path
         self._folder_filter_recursive = False
@@ -1657,10 +1840,25 @@ class MainWindow(QMainWindow):
         if not current.isValid() or not self.table_model._rows:
             return
         data = self.table_model.data(current, Qt.UserRole)
-        if data:
+        if data and (len(data) <= 2 or data[2] != _FOLDER_SENTINEL):
             self.detail.show_file(data)
 
-    def _open_selected(self, _index) -> None:
+    def _open_selected(self, index) -> None:
+        # Determine which model to read from based on sender
+        sender = self.sender()
+        row = None
+        if sender is self.table:
+            if index.isValid() and 0 <= index.row() < len(self.table_model._rows):
+                row = self.table_model._rows[index.row()]
+        else:
+            if index.isValid():
+                row = self.icon_model.data(index, Qt.UserRole)
+
+        # Drill into folder if applicable
+        if row and len(row) > 2 and row[2] == _FOLDER_SENTINEL:
+            self._navigate_to(row[0])
+            return
+
         self.detail._open_file()
 
     def _context_menu(self, pos) -> None:

@@ -192,3 +192,86 @@ class LazyLoadWorker(QThread):
             self.rows_ready.emit(list(rows))
         except Exception as e:
             self.error.emit(str(e))
+
+
+class BrowserLoadWorker(QThread):
+    """Loads folders + files at a specific path level (immediate children only)."""
+    contents_ready = Signal(dict)  # {"folders": [...], "files": [...], "path": str, "scan_id": int}
+    error          = Signal(str)
+
+    def __init__(self, db_path: str, scan_id: int | None, path: str):
+        super().__init__()
+        self.db_path = db_path
+        self.scan_id = scan_id
+        self.path    = path  # "" for root view, otherwise absolute folder path
+
+    def run(self) -> None:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            sid  = self.scan_id
+
+            if not self.path:
+                # Root view: show scan roots as top-level folders
+                if sid:
+                    rows = conn.execute(
+                        "SELECT id, root, label, file_count, total_bytes FROM scans WHERE id=?",
+                        (sid,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT id, root, label, file_count, total_bytes FROM scans"
+                    ).fetchall()
+                folders = [
+                    (r[1], r[3] or 0, r[4] or 0, r[0])  # (path, file_count, total_bytes, scan_id)
+                    for r in rows
+                ]
+                files = []
+            else:
+                # Subfolders at this path (immediate children only)
+                like_prefix = self.path.rstrip("/") + "/%"
+                like_deeper = self.path.rstrip("/") + "/%/%"
+
+                if sid:
+                    folder_rows = conn.execute(
+                        "SELECT path, file_count, total_bytes, scan_id FROM folders "
+                        "WHERE scan_id=? AND path LIKE ? AND path NOT LIKE ? "
+                        "ORDER BY path",
+                        (sid, like_prefix, like_deeper),
+                    ).fetchall()
+                else:
+                    folder_rows = conn.execute(
+                        "SELECT path, file_count, total_bytes, scan_id FROM folders "
+                        "WHERE path LIKE ? AND path NOT LIKE ? ORDER BY path",
+                        (like_prefix, like_deeper),
+                    ).fetchall()
+                folders = list(folder_rows)
+
+                # Files at this path (not in subfolders)
+                if sid:
+                    file_rows = conn.execute(
+                        "SELECT path, filename, category, size_bytes, size_human, "
+                        "modified_at, tags, extra_meta "
+                        "FROM files WHERE scan_id=? AND path LIKE ? AND path NOT LIKE ? "
+                        "ORDER BY filename",
+                        (sid, like_prefix, like_deeper),
+                    ).fetchall()
+                else:
+                    file_rows = conn.execute(
+                        "SELECT path, filename, category, size_bytes, size_human, "
+                        "modified_at, tags, extra_meta "
+                        "FROM files WHERE path LIKE ? AND path NOT LIKE ? "
+                        "ORDER BY filename",
+                        (like_prefix, like_deeper),
+                    ).fetchall()
+                files = list(file_rows)
+
+            conn.close()
+
+            self.contents_ready.emit({
+                "folders":  folders,
+                "files":    files,
+                "path":     self.path,
+                "scan_id":  sid or 0,
+            })
+        except Exception as e:
+            self.error.emit(str(e))
