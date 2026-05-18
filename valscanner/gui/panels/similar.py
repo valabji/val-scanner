@@ -482,11 +482,8 @@ class SimilarFoldersPanel(QWidget):
         self.footer.setText(f"Analysing {scope}…")
         self.status_message.emit(f"Comparing folders for similarity across {scope}…")
         self._worker = AnalysisWorker(self._db_path, min_files, threshold, scan_ids=scan_ids)
-        self._worker.finished.connect(self._on_done)
-        self._worker.error.connect(self._on_error)
-        self._worker.start()
 
-        # Register with process monitor
+        # Register with process monitor before starting
         reg = ProcessRegistry.instance()
         pid = reg.register(
             name="Similarity analysis",
@@ -494,6 +491,10 @@ class SimilarFoldersPanel(QWidget):
             kill_cb=self._worker.terminate,
         )
         self._worker._pid = pid
+
+        self._worker.finished.connect(self._on_done)
+        self._worker.error.connect(self._on_error)
+        self._worker.start()
 
     def _on_done(self, results: list) -> None:
         self.progress.hide()

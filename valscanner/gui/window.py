@@ -1257,12 +1257,8 @@ class MainWindow(QMainWindow):
         self._worker = ScanWorker(root, db, self.hash_chk.isChecked(),
                                   label=self.label_edit.text().strip(),
                                   options=self._scan_options)
-        self._worker.progress.connect(self._on_progress)
-        self._worker.finished.connect(self._on_scan_done)
-        self._worker.error.connect(lambda e: self._set_status(f"⚠ Error: {e}"))
-        self._worker.start()
 
-        # Register with process monitor
+        # Register with process monitor before starting
         reg = ProcessRegistry.instance()
         pid = reg.register(
             name=f"Scan: {Path(root).name}",
@@ -1270,10 +1266,15 @@ class MainWindow(QMainWindow):
             kill_cb=self._worker.terminate,
         )
         self._worker._pid = pid
+        self._process_dock.show()
+
+        self._worker.progress.connect(self._on_progress)
         self._worker.progress.connect(
             lambda count, path: reg.set_progress(pid, min(count // 1000, 99))
         )
-        self._process_dock.show()
+        self._worker.finished.connect(self._on_scan_done)
+        self._worker.error.connect(lambda e: self._set_status(f"⚠ Error: {e}"))
+        self._worker.start()
 
     def _open_scan_options(self) -> None:
         dlg = ScanOptionsDialog(self, self._scan_options)
