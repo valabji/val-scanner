@@ -11,7 +11,7 @@
 
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 IS_MAC = sys.platform == "darwin"
 IS_WIN = sys.platform == "win32"
@@ -26,11 +26,14 @@ block_cipher = None
 # Pull in every valscanner sub-module so nothing is missed at runtime.
 hidden = collect_submodules("valscanner")
 
+# Collect web static assets (SPA build output)
+_web_datas = collect_data_files('valscanner.web', includes=['static/**/*'])
+
 a = Analysis(
     ["app_entry.py"],
     pathex=["."],
     binaries=[],
-    datas=[],
+    datas=_web_datas,
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},

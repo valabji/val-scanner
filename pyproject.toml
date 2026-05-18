@@ -29,6 +29,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "pytest-asyncio>=0.23",
+]
 rich = [
     "Pillow",
     "mutagen",
@@ -38,6 +48,7 @@ rich = [
 [project.scripts]
 valscanner     = "valscanner.cli:main"
 valscanner-gui = "valscanner.gui.window:main"
+valscanner-web = "valscanner.web.server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -45,3 +56,4 @@ include = ["valscanner*"]
 
 [tool.setuptools.package-data]
 valscanner = ["assets/*"]
+"valscanner.web" = ["static/**/*"]

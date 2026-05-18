@@ -13,3 +13,7 @@ build/
 venv/
 .ruby-lsp/
 local_plans/
+web-ui/node_modules/
+web-ui/dist/
+valscanner/web/static/*
+!valscanner/web/static/.gitkeep

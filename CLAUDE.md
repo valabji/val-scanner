@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install (editable, with optional rich-metadata deps)
+# Install (editable, with optional deps)
 pip install -e ".[rich]"
+pip install -e ".[web]"        # adds fastapi + uvicorn
+cd web-ui && npm install && cd ..
 
-# Run the GUI app
+# Run the GUI app (Qt)
 python -m valscanner.gui.window     # or: valscanner-gui
 
 # Run the CLI scanner
@@ -17,9 +19,13 @@ valscanner /path/to/scan --db my.db --no-hash --export-csv --export-json --verbo
 valscanner --list-scans --db my.db
 valscanner --delete-scan 3 --db my.db
 
-# Install dependencies manually
-pip install PySide6                        # required for GUI
-pip install Pillow mutagen PyPDF2          # optional — rich metadata
+# Run the Web UI (development — two terminals)
+valscanner-web --db my.db --dev    # terminal 1 — Python API on :7070
+cd web-ui && npm run dev            # terminal 2 — Vite on :5173
+
+# Run the Web UI (production)
+./scripts/build_web.sh              # builds SPA into valscanner/web/static/
+valscanner-web --db my.db           # serves built app on :7070
 ```
 
 ## Architecture

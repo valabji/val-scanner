@@ -74,6 +74,7 @@ def scan(
     skip_binaries:     bool = False,
     skip_temp:         bool = False,
     skip_logs:         bool = False,
+    cancel_event=None,
 ) -> dict:
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
@@ -119,6 +120,11 @@ def scan(
         dirnames[:] = [d for d in dirnames if _keep_dir(d)]
 
         for fname in filenames:
+            if cancel_event is not None and cancel_event.is_set():
+                stats["cancelled"] = True
+                conn.commit()
+                conn.close()
+                return stats
             ext_check = Path(fname).suffix.lower()
             if not _keep_file(fname, ext_check):
                 stats["skipped"] += 1
