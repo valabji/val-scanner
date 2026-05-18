@@ -398,8 +398,14 @@ class _ProcessCard(QFrame):
         )
 
         # Progress bar
-        if entry.progress < 0:
-            self._progress.setRange(0, 0)  # indeterminate
+        if entry.state == ProcessState.DONE:
+            self._progress.setRange(0, 100)
+            self._progress.setValue(100)
+        elif entry.state == ProcessState.ERROR:
+            self._progress.setRange(0, 100)
+            self._progress.setValue(0)
+        elif entry.progress < 0:
+            self._progress.setRange(0, 0)  # indeterminate (animated)
         else:
             self._progress.setRange(0, 100)
             self._progress.setValue(entry.progress)
