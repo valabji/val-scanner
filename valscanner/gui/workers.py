@@ -101,6 +101,10 @@ class AnalysisWorker(QThread):
                 ProcessRegistry.instance().heartbeat(self._pid)
 
             if self._stop:
+                if self._pid:
+                    from .panels.process import ProcessRegistry
+                    ProcessRegistry.instance().mark_done(self._pid)
+                self.finished.emit([])
                 return
 
             results = find_similar_folders(
@@ -110,11 +114,10 @@ class AnalysisWorker(QThread):
                 scan_ids=self.scan_ids,
                 stop_flag=lambda: self._stop,
             )
-            if not self._stop:
-                self.finished.emit(results)
             if self._pid:
                 from .panels.process import ProcessRegistry
                 ProcessRegistry.instance().mark_done(self._pid)
+            self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
             if self._pid:

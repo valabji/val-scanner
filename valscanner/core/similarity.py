@@ -119,6 +119,8 @@ def find_similar_folders(
         if stop_flag and stop_flag():
             break
         for j in range(i + 1, n):
+            if stop_flag and stop_flag():
+                break
             p = _make_pair(folders[i][0], folders[i][1], folders[j][0], folders[j][1])
             if p:
                 all_pairs.append(p)
@@ -142,6 +144,9 @@ def find_similar_folders(
     child_set: set  = set()
 
     for pair in all_pairs:
+        if stop_flag and stop_flag():
+            break
+
         pid = id(pair)
         if pid in child_set:
             continue
