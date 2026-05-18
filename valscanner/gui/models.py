@@ -22,6 +22,16 @@ class FileTableModel(QAbstractTableModel):
         self._rows = rows
         self.endResetModel()
 
+    def append_rows(self, new_rows: list) -> None:
+        """Append rows without resetting the model (preserves scroll position)."""
+        if not new_rows:
+            return
+        first = len(self._rows)
+        last = first + len(new_rows) - 1
+        self.beginInsertRows(QModelIndex(), first, last)
+        self._rows.extend(new_rows)
+        self.endInsertRows()
+
     def rowCount(self, parent=QModelIndex()):
         return len(self._rows)
 

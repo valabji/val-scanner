@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
 from ..workers import AnalysisWorker
+from .process import ProcessRegistry
 from ...core.db import list_scans
 from ...core.schema import human_size
 
@@ -484,6 +485,15 @@ class SimilarFoldersPanel(QWidget):
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
+
+        # Register with process monitor
+        reg = ProcessRegistry.instance()
+        pid = reg.register(
+            name="Similarity analysis",
+            cancel_cb=self._worker.stop,
+            kill_cb=self._worker.terminate,
+        )
+        self._worker._pid = pid
 
     def _on_done(self, results: list) -> None:
         self.progress.hide()

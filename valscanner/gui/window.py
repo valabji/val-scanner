@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QMessageBox, QMenu, QDialog,
     QStackedWidget, QButtonGroup,
+    QDockWidget,
 )
 
 from .constants import (
@@ -28,13 +29,14 @@ from .constants import (
 )
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX
 from .delegates import FileCardDelegate, FileRowDelegate
-from .workers import ScanWorker
+from .workers import ScanWorker, LazyLoadWorker, PAGE_SIZE
 from .dialogs import ScanOptionsDialog, ViewFiltersDialog
 from .panels.detail import DetailPanel
 from .panels.folders import FolderPanel
 from .panels.similar import SimilarFoldersPanel
 from .panels.scans import ScansPanel
 from .panels.console import ConsolePanel, _StderrBridge
+from .panels.process import ProcessPanel, ProcessRegistry
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
 from ..core.export import export_csv, export_json
 from ..core.db import list_scans
@@ -61,6 +63,9 @@ class MainWindow(QMainWindow):
         self._group_by: str          = ""
         self._view_filters_dlg: ViewFiltersDialog | None = None
         self._filtered_rows: list    = []
+        self._lazy_worker: LazyLoadWorker | None = None
+        self._total_row_count        = 0
+        self._loaded_offset          = 0
 
         self._apply_palette()
         self._build_menu()
@@ -344,24 +349,29 @@ class MainWindow(QMainWindow):
         console_vis = s.value("panelConsoleVisible",   bool(pref_get("showConsoleOnStartup")),  type=bool)
         filter_vis  = s.value("panelFilterBarVisible", True,                                   type=bool)
         stats_vis   = s.value("panelStatsBarVisible",  True,                                   type=bool)
+        process_vis = s.value("panelProcessVisible",   False,                                  type=bool)
 
         self._act_folder_panel = QAction("Folder Panel", self, checkable=True, checked=folder_vis)
         self._act_detail_panel = QAction("Detail Panel", self, checkable=True, checked=detail_vis)
         self._act_console      = QAction("Console",      self, checkable=True, checked=console_vis)
         self._act_filterbar    = QAction("Filter Bar",   self, checkable=True, checked=filter_vis)
         self._act_statsbar     = QAction("Stats Bar",    self, checkable=True, checked=stats_vis)
+        self._act_process_dock = QAction("Process Monitor", self, checkable=True, checked=process_vis)
 
         self._act_folder_panel.triggered.connect(self._set_folder_panel_visible)
         self._act_detail_panel.triggered.connect(self._set_detail_panel_visible)
         self._act_console.triggered.connect(self._set_console_visible)
         self._act_filterbar.triggered.connect(self._toggle_filterbar)
         self._act_statsbar.triggered.connect(self._toggle_statsbar)
+        self._act_process_dock.triggered.connect(self._process_dock.setVisible)
+        self._process_dock.visibilityChanged.connect(self._act_process_dock.setChecked)
 
         vm.addAction(self._act_folder_panel)
         vm.addAction(self._act_detail_panel)
         vm.addAction(self._act_console)
         vm.addAction(self._act_filterbar)
         vm.addAction(self._act_statsbar)
+        vm.addAction(self._act_process_dock)
 
     _DEFAULT_FOLDER_WIDTH = 220
     _DEFAULT_DETAIL_WIDTH = 280
@@ -597,6 +607,12 @@ class MainWindow(QMainWindow):
         root_lay.addWidget(v_split, 1)
 
         root_lay.addWidget(self._build_statsbar())
+
+        # Process monitor dock
+        self._process_dock = ProcessPanel(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._process_dock)
+        self._process_dock.hide()
+
         self._add_panel_toggles()
 
         sb = QStatusBar()
@@ -1238,6 +1254,19 @@ class MainWindow(QMainWindow):
         self._worker.error.connect(lambda e: self._set_status(f"⚠ Error: {e}"))
         self._worker.start()
 
+        # Register with process monitor
+        reg = ProcessRegistry.instance()
+        pid = reg.register(
+            name=f"Scan: {Path(root).name}",
+            cancel_cb=self._worker.stop,
+            kill_cb=self._worker.terminate,
+        )
+        self._worker._pid = pid
+        self._worker.progress.connect(
+            lambda count, path: reg.set_progress(pid, min(count // 1000, 99))
+        )
+        self._process_dock.show()
+
     def _open_scan_options(self) -> None:
         dlg = ScanOptionsDialog(self, self._scan_options)
         if dlg.exec() == QDialog.Accepted:
@@ -1305,21 +1334,39 @@ class MainWindow(QMainWindow):
     def _load_from_db(self) -> None:
         if not self._db_path or not Path(self._db_path).exists():
             return
-        conn  = sqlite3.connect(self._db_path)
-        sid   = self._active_scan_id
+        conn = sqlite3.connect(self._db_path)
+        sid = self._active_scan_id
         where = "WHERE scan_id=?" if sid else ""
-        args  = (sid,) if sid else ()
-        rows  = conn.execute(
-            f"SELECT path,filename,category,size_bytes,size_human,modified_at,tags,extra_meta "
-            f"FROM files {where} ORDER BY filename", args
-        ).fetchall()
-        total,      = conn.execute(f"SELECT COUNT(*) FROM files {where}", args).fetchone()
+        args = (sid,) if sid else ()
+
+        # Count and total size queries
+        total, = conn.execute(f"SELECT COUNT(*) FROM files {where}", args).fetchone()
         total_size, = conn.execute(f"SELECT SUM(size_bytes) FROM files {where}", args).fetchone()
+
+        # First page synchronous
+        page_args = (sid, PAGE_SIZE, 0) if sid else (PAGE_SIZE, 0)
+        rows = conn.execute(
+            f"SELECT path, filename, category, size_bytes, size_human, modified_at, tags, extra_meta "
+            f"FROM files {where} ORDER BY filename LIMIT ? OFFSET ?",
+            page_args,
+        ).fetchall()
         conn.close()
+
         self._all_rows = list(rows)
+        self._total_row_count = total
+        self._loaded_offset = PAGE_SIZE
+
         self._apply_filters()
         self._update_stats(total, total_size or 0, len(self._all_rows))
         self.center_tabs.setTabText(1, f"📄  Files ({total:,})")
+
+        # Connect scroll handler for lazy loading
+        sb = self.table.verticalScrollBar()
+        try:
+            sb.valueChanged.disconnect(self._on_table_scroll)
+        except RuntimeError:
+            pass
+        sb.valueChanged.connect(self._on_table_scroll)
 
     def _apply_filters(self) -> None:
         term        = self.search_edit.text().strip().lower()
@@ -1625,6 +1672,56 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["explorer", path])
         else:
             subprocess.Popen(["xdg-open", path])
+
+    def _on_table_scroll(self, value: int) -> None:
+        """Lazy load handler: trigger when scrolling near the end."""
+        sb = self.table.verticalScrollBar()
+        if sb.maximum() == 0:
+            return
+        # Trigger at 80% scroll depth
+        if value / sb.maximum() < 0.80:
+            return
+        # Already loaded all rows
+        if self._loaded_offset >= self._total_row_count:
+            return
+        # Avoid concurrent loads
+        if self._lazy_worker and self._lazy_worker.isRunning():
+            return
+        self._fetch_next_page()
+
+    def _fetch_next_page(self) -> None:
+        """Start background load of next page."""
+        self._lazy_worker = LazyLoadWorker(self._db_path, self._active_scan_id, self._loaded_offset)
+        self._lazy_worker.rows_ready.connect(self._on_lazy_rows_ready)
+        self._lazy_worker.error.connect(lambda e: self._set_status(f"⚠ Error loading rows: {e}"))
+        self._lazy_worker.start()
+
+    def _on_lazy_rows_ready(self, new_rows: list) -> None:
+        """Handle newly loaded rows from background worker."""
+        if not new_rows:
+            return
+        # Extend internal row cache
+        self._all_rows.extend(new_rows)
+        self._loaded_offset += len(new_rows)
+
+        # Filter new batch against current search/category state
+        term = self.search_edit.text().strip().lower()
+        cat = self.cat_combo.currentText()
+        if cat == "All types":
+            cat = ""
+        filtered_new = [
+            r for r in new_rows
+            if (not cat or r[2] == cat)
+            and (not term or term in f"{r[1]} {r[2]} {r[6]} {r[0]}".lower())
+        ]
+
+        if filtered_new:
+            self._filtered_rows.extend(filtered_new)
+            # Apply table model append (preserves scroll position)
+            self.table_model.append_rows(filtered_new)
+            # Icon model still resets (acceptable for secondary view)
+            self.icon_model.load(list(self.table_model._rows))
+            self._stat_showing.setText(f"🔍  Showing {len(self._filtered_rows):,}")
 
     # ── Export ────────────────────────────────────────────────────────────────
 

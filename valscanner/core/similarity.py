@@ -3,6 +3,7 @@ import math
 import sqlite3
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Callable
 
 
 def _cosine(a: dict, b: dict) -> float:
@@ -34,6 +35,7 @@ def find_similar_folders(
     threshold: float = 0.40,
     max_results: int = 200,
     scan_ids: list | None = None,
+    stop_flag: Callable[[], bool] | None = None,
 ) -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -114,6 +116,8 @@ def find_similar_folders(
     all_pairs = []
     n = len(folders)
     for i in range(n):
+        if stop_flag and stop_flag():
+            break
         for j in range(i + 1, n):
             p = _make_pair(folders[i][0], folders[i][1], folders[j][0], folders[j][1])
             if p:
