@@ -381,6 +381,9 @@ class MainWindow(QMainWindow):
         vm.addAction(self._act_statsbar)
         vm.addAction(self._act_process_dock)
 
+        # Sync dock visibility with persisted preference on startup
+        self._process_dock.setVisible(process_vis)
+
     _DEFAULT_FOLDER_WIDTH = 220
     _DEFAULT_DETAIL_WIDTH = 280
 
@@ -624,8 +627,10 @@ class MainWindow(QMainWindow):
 
         # Process monitor dock
         self._process_dock = ProcessPanel(self)
+        self._process_dock.setMinimumWidth(280)
         self.addDockWidget(Qt.RightDockWidgetArea, self._process_dock)
-        self._process_dock.hide()
+        # Keep docked but hidden initially using a 0-tab fold; show on first scan/load
+        self._process_dock.setVisible(False)
 
         self._add_panel_toggles()
 
