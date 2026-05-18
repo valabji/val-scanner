@@ -363,8 +363,10 @@ class MainWindow(QMainWindow):
         self._act_console.triggered.connect(self._set_console_visible)
         self._act_filterbar.triggered.connect(self._toggle_filterbar)
         self._act_statsbar.triggered.connect(self._toggle_statsbar)
-        self._act_process_dock.triggered.connect(self._process_dock.setVisible)
-        self._process_dock.visibilityChanged.connect(self._act_process_dock.setChecked)
+        self._act_process_dock.triggered.connect(self._set_process_dock_visible)
+        self._process_dock.visibilityChanged.connect(
+            lambda visible: self._act_process_dock.setChecked(visible)
+        )
 
         vm.addAction(self._act_folder_panel)
         vm.addAction(self._act_detail_panel)
@@ -422,6 +424,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_act_console"):
             self._act_console.setChecked(visible)
         pref_settings().setValue("panelConsoleVisible", visible)
+
+    def _set_process_dock_visible(self, visible: bool) -> None:
+        self._process_dock.setVisible(visible)
+        if hasattr(self, "_act_process_dock"):
+            self._act_process_dock.setChecked(visible)
+        pref_settings().setValue("panelProcessVisible", visible)
 
     def _toggle_filterbar(self, visible: bool) -> None:
         self._filterbar.setVisible(visible)
