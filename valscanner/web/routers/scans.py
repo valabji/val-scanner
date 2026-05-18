@@ -1,8 +1,9 @@
 from __future__ import annotations
-import asyncio
 import json
 import queue
+import sqlite3
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -11,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from valscanner.core.db import list_scans, delete_scan
 from valscanner.core.scanner import scan as run_scan
+from valscanner.core.schema import SCHEMA
 
 from ..models import ScanRow, ScanRequest, ScanStartResponse
 from ..scan_registry import REGISTRY, ScanState
@@ -43,9 +45,25 @@ def start_scan(req: ScanRequest, request: Request) -> ScanStartResponse:
 
     db_path = request.app.state.db_path
 
-    # Placeholder state with temp scan_id; will be updated by worker
-    temp_scan_id = -1
-    state = REGISTRY.start(temp_scan_id)
+    # Pre-allocate the scan_id by inserting the scans row up-front. This lets us
+    # return a stable id from this POST and key the registry / SSE stream by it
+    # immediately. run_scan() is then told to reuse this id instead of inserting
+    # its own row.
+    scan_label = req.label.strip() or root.name
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(SCHEMA)
+        cur = conn.execute(
+            "INSERT INTO scans (label, root, scanned_at) VALUES (?, ?, ?)",
+            (scan_label, str(root), now),
+        )
+        scan_id = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    state = REGISTRY.start(scan_id)
 
     def worker() -> None:
         try:
@@ -55,19 +73,17 @@ def start_scan(req: ScanRequest, request: Request) -> ScanStartResponse:
                 compute_hash=not req.no_hash,
                 label=req.label,
                 cancel_event=state.cancel_event,
+                scan_id=scan_id,
             )
-            actual_scan_id = stats.get("scan_id", -1)
-            # Update state with actual scan_id from run_scan()
-            state.scan_id = actual_scan_id
             if stats.get("cancelled"):
-                state.push({"cancelled": True, "scan_id": actual_scan_id})
+                state.push({"cancelled": True, "scan_id": scan_id})
             else:
-                state.push({"done": True, "scan_id": actual_scan_id,
+                state.push({"done": True, "scan_id": scan_id,
                             "scanned": stats.get("scanned", 0)})
         except Exception as exc:  # noqa: BLE001
             state.push({"error": "scan_failed", "detail": str(exc)})
         finally:
-            REGISTRY.finish(state.scan_id)
+            REGISTRY.finish(scan_id)
 
     # Wrap run_scan so it emits per-file progress.
     _patch_progress(state)
@@ -75,14 +91,7 @@ def start_scan(req: ScanRequest, request: Request) -> ScanStartResponse:
     state.thread = t
     t.start()
 
-    # Wait briefly for the actual scan_id to be available
-    import time
-    for _ in range(50):  # Wait up to 500ms
-        if state.scan_id > 0:
-            break
-        time.sleep(0.01)
-
-    return ScanStartResponse(scan_id=state.scan_id)
+    return ScanStartResponse(scan_id=scan_id)
 
 
 def _patch_progress(state: ScanState) -> None:

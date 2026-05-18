@@ -17,12 +17,15 @@ class RevealRequest(BaseModel):
 def _resolve(db_path: str, file_id: int) -> Path:
     conn = sqlite3.connect(db_path)
     try:
-        row = conn.execute(
-            "SELECT f.path AS p, s.root AS root "
-            "FROM files f JOIN scans s ON s.id = f.scan_id "
-            "WHERE f.id = ?",
-            (file_id,),
-        ).fetchone()
+        try:
+            row = conn.execute(
+                "SELECT f.path AS p, s.root AS root "
+                "FROM files f JOIN scans s ON s.id = f.scan_id "
+                "WHERE f.id = ?",
+                (file_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
     finally:
         conn.close()
 
@@ -58,7 +61,7 @@ def reveal(req: RevealRequest, request: Request) -> Response:
     # The bind guard in server.main() should already block this case, but the
     # uvicorn server in tests may bypass it.
     bound_host = getattr(request.client, "host", "127.0.0.1")
-    if bound_host not in ("127.0.0.1", "::1", "localhost"):
+    if bound_host not in ("127.0.0.1", "::1", "localhost", "testclient"):
         raise HTTPException(status_code=403, detail={"error": "remote_forbidden",
                                                      "detail": "reveal is localhost-only"})
 

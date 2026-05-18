@@ -75,6 +75,7 @@ def scan(
     skip_temp:         bool = False,
     skip_logs:         bool = False,
     cancel_event=None,
+    scan_id=None,
 ) -> dict:
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
@@ -84,12 +85,13 @@ def scan(
     now        = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     scan_label = label.strip() or root.name
 
-    cur.execute(
-        "INSERT INTO scans (label, root, scanned_at) VALUES (?, ?, ?)",
-        (scan_label, str(root), now),
-    )
-    scan_id = cur.lastrowid
-    conn.commit()
+    if scan_id is None:
+        cur.execute(
+            "INSERT INTO scans (label, root, scanned_at) VALUES (?, ?, ?)",
+            (scan_label, str(root), now),
+        )
+        scan_id = cur.lastrowid
+        conn.commit()
 
     stats: dict = {"scanned": 0, "errors": 0, "skipped": 0, "scan_id": scan_id, "total_bytes": 0}
     folder_totals: dict = {}

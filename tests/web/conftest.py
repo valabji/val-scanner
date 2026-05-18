@@ -1,20 +1,10 @@
 from __future__ import annotations
-import os
 from pathlib import Path
 
 import pytest
 
 from valscanner.web.server import create_app
 from valscanner.core.scanner import scan as run_scan
-from valscanner.web.scan_registry import REGISTRY
-
-
-@pytest.fixture(autouse=True)
-def _reset_scan_registry():
-    """Reset the global scan registry before each test."""
-    REGISTRY._active_id = None
-    REGISTRY._states.clear()
-    yield
 
 
 @pytest.fixture
