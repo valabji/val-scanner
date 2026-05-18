@@ -73,7 +73,6 @@ class ProcessRegistry:
 
     def __init__(self) -> None:
         self._entries: dict[str, ProcessEntry] = {}
-        self._listeners: list[Callable[[], None]] = []
         self._notifier: _Notifier | None = None  # lazily created on first use
 
     def register(
@@ -146,7 +145,9 @@ class ProcessRegistry:
 
     def add_listener(self, cb: Callable[[], None]) -> None:
         """Register a listener (typically a ProcessPanel._refresh slot)."""
-        self._listeners.append(cb)
+        if self._notifier is None:
+            self._notifier = _Notifier()
+        self._notifier.changed.connect(cb)
 
     def _notify(self) -> None:
         """Signal listeners (on main thread via _Notifier)."""
