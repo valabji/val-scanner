@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject, QMetaObject, QMode
 from PySide6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QProgressBar, QPlainTextEdit,
-    QScrollArea, QFrame,
+    QScrollArea, QFrame, QCheckBox,
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW
@@ -181,7 +181,10 @@ class ProcessPanel(QDockWidget):
             | QDockWidget.DockWidgetFloatable
             | QDockWidget.DockWidgetClosable
         )
+        self.setFloating(False)  # Start docked, not floating
         self._cards: dict[str, _ProcessCard] = {}
+        self._auto_clear = True
+        self._auto_clear_delay_ms = 2_000
         self._build_ui()
         self._setup_watchdog()
         ProcessRegistry.instance().add_listener(self._refresh)
@@ -208,6 +211,18 @@ class ProcessPanel(QDockWidget):
         title.setStyleSheet(f"color: {TEXT}; font-weight: bold; font-size: 12px;")
         hl.addWidget(title)
         hl.addStretch()
+
+        self._auto_clear_chk = QCheckBox("Auto-clear")
+        self._auto_clear_chk.setChecked(self._auto_clear)
+        self._auto_clear_chk.setToolTip(
+            "Automatically remove processes when they complete (after a short delay)"
+        )
+        self._auto_clear_chk.setStyleSheet(
+            f"QCheckBox {{color: {SUBTEXT}; font-size: 10px; spacing: 4px;}}"
+            f"QCheckBox::indicator {{width: 12px; height: 12px;}}"
+        )
+        self._auto_clear_chk.toggled.connect(self._on_auto_clear_toggled)
+        hl.addWidget(self._auto_clear_chk)
 
         clear_btn = QPushButton("Clear done")
         clear_btn.setFixedHeight(22)
@@ -254,6 +269,30 @@ class ProcessPanel(QDockWidget):
                 self._cards[entry.pid] = card
                 self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
             self._cards[entry.pid].update_from(entry)
+
+            # Auto-clear: schedule removal of completed/errored entries
+            if self._auto_clear and entry.state in (ProcessState.DONE, ProcessState.ERROR):
+                if not getattr(self._cards[entry.pid], "_clear_scheduled", False):
+                    self._cards[entry.pid]._clear_scheduled = True
+                    pid = entry.pid
+                    QTimer.singleShot(self._auto_clear_delay_ms, lambda p=pid: self._remove_pid(p))
+
+    def _remove_pid(self, pid: str) -> None:
+        """Remove a specific process entry (used by auto-clear)."""
+        reg = ProcessRegistry.instance()
+        entry = reg.get(pid)
+        if entry and entry.state in (ProcessState.DONE, ProcessState.ERROR):
+            reg.unregister(pid)
+        if pid in self._cards:
+            self._cards[pid].deleteLater()
+            del self._cards[pid]
+
+    def _on_auto_clear_toggled(self, checked: bool) -> None:
+        """Handle auto-clear checkbox toggle."""
+        self._auto_clear = checked
+        if checked:
+            # Sweep any already-done entries
+            self._refresh()
 
     def _check_frozen(self) -> None:
         """Watchdog: detect frozen processes and escalate to force-kill."""
