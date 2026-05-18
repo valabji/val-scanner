@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import sqlite3
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -25,6 +26,7 @@ class ScanWorker(QThread):
         self.label        = label
         self.options      = options or {}
         self._stop        = False
+        self._cancel_event = threading.Event()
         self._pid         = ""  # assigned by caller after registration
 
     def run(self) -> None:
@@ -56,7 +58,7 @@ class ScanWorker(QThread):
 
             os.walk = instrumented_walk
             stats   = scan(self.root, self.db_path, self.compute_hash,
-                           label=self.label, **self.options)
+                           label=self.label, cancel_event=self._cancel_event, **self.options)
             os.walk = original_walk
             self.finished.emit(stats)
             if self._pid:
@@ -72,6 +74,7 @@ class ScanWorker(QThread):
 
     def stop(self) -> None:
         self._stop = True
+        self._cancel_event.set()
 
 
 class AnalysisWorker(QThread):
