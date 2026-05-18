@@ -119,6 +119,12 @@ def scan(
         return True
 
     for dirpath, dirnames, filenames in os.walk(root):
+        if cancel_event is not None and cancel_event.is_set():
+            stats["cancelled"] = True
+            conn.commit()
+            conn.close()
+            return stats
+
         dirnames[:] = [d for d in dirnames if _keep_dir(d)]
 
         for fname in filenames:

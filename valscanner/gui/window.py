@@ -1332,10 +1332,15 @@ class MainWindow(QMainWindow):
         self.csv_btn.setEnabled(True)
         self.json_btn.setEnabled(True)
         elapsed = int(time.time() - self._scan_start)
-        self._set_status(
-            f"✅  Scan complete — {stats['scanned']:,} files in {elapsed}s"
-            + (f", {stats['errors']} errors" if stats["errors"] else "")
-        )
+
+        if stats.get("cancelled"):
+            msg = f"⏹  Scan cancelled — {stats['scanned']:,} files indexed in {elapsed}s"
+        else:
+            msg = f"✅  Scan complete — {stats['scanned']:,} files in {elapsed}s"
+            if stats["errors"]:
+                msg += f", {stats['errors']} errors"
+
+        self._set_status(msg)
         self._load_db(self._db_path)
 
     # ── Load / filter ─────────────────────────────────────────────────────────
