@@ -36,6 +36,7 @@ def find_similar_folders(
     max_results: int = 200,
     scan_ids: list | None = None,
     stop_flag: Callable[[], bool] | None = None,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -118,12 +119,16 @@ def find_similar_folders(
     for i in range(n):
         if stop_flag and stop_flag():
             break
+        if progress_cb:
+            progress_cb(i, n)
         for j in range(i + 1, n):
             if stop_flag and stop_flag():
                 break
             p = _make_pair(folders[i][0], folders[i][1], folders[j][0], folders[j][1])
             if p:
                 all_pairs.append(p)
+    if progress_cb:
+        progress_cb(n, n)
 
     def _depth(r):
         return len(Path(r["folder_a"]).parts) + len(Path(r["folder_b"]).parts)

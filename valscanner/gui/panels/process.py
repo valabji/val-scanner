@@ -49,6 +49,8 @@ class ProcessEntry:
     last_heartbeat: float
     state: ProcessState = ProcessState.RUNNING
     progress: int = -1  # 0-100, -1 = indeterminate
+    processed: int = 0  # items processed so far
+    total: int = 0      # total expected items (0 = unknown)
     cancel_cb: Optional[Callable[[], None]] = None
     kill_cb: Optional[Callable[[], None]] = None
     log: deque = field(default_factory=lambda: deque(maxlen=LOG_RING_BUFFER_SIZE))
@@ -112,6 +114,19 @@ class ProcessRegistry:
         """Set progress to 0-100; -1 for indeterminate."""
         if pid in self._entries:
             self._entries[pid].progress = value
+            self._notify()
+
+    def set_progress_detailed(self, pid: str, processed: int, total: int) -> None:
+        """Set detailed progress with processed/total counts. Computes percentage."""
+        if pid in self._entries:
+            e = self._entries[pid]
+            e.processed = processed
+            e.total = total
+            if total > 0:
+                e.progress = min(int(processed / total * 100), 100)
+            else:
+                e.progress = -1
+            e.last_heartbeat = time.monotonic()
             self._notify()
 
     def push_log(self, pid: str, msg: str) -> None:
@@ -449,10 +464,30 @@ class _ProcessCard(QFrame):
             self._progress.setRange(0, 100)
             self._progress.setValue(entry.progress)
 
-        # Elapsed time
-        elapsed = int(time.monotonic() - entry.start_time)
-        m, s = divmod(elapsed, 60)
-        self._elapsed_lbl.setText(f"{m:02d}:{s:02d}")
+        # Elapsed time + ETA + rate
+        elapsed = time.monotonic() - entry.start_time
+        m, s = divmod(int(elapsed), 60)
+        elapsed_text = f"{m:02d}:{s:02d}"
+
+        info_parts = [elapsed_text]
+        if entry.state in (ProcessState.RUNNING, ProcessState.FROZEN) and entry.total > 0 and entry.processed > 0:
+            rate = entry.processed / elapsed if elapsed > 0 else 0
+            if rate > 0:
+                remaining = entry.total - entry.processed
+                eta_secs = int(remaining / rate)
+                em, es = divmod(eta_secs, 60)
+                eh, em = divmod(em, 60)
+                if eh > 0:
+                    eta_text = f"{eh}h{em:02d}m"
+                elif em > 0:
+                    eta_text = f"{em}m{es:02d}s"
+                else:
+                    eta_text = f"{es}s"
+                info_parts.append(f"ETA {eta_text}")
+                info_parts.append(f"{int(rate):,}/s")
+            info_parts.append(f"{entry.processed:,}/{entry.total:,}")
+
+        self._elapsed_lbl.setText("  ·  ".join(info_parts))
 
         # Button visibility
         is_active = entry.state in (ProcessState.RUNNING, ProcessState.FROZEN)

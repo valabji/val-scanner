@@ -29,11 +29,40 @@ class ScanWorker(QThread):
         self._cancel_event = threading.Event()
         self._pid         = ""  # assigned by caller after registration
 
+    def _count_files(self) -> int:
+        """Quick pre-pass: count files to scan for accurate progress reporting."""
+        total = 0
+        try:
+            for dirpath, dirnames, filenames in os.walk(self.root):
+                if self._stop:
+                    return total
+                # Mirror the hidden-dir prune used by scan() so the count matches
+                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                total += len(filenames)
+                # Heartbeat during counting so the panel stays responsive
+                if self._pid and total % 500 == 0:
+                    from .panels.process import ProcessRegistry
+                    ProcessRegistry.instance().heartbeat(self._pid)
+        except Exception:
+            pass
+        return total
+
     def run(self) -> None:
         try:
             original_walk = os.walk
             counter       = [0]
             worker_self   = self
+
+            # Pre-count total files for accurate progress
+            if worker_self._pid:
+                from .panels.process import ProcessRegistry
+                reg = ProcessRegistry.instance()
+                reg.push_log(worker_self._pid, "Counting files…")
+            estimated_total = self._count_files()
+            if worker_self._pid:
+                ProcessRegistry.instance().push_log(
+                    worker_self._pid, f"Total files to index: {estimated_total:,}"
+                )
 
             def instrumented_walk(root, *args, **kwargs):
                 for dirpath, dirnames, filenames in original_walk(root, *args, **kwargs):
@@ -49,10 +78,12 @@ class ScanWorker(QThread):
                             if worker_self._pid:
                                 from .panels.process import ProcessRegistry
                                 reg = ProcessRegistry.instance()
-                                reg.heartbeat(worker_self._pid)
+                                reg.set_progress_detailed(
+                                    worker_self._pid, counter[0], estimated_total
+                                )
                                 reg.push_log(
                                     worker_self._pid,
-                                    f"Indexed {counter[0]:,} files — {Path(dirpath).name}",
+                                    f"Indexed {counter[0]:,} / {estimated_total:,} — {Path(dirpath).name}",
                                 )
                     yield dirpath, dirnames, filenames
 
@@ -107,12 +138,18 @@ class AnalysisWorker(QThread):
                 self.finished.emit([])
                 return
 
+            def _progress(i: int, n: int) -> None:
+                if self._pid:
+                    from .panels.process import ProcessRegistry
+                    ProcessRegistry.instance().set_progress_detailed(self._pid, i, n)
+
             results = find_similar_folders(
                 self.db_path,
                 min_files=self.min_files,
                 threshold=self.threshold,
                 scan_ids=self.scan_ids,
                 stop_flag=lambda: self._stop,
+                progress_cb=_progress,
             )
             if self._pid:
                 from .panels.process import ProcessRegistry
