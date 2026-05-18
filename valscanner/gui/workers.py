@@ -125,6 +125,46 @@ class AnalysisWorker(QThread):
                 ProcessRegistry.instance().mark_error(self._pid, str(e))
 
 
+class DbLoadWorker(QThread):
+    """Background worker for initial database load."""
+    db_loaded = Signal(dict)  # Emits {"total": N, "total_size": M, "rows": [...]}
+    error     = Signal(str)
+
+    def __init__(self, db_path: str, scan_id: int | None, page_size: int = PAGE_SIZE):
+        super().__init__()
+        self.db_path   = db_path
+        self.scan_id   = scan_id
+        self.page_size = page_size
+
+    def run(self) -> None:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            sid = self.scan_id
+            where = "WHERE scan_id=?" if sid else ""
+            args = (sid,) if sid else ()
+
+            # Get counts and total size
+            total, = conn.execute(f"SELECT COUNT(*) FROM files {where}", args).fetchone()
+            total_size, = conn.execute(f"SELECT SUM(size_bytes) FROM files {where}", args).fetchone()
+
+            # Load first page
+            page_args = (sid, self.page_size, 0) if sid else (self.page_size, 0)
+            rows = conn.execute(
+                f"SELECT path, filename, category, size_bytes, size_human, modified_at, tags, extra_meta "
+                f"FROM files {where} ORDER BY filename LIMIT ? OFFSET ?",
+                page_args,
+            ).fetchall()
+            conn.close()
+
+            self.db_loaded.emit({
+                "total": total,
+                "total_size": total_size or 0,
+                "rows": list(rows),
+            })
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class LazyLoadWorker(QThread):
     """Background worker for paginated file loading from database."""
     rows_ready = Signal(list)

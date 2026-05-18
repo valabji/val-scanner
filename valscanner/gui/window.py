@@ -29,7 +29,7 @@ from .constants import (
 )
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX
 from .delegates import FileCardDelegate, FileRowDelegate
-from .workers import ScanWorker, LazyLoadWorker, PAGE_SIZE
+from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, PAGE_SIZE
 from .dialogs import ScanOptionsDialog, ViewFiltersDialog
 from .panels.detail import DetailPanel
 from .panels.folders import FolderPanel
@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
         self.resize(1440, 860)
         self._db_path                = ""
         self._worker                 = None
+        self._db_load_worker: DbLoadWorker | None = None
         self._all_rows: list         = []
         self._active_folder_filter   = ""
         self._folder_filter_recursive = False
@@ -1348,30 +1349,39 @@ class MainWindow(QMainWindow):
     def _load_from_db(self) -> None:
         if not self._db_path or not Path(self._db_path).exists():
             return
-        conn = sqlite3.connect(self._db_path)
-        sid = self._active_scan_id
-        where = "WHERE scan_id=?" if sid else ""
-        args = (sid,) if sid else ()
 
-        # Count and total size queries
-        total, = conn.execute(f"SELECT COUNT(*) FROM files {where}", args).fetchone()
-        total_size, = conn.execute(f"SELECT SUM(size_bytes) FROM files {where}", args).fetchone()
+        # Show loading state
+        self.center_tabs.setTabText(1, "📄  Files (loading…)")
+        self._stat_showing.setText("🔍  Loading…")
 
-        # First page synchronous
-        page_args = (sid, PAGE_SIZE, 0) if sid else (PAGE_SIZE, 0)
-        rows = conn.execute(
-            f"SELECT path, filename, category, size_bytes, size_human, modified_at, tags, extra_meta "
-            f"FROM files {where} ORDER BY filename LIMIT ? OFFSET ?",
-            page_args,
-        ).fetchall()
-        conn.close()
+        # Load database in background
+        self._db_load_worker = DbLoadWorker(self._db_path, self._active_scan_id)
+        self._db_load_worker.db_loaded.connect(self._on_db_loaded)
+        self._db_load_worker.error.connect(lambda e: self._set_status(f"⚠ Error loading database: {e}"))
+        self._db_load_worker.start()
 
-        self._all_rows = list(rows)
+        # Register with process monitor
+        reg = ProcessRegistry.instance()
+        pid = reg.register(
+            name="Loading database",
+            cancel_cb=None,
+            kill_cb=None,
+        )
+        self._db_load_worker._pid = pid
+        self._process_dock.show()
+
+    def _on_db_loaded(self, data: dict) -> None:
+        """Callback when database load completes."""
+        total = data["total"]
+        total_size = data["total_size"]
+        rows = data["rows"]
+
+        self._all_rows = rows
         self._total_row_count = total
         self._loaded_offset = PAGE_SIZE
 
         self._apply_filters()
-        self._update_stats(total, total_size or 0, len(self._all_rows))
+        self._update_stats(total, total_size, len(self._all_rows))
         self.center_tabs.setTabText(1, f"📄  Files ({total:,})")
 
         # Connect scroll handler for lazy loading
@@ -1381,6 +1391,10 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             pass
         sb.valueChanged.connect(self._on_table_scroll)
+
+        # Mark load complete
+        if hasattr(self, "_db_load_worker") and self._db_load_worker and self._db_load_worker._pid:
+            ProcessRegistry.instance().mark_done(self._db_load_worker._pid)
 
     def _apply_filters(self) -> None:
         term        = self.search_edit.text().strip().lower()
