@@ -5,17 +5,23 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QProgressBar, QScrollArea, QSpinBox, QComboBox,
+    QMenu, QMessageBox,
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
+from ..dialogs import AnalysisFiltersDialog
 from ..workers import AnalysisWorker
 from .process import ProcessRegistry
-from ...core.db import list_scans
+from ...core.db import (
+    list_scans, list_analysis_runs, load_analysis_run, delete_analysis_run,
+)
+from ...core.filters import FILTER_KEYS
 from ...core.schema import human_size
+from ...core.similarity import normalize_to_group
 
 LABEL_COLORS: dict[str, str] = {
     "near-identical":   "#f38ba8",
@@ -25,7 +31,14 @@ LABEL_COLORS: dict[str, str] = {
 }
 
 
-class FolderPairCard(QFrame):
+def _child_total_files(children: list) -> int:
+    total = 0
+    for c in children:
+        total += c.get("total_files", 0)
+    return total
+
+
+class FolderGroupCard(QFrame):
     open_folder = Signal(str)
 
     def __init__(self, result: dict, is_child: bool = False, parent=None):
@@ -34,7 +47,7 @@ class FolderPairCard(QFrame):
         bg     = DARK_BG  if is_child else PANEL_BG
         margin = "2px 0px" if is_child else "4px 8px"
         self.setStyleSheet(f"""
-            FolderPairCard {{
+            FolderGroupCard {{
                 background: {bg};
                 border: 1px solid {BORDER};
                 border-radius: {"6px" if is_child else "10px"};
@@ -51,6 +64,8 @@ class FolderPairCard(QFrame):
 
         lc       = LABEL_COLORS.get(r["label"], "#9E9E9E")
         children = r.get("children", [])
+        members  = r.get("members", []) or []
+        n_mem    = len(members)
 
         hdr = QHBoxLayout()
         hdr.setSpacing(6)
@@ -67,13 +82,22 @@ class FolderPairCard(QFrame):
             f"color:{lc};font-size:{'11px' if self._is_child else '13px'};font-weight:bold;"
         )
         hdr.addWidget(score_lbl)
+
+        if n_mem > 2:
+            count_badge = QLabel(f"  {n_mem} folders  ")
+            count_badge.setStyleSheet(
+                f"color:{ACCENT};background:{ACCENT:11};border:1px solid {ACCENT:44};"
+                f"border-radius:8px;padding:2px 8px;font-size:10px;font-weight:bold;"
+            )
+            hdr.addWidget(count_badge)
+
         hdr.addStretch()
 
         if children and not self._is_child:
-            n              = len(children)
-            total_sub_files = sum(c.get("files_a", 0) + c.get("files_b", 0) for c in children)
+            nc        = len(children)
+            total_cf  = _child_total_files(children)
             sub_badge = QLabel(
-                f"  ＋{n} subfolder pair{'s' if n>1 else ''}  ·  {total_sub_files:,} more files  "
+                f"  ＋{nc} subfolder group{'s' if nc>1 else ''}  ·  {total_cf:,} more files  "
             )
             sub_badge.setStyleSheet(
                 f"color:{ACCENT};background:{ACCENT:11};border:1px solid {ACCENT:44};"
@@ -106,23 +130,25 @@ class FolderPairCard(QFrame):
             )
             lay.addWidget(bar)
 
-        parent_a   = r.get("_parent_a", "")
-        parent_b   = r.get("_parent_b", "")
-        multi_scan = r.get("scan_id_a", 0) != r.get("scan_id_b", 0)
+        parent_members: list = r.get("_parent_members", []) or []
+        scan_ids = {m.get("scan_id", 0) for m in members}
+        multi_scan = len(scan_ids) > 1
 
-        for fkey, bkey, cnt_key, label_key in (
-            ("folder_a", "bytes_a", "files_a", "scan_label_a"),
-            ("folder_b", "bytes_b", "files_b", "scan_label_b"),
-        ):
-            abs_path = r[fkey]
-            scan_lbl = r.get(label_key, "")
+        for member in members:
+            abs_path = member.get("folder", "")
+            scan_lbl = member.get("scan_label", "")
             if self._is_child:
-                base = parent_a if fkey == "folder_a" else parent_b
-                try:
-                    rel     = str(Path(abs_path).relative_to(base))
-                    display = f"  ↳ …/{rel}"
-                except ValueError:
-                    display = abs_path
+                rel = None
+                for pm in parent_members:
+                    if pm.get("scan_id") != member.get("scan_id"):
+                        continue
+                    base = pm.get("folder", "")
+                    try:
+                        rel = str(Path(abs_path).relative_to(base))
+                        break
+                    except ValueError:
+                        continue
+                display = f"  ↳ …/{rel}" if rel is not None else abs_path
             elif multi_scan and scan_lbl:
                 display = f"[{scan_lbl}]  {abs_path}"
             else:
@@ -142,7 +168,10 @@ class FolderPairCard(QFrame):
             pl.setToolTip(abs_path)
             frow.addWidget(pl, 1)
 
-            ml = QLabel(f"{human_size(r[bkey])}  ·  {r[cnt_key]:,} files")
+            ml = QLabel(
+                f"{human_size(member.get('bytes', 0))}  ·  "
+                f"{member.get('files', 0):,} files"
+            )
             ml.setStyleSheet(f"color:{SUBTEXT};font-size:10px;min-width:110px;")
             ml.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             frow.addWidget(ml)
@@ -162,7 +191,7 @@ class FolderPairCard(QFrame):
         sigs = QHBoxLayout()
         sigs.setSpacing(6)
         for icon, key in (("📛 Names", "name_score"), ("📦 Exts", "ext_score"), ("⚖️ Size", "size_score")):
-            c = QLabel(f"{icon} {int(r[key]*100)}%")
+            c = QLabel(f"{icon} {int(r.get(key, 0)*100)}%")
             c.setStyleSheet(
                 f"color:{SUBTEXT};background:{DARK_BG};border:1px solid {BORDER:22};"
                 f"border-radius:5px;padding:1px 6px;font-size:10px;"
@@ -190,17 +219,17 @@ class FolderPairCard(QFrame):
             sep.setStyleSheet(f"color:{BORDER:44};")
             lay.addWidget(sep)
 
-            n               = len(children)
-            total_cf        = sum(c.get("files_a", 0) + c.get("files_b", 0) for c in children)
-            toggle_row      = QHBoxLayout()
+            nc       = len(children)
+            total_cf = _child_total_files(children)
             self._toggle_btn = QPushButton(
-                f"▶  {n} duplicate subfolder pair{'s' if n>1 else ''} hidden  ({total_cf:,} files)"
+                f"▶  {nc} duplicate subfolder group{'s' if nc>1 else ''} hidden  ({total_cf:,} files)"
             )
             self._toggle_btn.setStyleSheet(
                 f"QPushButton{{background:{ACCENT:0a};color:{ACCENT};border:1px solid {ACCENT:33};"
                 f"border-radius:6px;font-size:11px;text-align:left;padding:5px 10px;}}"
                 f"QPushButton:hover{{background:{ACCENT:22};border-color:{ACCENT};}}"
             )
+            toggle_row = QHBoxLayout()
             toggle_row.addWidget(self._toggle_btn, 1)
             lay.addLayout(toggle_row)
 
@@ -213,8 +242,8 @@ class FolderPairCard(QFrame):
             cl.setSpacing(3)
 
             for child in children:
-                enriched   = dict(child, _parent_a=r["folder_a"], _parent_b=r["folder_b"])
-                child_card = FolderPairCard(enriched, is_child=True)
+                enriched   = dict(child, _parent_members=members)
+                child_card = FolderGroupCard(enriched, is_child=True)
                 child_card.open_folder.connect(self.open_folder)
                 cl.addWidget(child_card)
 
@@ -228,11 +257,11 @@ class FolderPairCard(QFrame):
         n = self._children_widget.layout().count()
         if visible:
             self._toggle_btn.setText(
-                f"▶  {n} duplicate subfolder pair{'s' if n>1 else ''} hidden"
+                f"▶  {n} duplicate subfolder group{'s' if n>1 else ''} hidden"
             )
         else:
             self._toggle_btn.setText(
-                f"▼  Hide {n} subfolder pair{'s' if n>1 else ''}"
+                f"▼  Hide {n} subfolder group{'s' if n>1 else ''}"
             )
 
 
@@ -245,6 +274,7 @@ class SimilarFoldersPanel(QWidget):
         self._worker    = None
         self._results:  list = []
         self._scan_pills: dict[int, QPushButton] = {}
+        self._filters:  dict = {}
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -278,6 +308,25 @@ class SimilarFoldersPanel(QWidget):
         self.thresh_combo.setCurrentIndex(1)
         self.thresh_combo.setFixedWidth(150)
         cl.addWidget(self.thresh_combo)
+
+        _ghost_ss = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};"
+            f"border:1px solid {BORDER};border-radius:6px;"
+            f"padding:6px 12px;font-size:11px;}}"
+            f"QPushButton:hover:enabled{{color:{TEXT};border-color:{TEXT};}}"
+            f"QPushButton:disabled{{color:{BORDER};}}"
+        )
+
+        self.filters_btn = QPushButton("🔧 Filters")
+        self.filters_btn.setStyleSheet(_ghost_ss)
+        self.filters_btn.clicked.connect(self._open_filters_dialog)
+        cl.addWidget(self.filters_btn)
+
+        self.history_btn = QPushButton("📜 History")
+        self.history_btn.setStyleSheet(_ghost_ss)
+        self.history_btn.clicked.connect(self._show_history_menu)
+        self.history_btn.setEnabled(False)
+        cl.addWidget(self.history_btn)
 
         self.analyze_btn = QPushButton("⚡ Analyze")
         self.analyze_btn.setStyleSheet(
@@ -423,6 +472,7 @@ class SimilarFoldersPanel(QWidget):
         self._db_path = db_path
         self.analyze_btn.setEnabled(bool(db_path))
         self._rebuild_partition_row()
+        self._refresh_history_btn()
 
     def _rebuild_partition_row(self) -> None:
         while self._part_layout.count() > 1:
@@ -481,7 +531,12 @@ class SimilarFoldersPanel(QWidget):
         self.analyze_btn.setEnabled(False)
         self.footer.setText(f"Analysing {scope}…")
         self.status_message.emit(f"Comparing folders for similarity across {scope}…")
-        self._worker = AnalysisWorker(self._db_path, min_files, threshold, scan_ids=scan_ids)
+        self._worker = AnalysisWorker(
+            self._db_path, min_files, threshold,
+            scan_ids=scan_ids, scope_label=scope,
+            filters=dict(self._filters),
+        )
+        self._worker.run_saved.connect(lambda _id: self._refresh_history_btn())
 
         # Register with process monitor before starting
         reg = ProcessRegistry.instance()
@@ -499,14 +554,14 @@ class SimilarFoldersPanel(QWidget):
     def _on_done(self, results: list) -> None:
         self.progress.hide()
         self.analyze_btn.setEnabled(True)
-        self._results = results
+        self._results = [normalize_to_group(r) for r in results]
         self._apply_sort_filter()
         lc: dict = {}
-        for r in results:
+        for r in self._results:
             lc[r["label"]] = lc.get(r["label"], 0) + 1
         summary = (
-            f"Found {len(results)} pairs:  " + "  ·  ".join(f"{v} {k}" for k, v in lc.items())
-            if results else "No similar folders found above the threshold. 🎉"
+            f"Found {len(self._results)} groups:  " + "  ·  ".join(f"{v} {k}" for k, v in lc.items())
+            if self._results else "No similar folders found above the threshold. 🎉"
         )
         self.status_message.emit(summary)
 
@@ -514,17 +569,21 @@ class SimilarFoldersPanel(QWidget):
         results   = list(self._results)
         min_bytes = self._parse_size(self.min_size_combo.currentText())
         if min_bytes > 0:
-            results = [r for r in results if r["bytes_a"] + r["bytes_b"] >= min_bytes]
+            results = [r for r in results if r.get("total_bytes", 0) >= min_bytes]
+
+        def _first_path(r):
+            members = r.get("members") or []
+            return members[0]["folder"].lower() if members else ""
 
         idx = self.sort_combo.currentIndex()
         if idx == 0:
             results.sort(key=lambda r: r["score"], reverse=True)
         elif idx == 1:
-            results.sort(key=lambda r: r["bytes_a"] + r["bytes_b"], reverse=True)
+            results.sort(key=lambda r: r.get("total_bytes", 0), reverse=True)
         elif idx == 2:
-            results.sort(key=lambda r: r["files_a"] + r["files_b"], reverse=True)
+            results.sort(key=lambda r: r.get("total_files", 0), reverse=True)
         elif idx == 3:
-            results.sort(key=lambda r: r["folder_a"].lower())
+            results.sort(key=_first_path)
 
         while self.cards_lay.count() > 2:
             item = self.cards_lay.takeAt(1)
@@ -532,7 +591,7 @@ class SimilarFoldersPanel(QWidget):
                 item.widget().deleteLater()
 
         if not results:
-            msg = ("No pairs match the current filters." if self._results
+            msg = ("No groups match the current filters." if self._results
                    else "No similar folders found above the threshold. 🎉")
             self.empty_lbl.setText(msg)
             self.empty_lbl.show()
@@ -542,14 +601,14 @@ class SimilarFoldersPanel(QWidget):
 
         self.empty_lbl.hide()
         for r in results:
-            card = FolderPairCard(r)
+            card = FolderGroupCard(r)
             card.open_folder.connect(self._open_folder)
             self.cards_lay.insertWidget(self.cards_lay.count() - 1, card)
 
         shown = len(results)
         total = len(self._results)
         self.result_count_lbl.setText(
-            f"{shown} of {total} pairs" if shown != total else f"{total} pairs"
+            f"{shown} of {total} groups" if shown != total else f"{total} groups"
         )
         lc2: dict = {}
         for r in results:
@@ -563,6 +622,117 @@ class SimilarFoldersPanel(QWidget):
         self.empty_lbl.show()
         self.footer.setText("Analysis failed.")
         self.status_message.emit(f"⚠ Analysis error: {msg}")
+
+    def _open_filters_dialog(self) -> None:
+        dlg = AnalysisFiltersDialog(self, self._filters)
+        if dlg.exec():
+            self._filters = dlg.get_filters()
+            self._refresh_filters_btn()
+
+    def _refresh_filters_btn(self) -> None:
+        n = sum(1 for k in FILTER_KEYS if self._filters.get(k))
+        self.filters_btn.setText(f"🔧 Filters ({n})" if n else "🔧 Filters")
+
+    def _refresh_history_btn(self) -> None:
+        runs = list_analysis_runs(self._db_path) if self._db_path else []
+        n = len(runs)
+        self.history_btn.setText(f"📜 History ({n})" if n else "📜 History")
+        self.history_btn.setEnabled(bool(self._db_path) and n > 0)
+
+    def _show_history_menu(self) -> None:
+        if not self._db_path:
+            return
+        runs = list_analysis_runs(self._db_path)
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            f"QMenu{{background:{PANEL_BG};color:{TEXT};border:1px solid {BORDER};"
+            f"padding:4px;font-size:11px;}}"
+            f"QMenu::item{{padding:6px 14px;border-radius:4px;}}"
+            f"QMenu::item:selected{{background:{ACCENT:33};color:{TEXT};}}"
+            f"QMenu::separator{{height:1px;background:{BORDER};margin:4px 6px;}}"
+        )
+        if not runs:
+            act = menu.addAction("No saved analysis runs yet")
+            act.setEnabled(False)
+        else:
+            for r in runs:
+                scope = r["scope_label"] or "all partitions"
+                dur_s = (r["duration_ms"] or 0) / 1000.0
+                rf    = r.get("filters") or {}
+                nf    = sum(1 for k in FILTER_KEYS if rf.get(k))
+                fstr  = f", {nf} filter{'s' if nf != 1 else ''}" if nf else ""
+                text  = (
+                    f"#{r['id']}  ·  {r['ran_at']}  ·  "
+                    f"t={r['threshold']:.2f}, min={r['min_files']}{fstr}  ·  "
+                    f"{r['pair_count']} groups  ·  {dur_s:.1f}s  ·  {scope}"
+                )
+                act = QAction(text, menu)
+                act.triggered.connect(lambda _checked=False, rid=r["id"]: self._load_run(rid))
+                menu.addAction(act)
+            menu.addSeparator()
+            clear_act = QAction("🗑 Delete all saved runs…", menu)
+            clear_act.triggered.connect(self._clear_history)
+            menu.addAction(clear_act)
+        menu.exec(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
+
+    def _load_run(self, run_id: int) -> None:
+        if not self._db_path:
+            return
+        run = load_analysis_run(self._db_path, run_id)
+        if run is None:
+            self.status_message.emit(f"⚠ Saved run #{run_id} not found.")
+            return
+
+        self.min_spin.setValue(run["min_files"])
+        thr = run["threshold"]
+        best_idx = 0
+        best_diff = 9.9
+        for i in range(self.thresh_combo.count()):
+            t = float(self.thresh_combo.itemText(i).split()[0])
+            diff = abs(t - thr)
+            if diff < best_diff:
+                best_diff = diff
+                best_idx  = i
+        self.thresh_combo.setCurrentIndex(best_idx)
+
+        self._filters = dict(run.get("filters") or {})
+        self._refresh_filters_btn()
+
+        self._results = [normalize_to_group(r) for r in (run["results"] or [])]
+        self._apply_sort_filter()
+
+        scope = run["scope_label"] or "all partitions"
+        dur_s = (run["duration_ms"] or 0) / 1000.0
+        n_filt = sum(1 for k in FILTER_KEYS if self._filters.get(k))
+        filt_str = f"  ·  {n_filt} filter{'s' if n_filt != 1 else ''}" if n_filt else ""
+        n_groups = len(self._results)
+        self.footer.setText(
+            f"Saved run #{run['id']}  ·  {run['ran_at']}  ·  "
+            f"t={run['threshold']:.2f}, min={run['min_files']}{filt_str}  ·  "
+            f"{n_groups} groups  ·  {dur_s:.1f}s  ·  {scope}"
+        )
+        self.status_message.emit(
+            f"Loaded saved run #{run['id']} ({n_groups} groups) from {run['ran_at']}."
+        )
+
+    def _clear_history(self) -> None:
+        if not self._db_path:
+            return
+        runs = list_analysis_runs(self._db_path)
+        if not runs:
+            return
+        reply = QMessageBox.question(
+            self, "Delete saved analysis runs",
+            f"Delete all {len(runs)} saved analysis run(s)?\n\n"
+            "This only removes the stored results — your indexed files are not affected.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        for r in runs:
+            delete_analysis_run(self._db_path, r["id"])
+        self._refresh_history_btn()
+        self.status_message.emit("Cleared saved analysis runs.")
 
     def _open_folder(self, path: str) -> None:
         p      = Path(path)

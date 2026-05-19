@@ -1,8 +1,10 @@
 from __future__ import annotations
+import json
 import sqlite3
 from collections import Counter
+from datetime import datetime
 
-from .schema import human_size
+from .schema import SCHEMA, human_size
 
 
 def list_scans(db_path: str) -> list[dict]:
@@ -17,6 +19,113 @@ def list_scans(db_path: str) -> list[dict]:
         rows = []
     conn.close()
     return [dict(r) for r in rows]
+
+
+def _ensure_analysis_runs_columns(conn: sqlite3.Connection) -> None:
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(analysis_runs)").fetchall()}
+    if "filters_json" not in cols:
+        conn.execute(
+            "ALTER TABLE analysis_runs ADD COLUMN filters_json TEXT NOT NULL DEFAULT '{}'"
+        )
+
+
+def save_analysis_run(
+    db_path: str,
+    min_files: int,
+    threshold: float,
+    scope_scan_ids: list[int] | None,
+    scope_label: str,
+    duration_ms: int,
+    results: list,
+    filters: dict | None = None,
+) -> int:
+    conn = sqlite3.connect(db_path)
+    conn.executescript(SCHEMA)
+    _ensure_analysis_runs_columns(conn)
+    scope_ids_str = ",".join(str(i) for i in scope_scan_ids) if scope_scan_ids else ""
+    cur = conn.execute(
+        "INSERT INTO analysis_runs "
+        "(ran_at, min_files, threshold, scope_scan_ids, scope_label, "
+        " duration_ms, pair_count, filters_json, results_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            min_files,
+            threshold,
+            scope_ids_str,
+            scope_label,
+            duration_ms,
+            len(results),
+            json.dumps(filters or {}),
+            json.dumps(results),
+        ),
+    )
+    run_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return run_id
+
+
+def list_analysis_runs(db_path: str) -> list[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        _ensure_analysis_runs_columns(conn)
+        rows = conn.execute(
+            "SELECT id, ran_at, min_files, threshold, scope_scan_ids, "
+            "       scope_label, duration_ms, pair_count, filters_json "
+            "FROM analysis_runs ORDER BY id DESC"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["filters"] = json.loads(d.pop("filters_json") or "{}")
+        except (json.JSONDecodeError, KeyError):
+            d["filters"] = {}
+        out.append(d)
+    return out
+
+
+def load_analysis_run(db_path: str, run_id: int) -> dict | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        _ensure_analysis_runs_columns(conn)
+        row = conn.execute(
+            "SELECT id, ran_at, min_files, threshold, scope_scan_ids, "
+            "       scope_label, duration_ms, pair_count, filters_json, results_json "
+            "FROM analysis_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    conn.close()
+    if row is None:
+        return None
+    out = dict(row)
+    try:
+        out["results"] = json.loads(out.pop("results_json") or "[]")
+    except json.JSONDecodeError:
+        out["results"] = []
+    try:
+        out["filters"] = json.loads(out.pop("filters_json") or "{}")
+    except (json.JSONDecodeError, KeyError):
+        out["filters"] = {}
+    return out
+
+
+def delete_analysis_run(db_path: str, run_id: int) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM analysis_runs WHERE id = ?", (run_id,))
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    conn.close()
 
 
 def delete_scan(db_path: str, scan_id: int) -> None:

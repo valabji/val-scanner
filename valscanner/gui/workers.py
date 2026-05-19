@@ -2,12 +2,14 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
+from ..core.db import save_analysis_run
 from ..core.scanner import scan
-from ..core.similarity import find_similar_folders
+from ..core.similarity import find_similar_groups
 
 PAGE_SIZE = 2_000
 
@@ -111,16 +113,20 @@ class ScanWorker(QThread):
 class AnalysisWorker(QThread):
     finished = Signal(list)
     error    = Signal(str)
+    run_saved = Signal(int)
 
     def __init__(self, db_path: str, min_files: int, threshold: float,
-                 scan_ids: list | None = None):
+                 scan_ids: list | None = None, scope_label: str = "",
+                 filters: dict | None = None):
         super().__init__()
-        self.db_path   = db_path
-        self.min_files = min_files
-        self.threshold = threshold
-        self.scan_ids  = scan_ids
-        self._stop     = False
-        self._pid      = ""
+        self.db_path     = db_path
+        self.min_files   = min_files
+        self.threshold   = threshold
+        self.scan_ids    = scan_ids
+        self.scope_label = scope_label
+        self.filters     = filters or {}
+        self._stop       = False
+        self._pid        = ""
 
     def stop(self) -> None:
         self._stop = True
@@ -143,14 +149,34 @@ class AnalysisWorker(QThread):
                     from .panels.process import ProcessRegistry
                     ProcessRegistry.instance().set_progress_detailed(self._pid, i, n)
 
-            results = find_similar_folders(
+            t0 = time.monotonic()
+            results = find_similar_groups(
                 self.db_path,
                 min_files=self.min_files,
                 threshold=self.threshold,
                 scan_ids=self.scan_ids,
+                filters=self.filters,
                 stop_flag=lambda: self._stop,
                 progress_cb=_progress,
             )
+            duration_ms = int((time.monotonic() - t0) * 1000)
+
+            if not self._stop:
+                try:
+                    run_id = save_analysis_run(
+                        self.db_path,
+                        min_files=self.min_files,
+                        threshold=self.threshold,
+                        scope_scan_ids=self.scan_ids,
+                        scope_label=self.scope_label,
+                        duration_ms=duration_ms,
+                        results=results,
+                        filters=self.filters,
+                    )
+                    self.run_saved.emit(run_id)
+                except Exception:
+                    pass
+
             if self._pid:
                 from .panels.process import ProcessRegistry
                 ProcessRegistry.instance().mark_done(self._pid)

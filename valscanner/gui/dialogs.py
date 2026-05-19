@@ -468,3 +468,99 @@ class ViewFiltersDialog(QDialog):
             chk.setChecked(False)
         self._suppress = False
         self._on_change()
+
+
+class AnalysisFiltersDialog(QDialog):
+    """Modal dialog to pick which files the similarity analysis should skip,
+    mirroring the same filters offered by the scanner."""
+
+    _FOLDER_FILTERS = [
+        ("skip_hidden_dirs",  "Hidden folders  (names starting with .)"),
+        ("skip_vcs",          "Version control  (.git, .svn, .hg, …)"),
+        ("skip_system",       "System folders  (Windows, Library, /proc, …)"),
+        ("skip_caches",       "Cache & build dirs  (node_modules, __pycache__, venv, …)"),
+    ]
+    _FILE_FILTERS = [
+        ("skip_hidden_files", "Hidden files  (names starting with .)"),
+        ("skip_binaries",     "Binary / compiled  (.exe, .dll, .so, .pyc, …)"),
+        ("skip_temp",         "Temporary files  (.tmp, .bak, .swp, .DS_Store, …)"),
+        ("skip_logs",         "Log files  (.log)"),
+    ]
+
+    def __init__(self, parent=None, filters: dict | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Analysis Filters")
+        self.setMinimumWidth(440)
+        self.setStyleSheet(_DLG_SS + f"""
+            QPushButton[primary="true"] {{
+                background:{ACCENT}; color:white; border:none;
+                border-radius:6px; padding:6px 18px; font-weight:bold;
+            }}
+            QPushButton[primary="true"]:hover {{ background:#9d8fff; }}
+        """)
+        self._chks: dict[str, QCheckBox] = {}
+        self._build_ui(filters or {})
+
+    def _build_ui(self, opts: dict) -> None:
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(12)
+
+        intro = QLabel(
+            "Skip these files when looking for similar folders. The indexed "
+            "database is not modified — filtering applies only to this analysis."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
+        lay.addWidget(intro)
+
+        grp = QGroupBox("Filters")
+        gl  = QVBoxLayout(grp)
+        gl.setSpacing(6)
+
+        _sub_ss = f"color:{SUBTEXT}; font-size:10px; font-weight:bold;"
+        folder_lbl = QLabel("Folders")
+        folder_lbl.setStyleSheet(_sub_ss)
+        gl.addWidget(folder_lbl)
+        for key, label in self._FOLDER_FILTERS:
+            chk = QCheckBox(label)
+            chk.setChecked(bool(opts.get(key)))
+            gl.addWidget(chk)
+            self._chks[key] = chk
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"color:{BORDER};")
+        gl.addWidget(sep)
+
+        file_lbl = QLabel("Files")
+        file_lbl.setStyleSheet(_sub_ss)
+        gl.addWidget(file_lbl)
+        for key, label in self._FILE_FILTERS:
+            chk = QCheckBox(label)
+            chk.setChecked(bool(opts.get(key)))
+            gl.addWidget(chk)
+            self._chks[key] = chk
+
+        lay.addWidget(grp)
+
+        btn_bar = QHBoxLayout()
+        clear_btn = QPushButton("Clear all")
+        clear_btn.clicked.connect(self._clear_all)
+        btn_bar.addWidget(clear_btn)
+        btn_bar.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn = QPushButton("OK")
+        ok_btn.setProperty("primary", True)
+        ok_btn.clicked.connect(self.accept)
+        btn_bar.addWidget(cancel_btn)
+        btn_bar.addWidget(ok_btn)
+        lay.addLayout(btn_bar)
+
+    def _clear_all(self) -> None:
+        for chk in self._chks.values():
+            chk.setChecked(False)
+
+    def get_filters(self) -> dict:
+        return {key: chk.isChecked() for key, chk in self._chks.items()}

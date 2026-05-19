@@ -8,51 +8,19 @@ from pathlib import Path
 
 from .schema import SCHEMA, human_size, ts
 from .categories import EXT_CATEGORY, MIME_CATEGORY
+from .filters import (
+    SYSTEM_DIRS as _SYSTEM_DIRS,
+    CACHE_DIRS as _CACHE_DIRS,
+    VCS_DIRS as _VCS_DIRS,
+    BINARY_EXTS as _BINARY_EXTS,
+    TEMP_EXTS as _TEMP_EXTS,
+    LOG_EXTS as _LOG_EXTS,
+)
 from .metadata import (
     extract_image_metadata, extract_audio_metadata, extract_pdf_metadata,
     file_sha256, _thumb_image, _thumb_video, _sample_media,
 )
 from .tagging import generate_tags
-
-
-_SYSTEM_DIRS = frozenset({
-    # macOS
-    "System", "Library", "private", "usr", "bin", "sbin", "dev", "Volumes",
-    "cores", "net", "home",
-    # Windows
-    "Windows", "System32", "SysWOW64", "Program Files", "Program Files (x86)",
-    "ProgramData", "AppData", "Recovery", "MSOCache",
-    # Linux
-    "proc", "sys", "run", "snap",
-})
-
-_CACHE_DIRS = frozenset({
-    "__pycache__", "node_modules", ".gradle", ".m2", ".ivy2",
-    "build", "dist", ".next", ".nuxt", "target", ".tox",
-    "venv", ".venv", "env", ".eggs", "site-packages",
-    ".sass-cache", "coverage", ".nyc_output", "DerivedData",
-    ".build", "Pods", "bower_components", ".yarn", ".pnpm-store",
-    ".pytest_cache", ".mypy_cache", ".ruff_cache",
-})
-
-_VCS_DIRS = frozenset({
-    ".git", ".svn", ".hg", ".bzr", "_darcs", "CVS", ".fossil",
-})
-
-_BINARY_EXTS = frozenset({
-    ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".lib",
-    ".obj", ".class", ".pyc", ".pyo", ".pyd", ".wasm",
-    ".out", ".elf", ".ko", ".sys",
-})
-
-_TEMP_EXTS = frozenset({
-    ".tmp", ".temp", ".swp", ".swo", ".swn", ".bak", ".orig",
-    ".~lock", ".DS_Store",
-})
-
-_LOG_EXTS = frozenset({
-    ".log",
-})
 
 
 def scan(

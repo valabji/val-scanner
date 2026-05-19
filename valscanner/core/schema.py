@@ -65,6 +65,20 @@ CREATE TABLE IF NOT EXISTS media_samples (
     duration REAL
 );
 
+CREATE TABLE IF NOT EXISTS analysis_runs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ran_at        TEXT    NOT NULL,
+    min_files     INTEGER NOT NULL,
+    threshold     REAL    NOT NULL,
+    scope_scan_ids TEXT   NOT NULL DEFAULT '',
+    scope_label   TEXT    NOT NULL DEFAULT '',
+    duration_ms   INTEGER DEFAULT 0,
+    pair_count    INTEGER DEFAULT 0,
+    filters_json  TEXT    NOT NULL DEFAULT '{}',
+    results_json  TEXT    NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_analysis_ran_at ON analysis_runs(ran_at);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
     path, filename, category, tags, extra_meta,
     content='files', content_rowid='id'
