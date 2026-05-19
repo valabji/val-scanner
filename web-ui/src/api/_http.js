@@ -12,7 +12,7 @@ const qs = (params) => {
 async function handle(r) {
   if (r.ok) return r.status === 204 ? null : r.json();
   let body = {};
-  try { body = await r.json(); } catch {}
+  try { body = await r.json(); } catch { /* ignore json parse failure */ }
   const err = new Error(body.detail || r.statusText);
   err.status = r.status;
   err.code = body.error || 'http_error';

@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function TagChip({ tag }) {
   const cls =
     tag.startsWith('hidden') || tag === 'dotfile' ? 'bg-muted/30 text-muted' :

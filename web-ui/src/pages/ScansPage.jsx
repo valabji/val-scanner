@@ -99,7 +99,7 @@ export default function ScansPage() {
   const handleCancel = async () => {
     if (!runningId) return;
     setProgress((p) => ({ ...p, status: 'cancelling' }));
-    try { await cancelScan(runningId); } catch {}
+    try { await cancelScan(runningId); } catch { /* ignore cancel error */ }
   };
 
   const delMut = useMutation({
