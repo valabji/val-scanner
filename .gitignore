@@ -1,20 +1,38 @@
+# Scanner output databases
 *.db
 *.db-*
-*.csv
-*.json
+
+# Root-level scanner exports (same path as DB, just different extension)
+/*.csv
+/*.json
+
+# System
 .DS_Store
 .DS_Store?
+
+# Claude Code local settings
 .claude/
+
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# Build outputs
 dist/
 build/
+
+# Environments
 .venv/
 venv/
+
+# Tools
 .ruby-lsp/
 local_plans/
+
+# Web UI
 web-ui/node_modules/
-web-ui/dist/
+
+# Built web app (populated by scripts/build_web.sh)
 valscanner/web/static/*
 !valscanner/web/static/.gitkeep
