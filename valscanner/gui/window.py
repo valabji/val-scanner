@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QSettings
+from PySide6.QtCore import Qt, QTimer, QSettings, QSize
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
@@ -28,6 +28,7 @@ from .constants import (
     DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, SEL_BG, SEL_TEXT,
 )
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX, make_folder_row, _FOLDER_SENTINEL
+from . import icons as _icons
 from .delegates import FileCardDelegate, FileRowDelegate
 from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, PAGE_SIZE
 from .dialogs import ScanOptionsDialog, ViewFiltersDialog
@@ -179,7 +180,7 @@ class MainWindow(QMainWindow):
             self._load_db(str(p))
             ev.acceptProposedAction()
         else:
-            self._set_status(f"⚠ Drop a folder to scan or a .db file to open (got: {p.name})")
+            self._set_status(f"Drop a folder to scan or a .db file to open (got: {p.name})")
 
     # ── Shortcuts ─────────────────────────────────────────────────────────────
 
@@ -341,7 +342,7 @@ class MainWindow(QMainWindow):
         if "showConsoleOnStartup" in changed and hasattr(self, "_main_vsplit"):
             self._apply_console_visibility(bool(changed["showConsoleOnStartup"]))
         if "theme" in changed or "accentColor" in changed or "selectionColor" in changed or "selectionTextColor" in changed:
-            self._set_status("⚠  Theme change will take effect after restart.")
+            self._set_status("Theme change will take effect after restart.")
 
     def _apply_console_visibility(self, visible: bool) -> None:
         self._set_console_visible(visible)
@@ -537,7 +538,9 @@ class MainWindow(QMainWindow):
             f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
         )
         for p in paths:
-            chip = QPushButton(f"📂  {Path(p).name}")
+            chip = QPushButton(Path(p).name)
+            chip.setIcon(_icons.icon("open", color=str(SUBTEXT)))
+            chip.setIconSize(QSize(14, 14))
             chip.setToolTip(p)
             chip.setStyleSheet(chip_ss)
             chip.clicked.connect(lambda _c=False, path=p: self._open_recent(path))
@@ -548,7 +551,14 @@ class MainWindow(QMainWindow):
 
     # ── Button factories ──────────────────────────────────────────────────────
 
-    def _btn_primary(self, text: str, tooltip: str = "") -> QPushButton:
+    @staticmethod
+    def _apply_icon(b: QPushButton, icon: str | None, color: str | None, size: int = 16) -> None:
+        if not icon:
+            return
+        b.setIcon(_icons.icon(icon, color=color) if color else _icons.icon(icon))
+        b.setIconSize(QSize(size, size))
+
+    def _btn_primary(self, text: str, tooltip: str = "", icon: str | None = None) -> QPushButton:
         b = QPushButton(text); b.setToolTip(tooltip)
         b.setStyleSheet(f"""
             QPushButton {{
@@ -559,9 +569,10 @@ class MainWindow(QMainWindow):
             QPushButton:pressed  {{ background: #6a58d4; }}
             QPushButton:disabled {{ background: {BORDER}; color: {SUBTEXT}; }}
         """)
+        self._apply_icon(b, icon, "#ffffff")
         return b
 
-    def _btn_secondary(self, text: str, tooltip: str = "") -> QPushButton:
+    def _btn_secondary(self, text: str, tooltip: str = "", icon: str | None = None) -> QPushButton:
         b = QPushButton(text); b.setToolTip(tooltip)
         b.setStyleSheet(f"""
             QPushButton {{
@@ -572,9 +583,10 @@ class MainWindow(QMainWindow):
             QPushButton:pressed  {{ background: {DARK_BG}; }}
             QPushButton:disabled {{ color: {SUBTEXT}; border-color: {BORDER}; }}
         """)
+        self._apply_icon(b, icon, str(TEXT))
         return b
 
-    def _btn_danger(self, text: str, tooltip: str = "") -> QPushButton:
+    def _btn_danger(self, text: str, tooltip: str = "", icon: str | None = None) -> QPushButton:
         b = QPushButton(text); b.setToolTip(tooltip)
         b.setStyleSheet(f"""
             QPushButton {{
@@ -585,9 +597,10 @@ class MainWindow(QMainWindow):
             QPushButton:pressed  {{ background: {RED:33}; }}
             QPushButton:disabled {{ color: {SUBTEXT}; border-color: {BORDER}; }}
         """)
+        self._apply_icon(b, icon, str(RED))
         return b
 
-    def _btn_ghost(self, text: str, tooltip: str = "") -> QPushButton:
+    def _btn_ghost(self, text: str, tooltip: str = "", icon: str | None = None) -> QPushButton:
         b = QPushButton(text); b.setToolTip(tooltip)
         b.setStyleSheet(f"""
             QPushButton {{
@@ -597,7 +610,17 @@ class MainWindow(QMainWindow):
             QPushButton:hover   {{ color: {TEXT}; background: {PANEL_BG}; }}
             QPushButton:pressed {{ color: {ACCENT}; }}
         """)
+        self._apply_icon(b, icon, str(SUBTEXT), size=14)
         return b
+
+    @staticmethod
+    def _icon_label(name: str, size: int, color: str | None = None) -> QLabel:
+        """Create a label that displays a vector icon as a pixmap."""
+        lbl = QLabel()
+        lbl.setPixmap(_icons.pixmap(name, size, color=color))
+        lbl.setFixedSize(size, size)
+        lbl.setAlignment(Qt.AlignCenter)
+        return lbl
 
     # ── Main UI ───────────────────────────────────────────────────────────────
 
@@ -655,8 +678,9 @@ class MainWindow(QMainWindow):
         rl.setContentsMargins(16, 0, 16, 0)
         rl.setSpacing(8)
 
-        logo = QLabel("🔎")
-        logo.setStyleSheet("font-size: 20px;")
+        logo = QLabel()
+        logo.setPixmap(_icons.app_logo_pixmap(28, radius=6))
+        logo.setFixedSize(28, 28)
         rl.addWidget(logo)
         title = QLabel("ValScanner")
         title.setStyleSheet(f"color: {TEXT}; font-size: 15px; font-weight: bold;")
@@ -676,7 +700,7 @@ class MainWindow(QMainWindow):
         self.path_edit.returnPressed.connect(self._start_scan)
         rl.addWidget(self.path_edit, 1)
 
-        browse_scan_btn = self._btn_secondary("📁  Browse", "Choose folder to scan (Ctrl+Shift+S)")
+        browse_scan_btn = self._btn_secondary("Browse", "Choose folder to scan (Ctrl+Shift+S)", icon="browse")
         browse_scan_btn.clicked.connect(self._browse_scan)
         rl.addWidget(browse_scan_btn)
 
@@ -696,18 +720,18 @@ class MainWindow(QMainWindow):
         self.hash_chk.setToolTip("Compute file hashes — enables exact duplicate detection")
         rl.addWidget(self.hash_chk)
 
-        self.options_btn = self._btn_secondary("⚙ Options", "Configure scan options")
+        self.options_btn = self._btn_secondary("Options", "Configure scan options", icon="options")
         self.options_btn.setFixedHeight(32)
         self.options_btn.clicked.connect(self._open_scan_options)
         rl.addWidget(self.options_btn)
 
-        self.scan_btn = self._btn_primary("⚡  Scan", "Start scanning (Enter)")
-        self.scan_btn.setFixedWidth(100)
+        self.scan_btn = self._btn_primary("Scan", "Start scanning (Enter)", icon="scan")
+        self.scan_btn.setFixedWidth(110)
         self.scan_btn.clicked.connect(self._start_scan)
         rl.addWidget(self.scan_btn)
 
-        self.stop_btn = self._btn_danger("■  Stop", "Abort current scan")
-        self.stop_btn.setFixedWidth(80)
+        self.stop_btn = self._btn_danger("Stop", "Abort current scan", icon="stop")
+        self.stop_btn.setFixedWidth(90)
         self.stop_btn.clicked.connect(self._stop_scan)
         self.stop_btn.setEnabled(False)
         rl.addWidget(self.stop_btn)
@@ -720,8 +744,7 @@ class MainWindow(QMainWindow):
         rl2.setContentsMargins(16, 0, 16, 0)
         rl2.setSpacing(8)
 
-        db_icon = QLabel("🗄")
-        db_icon.setStyleSheet(f"color: {SUBTEXT}; font-size: 13px;")
+        db_icon = self._icon_label("database", 14, color=str(SUBTEXT))
         rl2.addWidget(db_icon)
         db_lbl = QLabel("Database:")
         db_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
@@ -738,12 +761,12 @@ class MainWindow(QMainWindow):
         )
         rl2.addWidget(self.db_edit)
 
-        browse_db_btn = self._btn_ghost("📁", "Browse for database save location")
-        browse_db_btn.setFixedSize(26, 26)
+        browse_db_btn = self._btn_ghost("", "Browse for database save location", icon="browse")
+        browse_db_btn.setFixedSize(28, 28)
         browse_db_btn.clicked.connect(self._browse_db_save)
         rl2.addWidget(browse_db_btn)
 
-        open_db_btn = self._btn_ghost("📂  Open existing DB", "Load a previously saved database (Ctrl+O)")
+        open_db_btn = self._btn_ghost("Open existing DB", "Load a previously saved database (Ctrl+O)", icon="open")
         open_db_btn.clicked.connect(self._open_db)
         rl2.addWidget(open_db_btn)
 
@@ -753,8 +776,8 @@ class MainWindow(QMainWindow):
         rl2.addWidget(sep2)
         rl2.addSpacing(4)
 
-        self.csv_btn  = self._btn_ghost("↓ CSV",  "Export results to CSV (Ctrl+E)")
-        self.json_btn = self._btn_ghost("↓ JSON", "Export results to JSON (Ctrl+Shift+E)")
+        self.csv_btn  = self._btn_ghost("CSV",  "Export results to CSV (Ctrl+E)",      icon="export-csv")
+        self.json_btn = self._btn_ghost("JSON", "Export results to JSON (Ctrl+Shift+E)", icon="export-json")
         self.csv_btn.clicked.connect(self._export_csv)
         self.json_btn.clicked.connect(self._export_json)
         self.csv_btn.setEnabled(False)
@@ -808,7 +831,8 @@ class MainWindow(QMainWindow):
         fl.setSpacing(8)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("🔍  Search filename, tag, path…   (press /)")
+        self.search_edit.setPlaceholderText("Search filename, tag, path…   (press /)")
+        self.search_edit.addAction(_icons.icon("search", color=str(SUBTEXT)), QLineEdit.LeadingPosition)
         self.search_edit.setMinimumWidth(260)
         self.search_edit.setFixedHeight(30)
         self.search_edit.setClearButtonEnabled(True)
@@ -852,7 +876,9 @@ class MainWindow(QMainWindow):
         sep_vf.setFixedHeight(20)
         fl.addWidget(sep_vf)
 
-        self._vf_btn = QPushButton("⚗ Filters")
+        self._vf_btn = QPushButton("Filters")
+        self._vf_btn.setIcon(_icons.icon("filters", color=str(SUBTEXT)))
+        self._vf_btn.setIconSize(QSize(14, 14))
         self._vf_btn.setFixedHeight(30)
         self._vf_btn.setToolTip("Show / hide view filters (no re-scan needed)")
         self._vf_btn.setStyleSheet(
@@ -886,6 +912,8 @@ class MainWindow(QMainWindow):
         pill_lay = QHBoxLayout(self.folder_pill)
         pill_lay.setContentsMargins(8, 0, 4, 0)
         pill_lay.setSpacing(4)
+        pill_icon = self._icon_label("folder-open", 12, color=str(ACCENT))
+        pill_lay.addWidget(pill_icon)
         self.folder_pill_lbl = QLabel()
         self.folder_pill_lbl.setStyleSheet(
             f"color: {ACCENT}; font-size: 11px; border: none; background: transparent;"
@@ -902,11 +930,13 @@ class MainWindow(QMainWindow):
         )
         self.folder_depth_btn.toggled.connect(self._on_folder_depth_toggled)
         pill_lay.addWidget(self.folder_depth_btn)
-        dismiss_pill = QPushButton("×")
-        dismiss_pill.setFixedSize(16, 16)
+        dismiss_pill = QPushButton()
+        dismiss_pill.setIcon(_icons.icon("close", color=str(ACCENT)))
+        dismiss_pill.setIconSize(QSize(12, 12))
+        dismiss_pill.setFixedSize(18, 18)
         dismiss_pill.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {ACCENT}; border: none; font-size: 13px; padding: 0; }}"
-            f"QPushButton:hover {{ color: white; }}"
+            f"QPushButton {{ background: transparent; border: none; padding: 0; }}"
+            f"QPushButton:hover {{ background: {ACCENT:33}; border-radius: 9px; }}"
         )
         dismiss_pill.clicked.connect(self._clear_folder_filter)
         pill_lay.addWidget(dismiss_pill)
@@ -925,7 +955,9 @@ class MainWindow(QMainWindow):
             f"QPushButton:hover:!checked{{color:{TEXT};border-color:#5a5a7a;}}"
         )
 
-        self._browse_toggle = QPushButton("📁 Browse")
+        self._browse_toggle = QPushButton("Browse")
+        self._browse_toggle.setIcon(_icons.icon("folder", color=str(SUBTEXT)))
+        self._browse_toggle.setIconSize(QSize(14, 14))
         self._browse_toggle.setToolTip("Browse folders (drill down). Toggle off for flat all-files view.")
         self._browse_toggle.setCheckable(True)
         self._browse_toggle.setChecked(True)
@@ -936,12 +968,14 @@ class MainWindow(QMainWindow):
 
         self._view_btn_grp = QButtonGroup(self._filterbar)
         self._view_btn_grp.setExclusive(True)
-        for i, (label, tip) in enumerate([
-            ("⊟ Details", "Full details table"),
-            ("▦ Grid",    "Icon / thumbnail grid"),
-            ("≡ List",    "Compact single-line list"),
+        for i, (label, tip, icon_name) in enumerate([
+            ("Details", "Full details table",       "view-table"),
+            ("Grid",    "Icon / thumbnail grid",    "view-grid"),
+            ("List",    "Compact single-line list", "view-list"),
         ]):
             b = QPushButton(label)
+            b.setIcon(_icons.icon(icon_name, color=str(SUBTEXT)))
+            b.setIconSize(QSize(14, 14))
             b.setToolTip(tip)
             b.setCheckable(True)
             b.setFixedHeight(28)
@@ -952,7 +986,7 @@ class MainWindow(QMainWindow):
             fl.addWidget(b)
         self._view_btn_grp.idClicked.connect(self._set_view_mode)
 
-        clear_btn = self._btn_ghost("✕ Clear all")
+        clear_btn = self._btn_ghost("Clear all", icon="close")
         clear_btn.setFixedHeight(28)
         clear_btn.clicked.connect(self._clear_filters)
         fl.addWidget(clear_btn)
@@ -1069,16 +1103,16 @@ class MainWindow(QMainWindow):
         self._view_stack.addWidget(self.list_view)
 
         ftl.addWidget(self._view_stack)
-        self.center_tabs.addTab(file_tab, "📄  Files")
+        self.center_tabs.addTab(file_tab, _icons.icon("file", color=str(SUBTEXT)), "Files")
 
         self.similar_panel = SimilarFoldersPanel()
         self.similar_panel.status_message.connect(self._set_status)
-        self.center_tabs.addTab(self.similar_panel, "🗂  Similar Folders")
+        self.center_tabs.addTab(self.similar_panel, _icons.icon("similar", color=str(SUBTEXT)), "Similar Folders")
 
         self.scans_panel = ScansPanel()
         self.scans_panel.scan_deleted.connect(self._on_scan_deleted)
         self.scans_panel.scan_selected.connect(self._on_scan_panel_selected)
-        self.center_tabs.addTab(self.scans_panel, "📦  Scans")
+        self.center_tabs.addTab(self.scans_panel, _icons.icon("package", color=str(SUBTEXT)), "Scans")
 
         self.splitter.addWidget(self.center_tabs)
 
@@ -1097,10 +1131,11 @@ class MainWindow(QMainWindow):
         lay.setAlignment(Qt.AlignCenter)
         lay.setSpacing(16)
 
-        icon = QLabel("🔎")
-        icon.setStyleSheet("font-size: 56px;")
+        icon = QLabel()
+        icon.setPixmap(_icons.app_logo_pixmap(96, radius=20))
+        icon.setFixedSize(96, 96)
         icon.setAlignment(Qt.AlignCenter)
-        lay.addWidget(icon)
+        lay.addWidget(icon, 0, Qt.AlignHCenter)
 
         headline = QLabel("ValScanner")
         headline.setStyleSheet(f"color: {TEXT}; font-size: 22px; font-weight: bold;")
@@ -1116,9 +1151,9 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignCenter)
         btn_row.setSpacing(12)
-        scan_btn = self._btn_primary("⚡  Scan a Folder")
+        scan_btn = self._btn_primary("Scan a Folder", icon="scan")
         scan_btn.clicked.connect(self._browse_scan)
-        open_btn = self._btn_secondary("📂  Open Existing Database")
+        open_btn = self._btn_secondary("Open Existing Database", icon="open")
         open_btn.clicked.connect(self._open_db)
         btn_row.addWidget(scan_btn); btn_row.addWidget(open_btn)
         lay.addLayout(btn_row)
@@ -1150,10 +1185,20 @@ class MainWindow(QMainWindow):
         bl.setContentsMargins(16, 0, 16, 0)
         bl.setSpacing(0)
 
-        def _stat(icon: str) -> QLabel:
-            l = QLabel(f"{icon}  —")
-            l.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; padding: 0 12px;")
+        def _stat(icon_name: str) -> QLabel:
+            l = QLabel("—")
+            l.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; padding: 0 12px 0 4px;")
             return l
+
+        def _stat_pair(icon_name: str) -> tuple[QLabel, QWidget]:
+            wrap = QWidget()
+            wl   = QHBoxLayout(wrap)
+            wl.setContentsMargins(8, 0, 8, 0)
+            wl.setSpacing(6)
+            ico  = self._icon_label(icon_name, 14, color=str(SUBTEXT))
+            text = _stat(icon_name)
+            wl.addWidget(ico); wl.addWidget(text)
+            return text, wrap
 
         def vsep() -> QFrame:
             f = QFrame(); f.setFrameShape(QFrame.VLine)
@@ -1161,20 +1206,20 @@ class MainWindow(QMainWindow):
             f.setFixedHeight(14)
             return f
 
-        self._stat_files   = _stat("📁")
-        self._stat_size    = _stat("💾")
-        self._stat_showing = _stat("🔍")
-        bl.addWidget(self._stat_files); bl.addWidget(vsep())
-        bl.addWidget(self._stat_size);  bl.addWidget(vsep())
-        bl.addWidget(self._stat_showing)
+        self._stat_files,   files_w   = _stat_pair("folder")
+        self._stat_size,    size_w    = _stat_pair("save")
+        self._stat_showing, showing_w = _stat_pair("search")
+        bl.addWidget(files_w);   bl.addWidget(vsep())
+        bl.addWidget(size_w);    bl.addWidget(vsep())
+        bl.addWidget(showing_w)
         bl.addStretch()
         self._statsbar = bar
         return bar
 
     def _update_stats(self, total: int, total_size: int, showing: int) -> None:
-        self._stat_files.setText(f"📁  {total:,} files")
-        self._stat_size.setText(f"💾  {human_size(total_size)}")
-        self._stat_showing.setText(f"🔍  Showing {showing:,}")
+        self._stat_files.setText(f"{total:,} files")
+        self._stat_size.setText(human_size(total_size))
+        self._stat_showing.setText(f"Showing {showing:,}")
 
     # ── Scan actions ──────────────────────────────────────────────────────────
 
@@ -1219,7 +1264,7 @@ class MainWindow(QMainWindow):
                 return
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not open database:\n{e}")
-            self._set_status(f"⚠ Could not open database: {e}")
+            self._set_status(f"Error: Could not open database: {e}")
             return
         self.db_edit.setText(path)
         self._db_path = path
@@ -1239,7 +1284,7 @@ class MainWindow(QMainWindow):
         self.folder_panel.load(path)
         self._switch_to_results()
         name = Path(path).name
-        self.db_status_lbl.setText(f"  🟢 {name}  ")
+        self.db_status_lbl.setText(f"  ●  {name}  ")
         self.db_status_lbl.setStyleSheet(
             f"color: {GREEN}; font-size: 10px; background: {GREEN:11}; "
             f"border: 1px solid {GREEN:44}; border-radius: 8px; padding: 2px 10px;"
@@ -1278,7 +1323,7 @@ class MainWindow(QMainWindow):
         self.csv_btn.setEnabled(False)
         self.json_btn.setEnabled(False)
         self._scan_strip.show()
-        self.db_status_lbl.setText("  🔄 Scanning…  ")
+        self.db_status_lbl.setText("  ●  Scanning…  ")
         self.db_status_lbl.setStyleSheet(
             f"color: {YELLOW}; font-size: 10px; background: {YELLOW:11}; "
             f"border: 1px solid {YELLOW:44}; border-radius: 8px; padding: 2px 10px;"
@@ -1306,7 +1351,7 @@ class MainWindow(QMainWindow):
             lambda count, path: reg.set_progress(pid, min(count // 1000, 99))
         )
         self._worker.finished.connect(self._on_scan_done)
-        self._worker.error.connect(lambda e: self._set_status(f"⚠ Error: {e}"))
+        self._worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
         self._worker.start()
 
     def _open_scan_options(self) -> None:
@@ -1336,9 +1381,9 @@ class MainWindow(QMainWindow):
         active = [k for k, v in self._scan_options.items() if v and k.startswith("store_")]
         if active:
             labels = {"store_thumbnails": "thumbnails", "store_samples": "samples"}
-            self.options_btn.setText("⚙ Options ·  " + ", ".join(labels[k] for k in active if k in labels))
+            self.options_btn.setText("Options ·  " + ", ".join(labels[k] for k in active if k in labels))
         else:
-            self.options_btn.setText("⚙ Options")
+            self.options_btn.setText("Options")
 
     def _stop_scan(self) -> None:
         if self._worker:
@@ -1369,7 +1414,7 @@ class MainWindow(QMainWindow):
         if stats.get("cancelled"):
             msg = f"⏹  Scan cancelled — {stats['scanned']:,} files indexed in {elapsed}s"
         else:
-            msg = f"✅  Scan complete — {stats['scanned']:,} files in {elapsed}s"
+            msg = f"Scan complete — {stats['scanned']:,} files in {elapsed}s"
             if stats["errors"]:
                 msg += f", {stats['errors']} errors"
 
@@ -1393,12 +1438,12 @@ class MainWindow(QMainWindow):
         """Flat list view: load all files paginated."""
         self._breadcrumb_bar.hide()
 
-        self.center_tabs.setTabText(1, "📄  Files (loading…)")
-        self._stat_showing.setText("🔍  Loading…")
+        self.center_tabs.setTabText(1, "Files (loading…)")
+        self._stat_showing.setText("Loading…")
 
         self._db_load_worker = DbLoadWorker(self._db_path, self._active_scan_id)
         self._db_load_worker.db_loaded.connect(self._on_db_loaded)
-        self._db_load_worker.error.connect(lambda e: self._set_status(f"⚠ Error loading database: {e}"))
+        self._db_load_worker.error.connect(lambda e: self._set_status(f"Error loading database: {e}"))
         self._db_load_worker.start()
 
         reg = ProcessRegistry.instance()
@@ -1422,7 +1467,7 @@ class MainWindow(QMainWindow):
 
         self._apply_filters()
         self._update_stats(total, total_size, len(self._all_rows))
-        self.center_tabs.setTabText(1, f"📄  Files ({total:,})")
+        self.center_tabs.setTabText(1, f"Files ({total:,})")
 
         sb = self.table.verticalScrollBar()
         try:
@@ -1441,14 +1486,14 @@ class MainWindow(QMainWindow):
         self._breadcrumb_bar.show()
         self._update_breadcrumb()
 
-        self.center_tabs.setTabText(1, "📄  Files (loading…)")
-        self._stat_showing.setText("🔍  Loading…")
+        self.center_tabs.setTabText(1, "Files (loading…)")
+        self._stat_showing.setText("Loading…")
 
         self._browser_worker = BrowserLoadWorker(
             self._db_path, self._active_scan_id, self._browser_path
         )
         self._browser_worker.contents_ready.connect(self._on_browser_loaded)
-        self._browser_worker.error.connect(lambda e: self._set_status(f"⚠ Error: {e}"))
+        self._browser_worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
         self._browser_worker.start()
 
         reg = ProcessRegistry.instance()
@@ -1497,7 +1542,7 @@ class MainWindow(QMainWindow):
         self._apply_filters()
         self._update_stats(len(rows), total_bytes, len(rows))
         label = Path(self._browser_path).name if self._browser_path else "root"
-        self.center_tabs.setTabText(1, f"📄  {label} ({len(folders)} folders, {len(files)} files)")
+        self.center_tabs.setTabText(1, f"{label} ({len(folders)} folders, {len(files)} files)")
 
         if self._browser_worker and self._browser_worker._pid:
             ProcessRegistry.instance().mark_done(self._browser_worker._pid)
@@ -1536,7 +1581,9 @@ class MainWindow(QMainWindow):
         )
 
         # Root segment
-        root_btn = QPushButton("🏠 Root")
+        root_btn = QPushButton("Root")
+        root_btn.setIcon(_icons.icon("folder", color=str(SUBTEXT)))
+        root_btn.setIconSize(QSize(14, 14))
         root_btn.setStyleSheet(crumb_ss)
         root_btn.setCursor(Qt.PointingHandCursor)
         root_btn.clicked.connect(lambda: self._navigate_to_path(""))
@@ -1660,7 +1707,7 @@ class MainWindow(QMainWindow):
 
         self._filtered_rows = filtered
         self._apply_sort()
-        self._stat_showing.setText(f"🔍  Showing {len(filtered):,}")
+        self._stat_showing.setText(f"Showing {len(filtered):,}")
         if self._active_folder_filter:
             self._update_pill_label(filtered_count=len(filtered))
 
@@ -1732,7 +1779,7 @@ class MainWindow(QMainWindow):
 
     def _update_vf_btn_label(self) -> None:
         n = self._count_active_view_filters()
-        self._vf_btn.setText(f"⚗ Filters  ·  {n}" if n else "⚗ Filters")
+        self._vf_btn.setText(f"Filters  ·  {n}" if n else "Filters")
         self._vf_btn.setProperty("active", "true" if n else "false")
         self._vf_btn.style().unpolish(self._vf_btn)
         self._vf_btn.style().polish(self._vf_btn)
@@ -1795,7 +1842,7 @@ class MainWindow(QMainWindow):
         short = Path(self._active_folder_filter).name or self._active_folder_filter
         mode  = "/**" if self._folder_filter_recursive else "/·"
         suffix = f"  ·  {filtered_count:,}" if filtered_count is not None else ""
-        self.folder_pill_lbl.setText(f"📂 {short}{mode}{suffix}")
+        self.folder_pill_lbl.setText(f"{short}{mode}{suffix}")
 
     def _clear_folder_filter(self) -> None:
         self._active_folder_filter    = ""
@@ -1878,11 +1925,11 @@ class MainWindow(QMainWindow):
         if not row:
             return
         menu       = QMenu(self)
-        open_act   = menu.addAction("🚀  Open file")
-        reveal_act = menu.addAction("📂  Reveal in Finder / Explorer")
+        open_act   = menu.addAction(_icons.icon("play",        color=str(TEXT)), "Open file")
+        reveal_act = menu.addAction(_icons.icon("folder-open", color=str(TEXT)), "Reveal in Finder / Explorer")
         menu.addSeparator()
-        copy_path = menu.addAction("📋  Copy path")
-        copy_name = menu.addAction("📋  Copy filename")
+        copy_path  = menu.addAction(_icons.icon("copy",        color=str(TEXT)), "Copy path")
+        copy_name  = menu.addAction(_icons.icon("clipboard",   color=str(TEXT)), "Copy filename")
         act = menu.exec(view.viewport().mapToGlobal(pos))
         if act == open_act:
             self.detail._current_path = row[0]
@@ -1924,7 +1971,7 @@ class MainWindow(QMainWindow):
         """Start background load of next page."""
         self._lazy_worker = LazyLoadWorker(self._db_path, self._active_scan_id, self._loaded_offset)
         self._lazy_worker.rows_ready.connect(self._on_lazy_rows_ready)
-        self._lazy_worker.error.connect(lambda e: self._set_status(f"⚠ Error loading rows: {e}"))
+        self._lazy_worker.error.connect(lambda e: self._set_status(f"Error loading rows: {e}"))
         self._lazy_worker.start()
 
     def _on_lazy_rows_ready(self, new_rows: list) -> None:
@@ -1952,7 +1999,7 @@ class MainWindow(QMainWindow):
             self.table_model.append_rows(filtered_new)
             # Icon model still resets (acceptable for secondary view)
             self.icon_model.load(list(self.table_model._rows))
-            self._stat_showing.setText(f"🔍  Showing {len(self._filtered_rows):,}")
+            self._stat_showing.setText(f"Showing {len(self._filtered_rows):,}")
 
     # ── Export ────────────────────────────────────────────────────────────────
 
@@ -1963,7 +2010,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Export CSV", out, "CSV files (*.csv)")
         if path:
             export_csv(self._db_path, path)
-            self._set_status(f"✅  CSV saved → {path}")
+            self._set_status(f"CSV saved → {path}")
 
     def _export_json(self) -> None:
         if not self._db_path:
@@ -1972,15 +2019,16 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Export JSON", out, "JSON files (*.json)")
         if path:
             export_json(self._db_path, path)
-            self._set_status(f"✅  JSON saved → {path}")
+            self._set_status(f"JSON saved → {path}")
 
     def _set_status(self, msg: str) -> None:
         self.status.showMessage(msg)
         if not hasattr(self, "console"):
             return
-        if "✅" in msg or "complete" in msg.lower() or "saved" in msg.lower() or msg.startswith("Loaded"):
+        lower = msg.lower()
+        if "complete" in lower or "saved" in lower or msg.startswith("Loaded"):
             level = "success"
-        elif "⚠" in msg or "Error" in msg or "error" in msg or "failed" in msg.lower() or "cancelled" in msg.lower():
+        elif "error" in lower or "failed" in lower or "cancelled" in lower:
             level = "error"
         else:
             level = "info"

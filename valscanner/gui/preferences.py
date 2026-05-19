@@ -370,7 +370,7 @@ class PreferencesDialog(QDialog):
         self.restart_hint.hide()
 
     def _mark_restart_needed(self) -> None:
-        self.restart_hint.setText("⚠  Theme / accent changes take effect after restarting the app.")
+        self.restart_hint.setText("Theme / accent changes take effect after restarting the app.")
         self.restart_hint.show()
 
     def _restore_defaults(self) -> None:

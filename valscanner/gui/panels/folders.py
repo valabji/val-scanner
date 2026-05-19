@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, SEL_BG, SEL_TEXT
 from ...core.schema import human_size
+from .. import icons as _icons
 
 
 class FolderPanel(QWidget):
@@ -79,38 +80,45 @@ class FolderPanel(QWidget):
         hdr.setFixedHeight(36)
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(10, 0, 8, 0)
-        title = QLabel("📂  Folders")
+        hl.setSpacing(6)
+        title_icon = QLabel()
+        title_icon.setPixmap(_icons.pixmap("folder-open", 14, color=str(TEXT)))
+        hl.addWidget(title_icon)
+        title = QLabel("Folders")
         title.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-weight: bold;")
         hl.addWidget(title)
         hl.addStretch()
 
-        self.scan_split_btn = QPushButton("🗃")
+        icon_btn_ss = (
+            f"QPushButton{{background:transparent;border:none;}}"
+            f"QPushButton:hover{{background:{PANEL_BG};border-radius:4px;}}"
+            f"QPushButton:checked{{background:{ACCENT:22};border-radius:4px;}}"
+        )
+
+        self.scan_split_btn = QPushButton()
+        self.scan_split_btn.setIcon(_icons.icon("database-edit", color=str(SUBTEXT)))
+        from PySide6.QtCore import QSize as _QSize
+        self.scan_split_btn.setIconSize(_QSize(14, 14))
         self.scan_split_btn.setFixedSize(22, 22)
         self.scan_split_btn.setCheckable(True)
         self.scan_split_btn.setToolTip("Show each scan as a separate root")
-        self.scan_split_btn.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;font-size:13px;}}"
-            f"QPushButton:hover{{color:{TEXT};}}"
-            f"QPushButton:checked{{color:{ACCENT};}}"
-        )
+        self.scan_split_btn.setStyleSheet(icon_btn_ss)
         self.scan_split_btn.toggled.connect(self._on_split_toggled)
 
-        self.expand_btn = QPushButton("⊞")
+        self.expand_btn = QPushButton()
+        self.expand_btn.setIcon(_icons.icon("mdi.unfold-more-horizontal", color=str(SUBTEXT)))
+        self.expand_btn.setIconSize(_QSize(14, 14))
         self.expand_btn.setFixedSize(22, 22)
         self.expand_btn.setToolTip("Expand all")
-        self.expand_btn.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;font-size:14px;}}"
-            f"QPushButton:hover{{color:{TEXT};}}"
-        )
+        self.expand_btn.setStyleSheet(icon_btn_ss)
         self.expand_btn.clicked.connect(self.tree.expandAll)
 
-        self.collapse_btn = QPushButton("⊟")
+        self.collapse_btn = QPushButton()
+        self.collapse_btn.setIcon(_icons.icon("mdi.unfold-less-horizontal", color=str(SUBTEXT)))
+        self.collapse_btn.setIconSize(_QSize(14, 14))
         self.collapse_btn.setFixedSize(22, 22)
         self.collapse_btn.setToolTip("Collapse all")
-        self.collapse_btn.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;font-size:14px;}}"
-            f"QPushButton:hover{{color:{TEXT};}}"
-        )
+        self.collapse_btn.setStyleSheet(icon_btn_ss)
         self.collapse_btn.clicked.connect(self.tree.collapseAll)
 
         hl.addWidget(self.scan_split_btn)
@@ -133,7 +141,7 @@ class FolderPanel(QWidget):
         ratio = tb / (root_bytes or 1)
         color = self._size_color(ratio)
 
-        name_item = QStandardItem(f"📁 {name}")
+        name_item = QStandardItem(_icons.icon("folder", color=str(ACCENT)), name)
         name_item.setData(path_str, Qt.UserRole)
         name_item.setData(name.lower(), Qt.UserRole + 1)
         name_item.setToolTip(path_str)
@@ -220,7 +228,7 @@ class FolderPanel(QWidget):
                 ratio   = scan_tb / root_bytes
                 color   = self._size_color(ratio)
 
-                scan_name_item = QStandardItem(f"💾 {label}")
+                scan_name_item = QStandardItem(_icons.icon("database", color=str(ACCENT)), label)
                 scan_name_item.setData("", Qt.UserRole)
                 scan_name_item.setData(label.lower(), Qt.UserRole + 1)
                 scan_name_item.setToolTip(f"Scan: {label}")

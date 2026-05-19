@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
 from ..dialogs import AnalysisFiltersDialog
+from .. import icons as _icons
 from ..workers import AnalysisWorker
 from .process import ProcessRegistry
 from ...core.db import (
@@ -156,7 +157,8 @@ class FolderGroupCard(QFrame):
 
             frow = QHBoxLayout()
             frow.setSpacing(6)
-            icon_lbl = QLabel("📁")
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(_icons.pixmap("folder", 14, color=str(SUBTEXT)))
             icon_lbl.setFixedWidth(18)
             frow.addWidget(icon_lbl)
 
@@ -188,22 +190,38 @@ class FolderGroupCard(QFrame):
             frow.addWidget(ob)
             lay.addLayout(frow)
 
+        def _metric_chip(icon_name: str, label: str, value_pct: int,
+                         text_color: str, border_color: str) -> QWidget:
+            wrap = QFrame()
+            wrap.setStyleSheet(
+                f"QFrame{{color:{text_color};background:{DARK_BG};"
+                f"border:1px solid {border_color};border-radius:5px;}}"
+            )
+            wl = QHBoxLayout(wrap)
+            wl.setContentsMargins(6, 1, 6, 1)
+            wl.setSpacing(4)
+            ico = QLabel()
+            ico.setPixmap(_icons.pixmap(icon_name, 11, color=text_color))
+            wl.addWidget(ico)
+            txt = QLabel(f"{label} {value_pct}%")
+            txt.setStyleSheet(f"color:{text_color};border:none;font-size:10px;background:transparent;")
+            wl.addWidget(txt)
+            return wrap
+
         sigs = QHBoxLayout()
         sigs.setSpacing(6)
-        for icon, key in (("📛 Names", "name_score"), ("📦 Exts", "ext_score"), ("⚖️ Size", "size_score")):
-            c = QLabel(f"{icon} {int(r.get(key, 0)*100)}%")
-            c.setStyleSheet(
-                f"color:{SUBTEXT};background:{DARK_BG};border:1px solid {BORDER:22};"
-                f"border-radius:5px;padding:1px 6px;font-size:10px;"
-            )
-            sigs.addWidget(c)
+        for icon_name, label, key in (
+            ("tag",     "Names", "name_score"),
+            ("package", "Exts",  "ext_score"),
+            ("scale",   "Size",  "size_score"),
+        ):
+            pct = int(r.get(key, 0) * 100)
+            sigs.addWidget(_metric_chip(icon_name, label, pct, str(SUBTEXT), f"{BORDER:22}"))
         if r.get("hash_score", 0) > 0:
-            hc = QLabel(f"🔑 Hashes {int(r['hash_score']*100)}%")
-            hc.setStyleSheet(
-                f"color:{GREEN};background:{DARK_BG};border:1px solid {GREEN:44};"
-                f"border-radius:5px;padding:1px 6px;font-size:10px;"
-            )
-            sigs.addWidget(hc)
+            sigs.addWidget(_metric_chip(
+                "mdi.key-variant", "Hashes", int(r["hash_score"] * 100),
+                str(GREEN), f"{GREEN:44}",
+            ))
         if r.get("shared_names", 0):
             sigs.addWidget(QLabel(f"  {r['shared_names']} shared names"))
         if r.get("shared_hashes", 0):
@@ -288,7 +306,10 @@ class SimilarFoldersPanel(QWidget):
         cl = QHBoxLayout(ctrl)
         cl.setContentsMargins(16, 0, 16, 0)
         cl.setSpacing(10)
-        title = QLabel("🗂  Similar & Duplicate Folder Detector")
+        title_icon = QLabel()
+        title_icon.setPixmap(_icons.pixmap("similar", 18, color=str(TEXT)))
+        cl.addWidget(title_icon)
+        title = QLabel("Similar & Duplicate Folder Detector")
         title.setStyleSheet(f"color:{TEXT};font-weight:bold;font-size:13px;")
         cl.addWidget(title)
         cl.addStretch()
@@ -317,18 +338,25 @@ class SimilarFoldersPanel(QWidget):
             f"QPushButton:disabled{{color:{BORDER};}}"
         )
 
-        self.filters_btn = QPushButton("🔧 Filters")
+        from PySide6.QtCore import QSize as _QSize
+        self.filters_btn = QPushButton("Filters")
+        self.filters_btn.setIcon(_icons.icon("filters", color=str(SUBTEXT)))
+        self.filters_btn.setIconSize(_QSize(14, 14))
         self.filters_btn.setStyleSheet(_ghost_ss)
         self.filters_btn.clicked.connect(self._open_filters_dialog)
         cl.addWidget(self.filters_btn)
 
-        self.history_btn = QPushButton("📜 History")
+        self.history_btn = QPushButton("History")
+        self.history_btn.setIcon(_icons.icon("mdi.history", color=str(SUBTEXT)))
+        self.history_btn.setIconSize(_QSize(14, 14))
         self.history_btn.setStyleSheet(_ghost_ss)
         self.history_btn.clicked.connect(self._show_history_menu)
         self.history_btn.setEnabled(False)
         cl.addWidget(self.history_btn)
 
-        self.analyze_btn = QPushButton("⚡ Analyze")
+        self.analyze_btn = QPushButton("Analyze")
+        self.analyze_btn.setIcon(_icons.icon("scan", color="#ffffff"))
+        self.analyze_btn.setIconSize(_QSize(14, 14))
         self.analyze_btn.setStyleSheet(
             f"QPushButton{{background:{ACCENT};color:white;border:none;"
             f"border-radius:6px;padding:6px 16px;font-weight:bold;}}"
@@ -421,7 +449,7 @@ class SimilarFoldersPanel(QWidget):
         self.cards_lay = QVBoxLayout(self.cards_widget)
         self.cards_lay.setContentsMargins(0, 8, 0, 16)
         self.cards_lay.setSpacing(4)
-        self.empty_lbl = QLabel("Scan a folder first, then click ⚡ Analyze to find similar folders.")
+        self.empty_lbl = QLabel("Scan a folder first, then click Analyze to find similar folders.")
         self.empty_lbl.setAlignment(Qt.AlignCenter)
         self.empty_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:13px;padding:60px;")
         self.cards_lay.addWidget(self.empty_lbl)
@@ -561,7 +589,7 @@ class SimilarFoldersPanel(QWidget):
             lc[r["label"]] = lc.get(r["label"], 0) + 1
         summary = (
             f"Found {len(self._results)} groups:  " + "  ·  ".join(f"{v} {k}" for k, v in lc.items())
-            if self._results else "No similar folders found above the threshold. 🎉"
+            if self._results else "No similar folders found above the threshold."
         )
         self.status_message.emit(summary)
 
@@ -592,7 +620,7 @@ class SimilarFoldersPanel(QWidget):
 
         if not results:
             msg = ("No groups match the current filters." if self._results
-                   else "No similar folders found above the threshold. 🎉")
+                   else "No similar folders found above the threshold.")
             self.empty_lbl.setText(msg)
             self.empty_lbl.show()
             self.footer.setText("No matches found.")
@@ -621,7 +649,7 @@ class SimilarFoldersPanel(QWidget):
         self.empty_lbl.setText(f"Error: {msg}")
         self.empty_lbl.show()
         self.footer.setText("Analysis failed.")
-        self.status_message.emit(f"⚠ Analysis error: {msg}")
+        self.status_message.emit(f"Analysis error: {msg}")
 
     def _open_filters_dialog(self) -> None:
         dlg = AnalysisFiltersDialog(self, self._filters)
@@ -631,12 +659,12 @@ class SimilarFoldersPanel(QWidget):
 
     def _refresh_filters_btn(self) -> None:
         n = sum(1 for k in FILTER_KEYS if self._filters.get(k))
-        self.filters_btn.setText(f"🔧 Filters ({n})" if n else "🔧 Filters")
+        self.filters_btn.setText(f"Filters ({n})" if n else "Filters")
 
     def _refresh_history_btn(self) -> None:
         runs = list_analysis_runs(self._db_path) if self._db_path else []
         n = len(runs)
-        self.history_btn.setText(f"📜 History ({n})" if n else "📜 History")
+        self.history_btn.setText(f"History ({n})" if n else "History")
         self.history_btn.setEnabled(bool(self._db_path) and n > 0)
 
     def _show_history_menu(self) -> None:
@@ -670,7 +698,7 @@ class SimilarFoldersPanel(QWidget):
                 act.triggered.connect(lambda _checked=False, rid=r["id"]: self._load_run(rid))
                 menu.addAction(act)
             menu.addSeparator()
-            clear_act = QAction("🗑 Delete all saved runs…", menu)
+            clear_act = QAction(_icons.icon("delete"), "Delete all saved runs…", menu)
             clear_act.triggered.connect(self._clear_history)
             menu.addAction(clear_act)
         menu.exec(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
@@ -680,7 +708,7 @@ class SimilarFoldersPanel(QWidget):
             return
         run = load_analysis_run(self._db_path, run_id)
         if run is None:
-            self.status_message.emit(f"⚠ Saved run #{run_id} not found.")
+            self.status_message.emit(f"Saved run #{run_id} not found.")
             return
 
         self.min_spin.setValue(run["min_files"])

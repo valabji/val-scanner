@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListMo
 from PySide6.QtGui import QColor, QFont, QPixmap, QPainter, QBrush
 
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, SUBTEXT
+from . import icons as _icons
 
 COLUMNS = ["Filename", "Category", "Size", "Modified", "Tags", "Path"]
 COL_IDX = {c: i for i, c in enumerate(COLUMNS)}
@@ -84,7 +85,7 @@ class FileTableModel(QAbstractTableModel):
 
         if row[2] == _FOLDER_SENTINEL:
             mapping = {
-                COL_IDX["Filename"]: f"📁  {row[1]}",
+                COL_IDX["Filename"]: row[1],
                 COL_IDX["Category"]: "folder",
                 COL_IDX["Size"]:     row[4],
                 COL_IDX["Modified"]: "",
@@ -93,6 +94,8 @@ class FileTableModel(QAbstractTableModel):
             }
             if role == Qt.DisplayRole:
                 return mapping.get(col, "")
+            if role == Qt.DecorationRole and col == COL_IDX["Filename"]:
+                return _icons.icon("folder", color=str(ACCENT))
             if role == Qt.ForegroundRole:
                 if col == COL_IDX["Category"]:
                     return QColor(ACCENT)
@@ -119,6 +122,9 @@ class FileTableModel(QAbstractTableModel):
         }
         if role == Qt.DisplayRole:
             return mapping.get(col, "")
+        if role == Qt.DecorationRole and col == COL_IDX["Filename"]:
+            cat = row[2]
+            return _icons.icon(f"cat-{cat}", color=CATEGORY_COLORS.get(cat, str(SUBTEXT)))
         if role == Qt.ForegroundRole:
             if col == COL_IDX["Category"]:
                 return QColor(CATEGORY_COLORS.get(row[2], "#9E9E9E"))
@@ -175,12 +181,19 @@ def _make_cat_pixmap(category: str, size: int) -> QPixmap:
     p.setPen(Qt.NoPen)
     r = max(2, dim // 5)
     p.drawRoundedRect(0, 0, dim, dim, r, r)
-    p.setPen(QColor("white"))
-    f = QFont()
-    f.setPixelSize(max(9, dim // 2))
-    f.setBold(True)
-    p.setFont(f)
-    p.drawText(QRect(0, 0, dim, dim), Qt.AlignCenter, (category or "?")[0].upper())
+    glyph_size = max(12, int(dim * 0.55))
+    glyph = _icons.pixmap(f"cat-{category}", glyph_size, color="#ffffff")
+    if not glyph.isNull():
+        gx = (dim - glyph.width()) // 2
+        gy = (dim - glyph.height()) // 2
+        p.drawPixmap(gx, gy, glyph)
+    else:
+        p.setPen(QColor("white"))
+        f = QFont()
+        f.setPixelSize(max(9, dim // 2))
+        f.setBold(True)
+        p.setFont(f)
+        p.drawText(QRect(0, 0, dim, dim), Qt.AlignCenter, (category or "?")[0].upper())
     p.end()
     return px
 
@@ -245,11 +258,16 @@ class FileIconModel(QAbstractListModel):
         row = self._rows[index.row()]
         is_folder = (row[2] == _FOLDER_SENTINEL)
         if role == Qt.DisplayRole:
-            return ("📁  " + row[1]) if is_folder else row[1]
+            return row[1]
+        if role == Qt.DecorationRole:
+            if is_folder:
+                return _icons.icon("folder", color=str(ACCENT))
+            cat = row[2]
+            return _icons.icon(f"cat-{cat}", color=CATEGORY_COLORS.get(cat, str(SUBTEXT)))
         if role == Qt.UserRole:
             return row
         if role == Qt.ToolTipRole:
             if is_folder:
-                return f"📁 {row[1]}\n{row[4]}  ·  {row[6]}\n{row[0]}"
+                return f"{row[1]}\n{row[4]}  ·  {row[6]}\n{row[0]}"
             return f"{row[1]}\n{row[4]}  ·  {row[2]}\n{row[0]}"
         return None

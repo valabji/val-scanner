@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW
+from .. import icons as _icons
 
 # Module-level constants
 FREEZE_THRESHOLD_SECS = 30
@@ -222,7 +223,10 @@ class ProcessPanel(QDockWidget):
         hl.setContentsMargins(12, 0, 8, 0)
         hl.setSpacing(6)
 
-        title = QLabel("⚙  Processes")
+        title_icon = QLabel()
+        title_icon.setPixmap(_icons.pixmap("settings", 14, color=str(TEXT)))
+        hl.addWidget(title_icon)
+        title = QLabel("Processes")
         title.setStyleSheet(f"color: {TEXT}; font-weight: bold; font-size: 12px;")
         hl.addWidget(title)
         hl.addStretch()

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, RED, SEL_BG, SEL_TEXT
 from ...core.db import list_scans, delete_scan
 from ...core.schema import human_size
+from .. import icons as _icons
 
 
 class ScansPanel(QWidget):
@@ -31,7 +32,11 @@ class ScansPanel(QWidget):
         hdr.setFixedHeight(44)
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(16, 0, 16, 0)
-        title = QLabel("📦  Scan Sessions")
+        hl.setSpacing(8)
+        title_icon = QLabel()
+        title_icon.setPixmap(_icons.pixmap("package", 18, color=str(TEXT)))
+        hl.addWidget(title_icon)
+        title = QLabel("Scan Sessions")
         title.setStyleSheet(f"color:{TEXT};font-weight:bold;font-size:13px;")
         hl.addWidget(title)
         hl.addStretch()
@@ -104,7 +109,7 @@ class ScansPanel(QWidget):
             date_item  = QStandardItem(s["scanned_at"])
             files_item = QStandardItem(f"{s['file_count']:,}")
             size_item  = QStandardItem(s["total_human"] or human_size(s["total_bytes"]))
-            del_item   = QStandardItem("🗑 Delete")
+            del_item   = QStandardItem(_icons.icon("delete", color=str(RED)), "Delete")
 
             for item in (sid, label_item, root_item, date_item, files_item, size_item):
                 item.setForeground(QColor(TEXT))

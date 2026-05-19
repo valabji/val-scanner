@@ -29,11 +29,14 @@ hidden = collect_submodules("valscanner")
 # Collect web static assets (SPA build output)
 _web_datas = collect_data_files('valscanner.web', includes=['static/**/*'])
 
+# qtawesome ships its icon fonts as package data — bundle the .ttf + charmap .json files.
+_qta_datas = collect_data_files('qtawesome', includes=['fonts/*'])
+
 a = Analysis(
     ["app_entry.py"],
     pathex=["."],
     binaries=[],
-    datas=_web_datas,
+    datas=_web_datas + _qta_datas,
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},

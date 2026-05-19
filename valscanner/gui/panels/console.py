@@ -4,6 +4,7 @@ from datetime import datetime
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit
 
 from ..constants import PANEL_BG, BORDER, SUBTEXT, TEXT, GREEN, YELLOW, RED
+from .. import icons as _icons
 
 
 class _StderrBridge:
@@ -47,7 +48,11 @@ class ConsolePanel(QWidget):
         hdr.setStyleSheet(f"background:{PANEL_BG};border-top:1px solid {BORDER};")
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(12, 0, 8, 0)
-        title = QLabel("🖥  Console")
+        hl.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(_icons.pixmap("console", 14, color=str(SUBTEXT)))
+        hl.addWidget(icon)
+        title = QLabel("Console")
         title.setStyleSheet(f"color:{SUBTEXT};font-size:11px;font-weight:bold;")
         hl.addWidget(title)
         hl.addStretch()

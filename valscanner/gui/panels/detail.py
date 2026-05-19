@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import CATEGORY_COLORS, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
+from .. import icons as _icons
 
 
 class TagChip(QLabel):
@@ -53,9 +54,10 @@ class DetailPanel(QWidget):
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(10)
 
-        self.icon_label = QLabel("📄")
+        self.icon_label = QLabel()
         self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setStyleSheet("font-size: 48px;")
+        self.icon_label.setMinimumHeight(72)
+        self.icon_label.setPixmap(_icons.pixmap("file", 64, color=str(SUBTEXT)))
         lay.addWidget(self.icon_label)
 
         self.name_label = QLabel("Select a file")
@@ -115,7 +117,8 @@ class DetailPanel(QWidget):
         self.open_btn.hide()
         lay.addWidget(self.open_btn)
 
-        self.sample_btn = QPushButton("▶  Play Sample")
+        self.sample_btn = QPushButton("Play Sample")
+        self.sample_btn.setIcon(_icons.icon("play", color=str(GREEN)))
         self.sample_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; color: {GREEN};
@@ -144,13 +147,6 @@ class DetailPanel(QWidget):
         self._current_path = row[0]
         cat = row[2]
 
-        icons = {
-            "photo": "🖼️", "video": "🎬", "audio": "🎵",
-            "document": "📄", "spreadsheet": "📊", "presentation": "📑",
-            "code": "💻", "data": "🗃️", "archive": "📦",
-            "executable": "⚙️", "font": "🔤", "ebook": "📚",
-        }
-
         thumb_loaded = False
         if self._db_path and cat in ("photo", "image", "video"):
             try:
@@ -166,14 +162,12 @@ class DetailPanel(QWidget):
                     self.icon_label.setPixmap(
                         px.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     )
-                    self.icon_label.setStyleSheet("font-size: 0px;")
                     thumb_loaded = True
             except Exception:
                 pass
         if not thumb_loaded:
-            self.icon_label.clear()
-            self.icon_label.setText(icons.get(cat, "📄"))
-            self.icon_label.setStyleSheet("font-size: 48px;")
+            cat_color = CATEGORY_COLORS.get(cat, str(SUBTEXT))
+            self.icon_label.setPixmap(_icons.pixmap(f"cat-{cat}", 64, color=cat_color))
 
         self.name_label.setText(row[1])
         color = CATEGORY_COLORS.get(cat, "#9E9E9E")
