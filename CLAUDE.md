@@ -28,6 +28,42 @@ cd web-ui && npm run dev            # terminal 2 — Vite on :5173
 valscanner-web --db my.db           # serves built app on :7070
 ```
 
+## Shell command policy (do not trigger permission prompts)
+
+You may run only commands that are either (a) Claude Code's built-in auto-allowed set, or (b) listed in `.claude/settings.local.json` under `permissions.allow`. Anything outside that set will trigger an interactive prompt — **don't do it**. If a task genuinely requires a different command, stop and ask the user to extend the allowlist first; do not attempt the command and absorb the prompt.
+
+### Auto-allowed (no allowlist entry required)
+- **Read-only file ops (any args):** `cat`, `head`, `tail`, `wc`, `stat`, `nl`, `cut`, `tr`, `tac`, `rev`, `fold`, `comm`, `diff`, `cmp`, `od`, `hexdump`, `strings`, `basename`, `dirname`, `realpath`, `readlink`, `numfmt`, `ls`, `find`, `cd`, `expand`, `unexpand`, `fmt`, `paste`, `column`, `pr`.
+- **Read-only system info (any args):** `id`, `uname`, `groups`, `locale`, `nproc`, `free`, `df`, `du`, `getconf`, `true`, `false`, `sleep`, `which`, `type`, `expr`, `test`, `seq`, `tsort`, `echo`, `printf`, `cal`, `uptime`.
+- **Zero-arg only:** `pwd`, `whoami`, `alias`.
+- **Safe flags only (run a sanity check first if unsure):** `grep`, `egrep`, `fgrep`, `rg`, `fd`, `fdfind`, `jq`, `sort`, `uniq`, `xargs`, `file`, `sed` (read-only expressions), `base64`, `sha256sum`, `sha1sum`, `md5sum`, `tree`, `date`, `hostname`, `history`, `ps`, `pgrep`, `lsof`, `netstat`, `ss`, `tput`, `ifconfig`, `arch`, `man`, `help`, `info`, `pyright`.
+- **All git read-only subcommands:** `git status`, `git log`, `git diff`, `git show`, `git blame`, `git branch`, `git tag`, `git remote`, `git ls-files`, `git ls-remote`, `git config --get`, `git rev-parse`, `git describe`, `git stash list`, `git reflog`, `git shortlog`, `git cat-file`, `git for-each-ref`, `git worktree list`.
+- **All gh read-only subcommands:** `gh pr view|list|diff|checks|status`, `gh issue view|list|status`, `gh run view|list`, `gh workflow view|list`, `gh repo view`, `gh release view|list`, `gh api` (GET only), `gh auth status`.
+- **Exact-form only:** `node -v`, `node --version`, `python --version`, `python3 --version`, `ip addr`, `claude -h`, `claude --help`.
+
+### Project-allowed
+
+Read `.claude/settings.local.json` (the `permissions.allow` array) for the current set — it changes over time, so don't rely on a hardcoded copy here. Treat every entry as the literal pattern that would match: an exact form like `Bash(mkdir -p /tmp/vs_fixture)` covers **that command only**, while `Bash(git *)` covers any `git …` invocation.
+
+Caveats that override the allowlist:
+- `Bash(git *)` is broad, but the Git workflow rules below still forbid `git push`, `git reset --hard`, and other destructive operations.
+- Narrow `rm` / `mkdir` entries are scoped to specific paths — do not generalize them to other paths.
+- Prefer the `Read` / `Edit` / `Write` tools over shell equivalents (`cat`, `sed -i`, `tee`) regardless of what's allowlisted.
+
+### When the right tool isn't allowlisted
+
+Reach for a covered alternative first:
+
+| Want to do | Use instead of |
+|---|---|
+| Inspect a file | `Read` tool (or auto-allowed `cat`/`head`/`tail`) — not `less`/`more`/`bat` |
+| Edit a file | `Edit`/`Write` tool — not `sed -i`/`tee`/`>` redirection |
+| Search code | `grep`/`rg` (auto-allowed) — not custom shell loops |
+| List directory tree | `ls`/`find`/`tree` (auto-allowed) — not `du -a` workarounds |
+| Delete a temp file | Work inside `/tmp/vs_fixture` (the one allowed `rm` target) |
+| Install a new dep | `pip install …` or `npm install …` (both allowlisted) |
+| Anything else | **Skip silently and keep working.** Don't run the command, don't pop a permission prompt, don't interrupt to ask. Collect the missing pattern in an end-of-turn "permissions to consider" bullet so the user can extend the allowlist on their own schedule. Only halt the whole task if the missing capability genuinely blocks progress — and even then, propose the allowlist entry first instead of running the command. |
+
 ## Architecture
 
 ### Package layout
