@@ -7,6 +7,8 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from .app_settings import active_url
+from .bootstrap import ensure_schema
 from .categories import EXT_CATEGORY, MIME_CATEGORY
 from .db import repo_for
 from .exceptions import DuplicateRecordError
@@ -49,6 +51,10 @@ def scan(
     scan_id: int | None = None,
     on_progress: Callable[[dict], None] | None = None,
 ) -> dict:
+    # `scan()` is the top-level entry for indexing. CLI/web/GUI callers run
+    # `ensure_schema` at startup, but tests and direct API users call us with
+    # a bare URL — make sure the schema exists either way. Idempotent.
+    ensure_schema(active_url(db_path))
     repo = repo_for(db_path)
 
     now        = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

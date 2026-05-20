@@ -65,13 +65,12 @@ def create_app(db_path_or_url: str) -> FastAPI:
                                     "detail": f"unknown api route: /api/{rest}"})
 
     try:
-        import sys as _sys
-        if _sys.version_info >= (3, 9):
-            from importlib.resources import files as _pkg_files
+        try:
+            from importlib.resources import files as _pkg_files  # type: ignore[attr-defined]
             static_path = str(_pkg_files("valscanner.web") / "static")
-        else:
-            import importlib.resources as _pkg_res
-            static_path = str(_pkg_res.path("valscanner.web", "static").__enter__())
+        except ImportError:
+            # Python 3.8 fallback — locate static/ relative to this module.
+            static_path = str(Path(__file__).resolve().parent / "static")
         index_html = Path(static_path) / "index.html"
         if index_html.is_file():
             from fastapi.staticfiles import StaticFiles

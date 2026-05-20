@@ -4,7 +4,7 @@ import os
 import pytest
 
 from valscanner.core.db_config import make_engine, reset_engines
-from valscanner.core.schema import drop_all
+from valscanner.core.schema import create_all, drop_all
 from valscanner.core.repository import Repository
 from valscanner.core.db import reset_repos
 
@@ -12,6 +12,7 @@ from valscanner.core.db import reset_repos
 @pytest.fixture
 def sqlite_repo():
     engine = make_engine("sqlite:///:memory:")
+    create_all(engine)
     repo = Repository(engine)
     yield repo
     drop_all(engine)
@@ -31,6 +32,7 @@ def pg_url():
 def pg_repo(pg_url):
     engine = make_engine(pg_url)
     drop_all(engine)
+    create_all(engine)
     repo = Repository(engine)
     yield repo
     drop_all(engine)

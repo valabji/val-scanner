@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from urllib.parse import quote, quote_plus, urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from platformdirs import user_config_dir
 

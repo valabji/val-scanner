@@ -22,6 +22,21 @@ from .core.export import export_csv, export_json
 from .core.db import query_db, print_summary, list_scans, delete_scan
 
 
+def _export_stem(db_arg: str | None) -> str:
+    """Filename stem for --export-csv / --export-json outputs.
+
+    A SQLAlchemy URL (e.g. postgresql://user:pw@host/db) must never reach the
+    filename — it would embed credentials. Only treat the arg as a path stem
+    when it looks like a plain filesystem path.
+    """
+    if not db_arg:
+        return "scan"
+    if "://" in db_arg:
+        return "scan"
+    stem = Path(db_arg).stem
+    return stem or "scan"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Scan a directory and build a searchable file database.",
@@ -93,7 +108,7 @@ def main() -> None:
 
     print_summary(url)
 
-    db_stem = (args.db or "scan").replace(".db", "")
+    db_stem = _export_stem(args.db)
     if args.export_csv:
         export_csv(url, f"{db_stem}.csv", scan_id=stats["scan_id"])
     if args.export_json:
