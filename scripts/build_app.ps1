@@ -28,7 +28,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoDir   = Split-Path -Parent $ScriptDir
 $AppName   = "ValScanner"
-$Version   = "0.1.4"
+$Version   = "0.1.5"
 
 function Write-Info    { Write-Host "[build] $args" -ForegroundColor Cyan }
 function Write-Success { Write-Host "[build] $args" -ForegroundColor Green }
