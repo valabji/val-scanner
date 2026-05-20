@@ -349,3 +349,29 @@ class BrowserLoadWorker(QThread):
             })
         except Exception as e:
             self.error.emit(str(e))
+
+
+class ConnectWorker(QThread):
+    """Non-blocking database connect + initial summary load.
+
+    Signals
+    -------
+    connected : emitted with {"url": str, "summary": dict} on success
+    error     : emitted with a masked error message string on failure
+    """
+    connected = Signal(dict)
+    error     = Signal(str)
+
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
+
+    def run(self) -> None:
+        try:
+            from ..core.db import repo_for
+            repo    = repo_for(self.url)
+            summary = repo.summary()
+            self.connected.emit({"url": self.url, "summary": summary})
+        except Exception as exc:
+            from ..core.app_settings import mask_url
+            self.error.emit(mask_url(str(exc)))

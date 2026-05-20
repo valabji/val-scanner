@@ -1,10 +1,15 @@
 from __future__ import annotations
+from urllib.parse import quote
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QCheckBox, QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit,
-    QDialogButtonBox, QFrame, QPushButton, QGridLayout,
+    QButtonGroup, QDialog, QDialogButtonBox, QFileDialog,
+    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QRadioButton, QSizePolicy, QStackedWidget,
+    QVBoxLayout, QWidget,
+    QCheckBox, QSpinBox, QDoubleSpinBox, QComboBox,
+    QDialogButtonBox, QFrame, QGridLayout,
 )
 
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER
@@ -564,3 +569,188 @@ class AnalysisFiltersDialog(QDialog):
 
     def get_filters(self) -> dict:
         return {key: chk.isChecked() for key, chk in self._chks.items()}
+
+
+class DatabaseSettingsDialog(QDialog):
+    """Modal dialog for switching between SQLite and PostgreSQL backends.
+
+    Emits `settings_saved` after a successful save so the caller can reload
+    without restarting the app.
+    """
+
+    settings_saved = Signal()
+
+    def __init__(self, parent=None):
+        from ..core import app_settings as _as
+        super().__init__(parent)
+        self.setWindowTitle("Database Settings")
+        self.setMinimumWidth(460)
+        self.setModal(True)
+        self._current = _as.load()
+        self._build_ui()
+        self._load_values()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setSpacing(16)
+
+        backend_box = QGroupBox("Backend")
+        bl = QHBoxLayout(backend_box)
+        self._rb_sqlite = QRadioButton("SQLite  (default, no setup required)")
+        self._rb_pg     = QRadioButton("PostgreSQL  (local install required)")
+        self._bg = QButtonGroup(self)
+        self._bg.addButton(self._rb_sqlite, 0)
+        self._bg.addButton(self._rb_pg,     1)
+        bl.addWidget(self._rb_sqlite)
+        bl.addWidget(self._rb_pg)
+        root.addWidget(backend_box)
+
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_sqlite_panel())   # index 0
+        self._stack.addWidget(self._build_pg_panel())       # index 1
+        root.addWidget(self._stack)
+
+        test_row = QHBoxLayout()
+        self._btn_test   = QPushButton("Test Connection")
+        self._lbl_status = QLabel("—")
+        self._lbl_status.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        test_row.addWidget(self._btn_test)
+        test_row.addWidget(self._lbl_status)
+        root.addLayout(test_row)
+
+        self._buttons    = QDialogButtonBox()
+        self._btn_cancel = self._buttons.addButton(QDialogButtonBox.Cancel)
+        self._btn_save   = self._buttons.addButton("Save && Reload", QDialogButtonBox.AcceptRole)
+        root.addWidget(self._buttons)
+
+        self._bg.idClicked.connect(self._on_backend_changed)
+        self._btn_test.clicked.connect(lambda: self._test_connection(self._build_url()))
+        self._btn_cancel.clicked.connect(self.reject)
+        self._btn_save.clicked.connect(self._save)
+
+    def _build_sqlite_panel(self) -> QWidget:
+        panel = QWidget()
+        box = QGroupBox("SQLite", panel)
+        fl = QFormLayout(box)
+        self._sqlite_path = QLineEdit()
+        self._sqlite_path.setPlaceholderText("/Users/you/valscanner.db")
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse_sqlite)
+        row = QHBoxLayout()
+        row.addWidget(self._sqlite_path)
+        row.addWidget(browse)
+        fl.addRow("File path", row)
+        outer = QVBoxLayout(panel)
+        outer.addWidget(box)
+        return panel
+
+    def _build_pg_panel(self) -> QWidget:
+        panel = QWidget()
+        box = QGroupBox("PostgreSQL", panel)
+        fl = QFormLayout(box)
+        self._pg_host = QLineEdit(); self._pg_host.setPlaceholderText("localhost")
+        fl.addRow("Host", self._pg_host)
+        self._pg_port = QLineEdit()
+        self._pg_port.setValidator(QIntValidator(1, 65535, self))
+        self._pg_port.setMaximumWidth(80)
+        fl.addRow("Port", self._pg_port)
+        self._pg_db = QLineEdit(); self._pg_db.setPlaceholderText("valscanner")
+        fl.addRow("Database", self._pg_db)
+        self._pg_user = QLineEdit()
+        fl.addRow("User", self._pg_user)
+        pw_row = QHBoxLayout()
+        self._pg_pw   = QLineEdit(); self._pg_pw.setEchoMode(QLineEdit.Password)
+        self._btn_show = QPushButton("Show"); self._btn_show.setCheckable(True)
+        self._btn_show.setMaximumWidth(56)
+        self._btn_show.toggled.connect(
+            lambda on: self._pg_pw.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password)
+        )
+        pw_row.addWidget(self._pg_pw); pw_row.addWidget(self._btn_show)
+        fl.addRow("Password", pw_row)
+        outer = QVBoxLayout(panel)
+        outer.addWidget(box)
+        hint = QLabel(
+            "Password is stored in the OS keyring. Falls back to plaintext "
+            "in settings.json if your platform lacks one."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888; font-size: 11px;")
+        outer.addWidget(hint)
+        return panel
+
+    def _load_values(self):
+        s = self._current
+        if s["db_backend"] == "postgresql":
+            self._rb_pg.setChecked(True); self._stack.setCurrentIndex(1)
+        else:
+            self._rb_sqlite.setChecked(True); self._stack.setCurrentIndex(0)
+        self._sqlite_path.setText(s.get("sqlite_path", "~/valscanner.db"))
+        self._pg_host.setText(s.get("pg_host", "localhost"))
+        self._pg_port.setText(str(s.get("pg_port", 5432)))
+        self._pg_db.setText(s.get("pg_database", "valscanner"))
+        self._pg_user.setText(s.get("pg_user", ""))
+        self._pg_pw.setText(s.get("pg_password", ""))
+
+    def _on_backend_changed(self, index: int):
+        self._stack.setCurrentIndex(index)
+        self._lbl_status.setText("—"); self._lbl_status.setStyleSheet("")
+
+    def _browse_sqlite(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Choose SQLite database file", self._sqlite_path.text(),
+            "SQLite Database (*.db);;All Files (*)",
+        )
+        if path:
+            self._sqlite_path.setText(path)
+
+    def _test_connection(self, url: str) -> bool:
+        from sqlalchemy import text as sa_text
+        from ..core.db_config import make_engine
+        from ..core.app_settings import mask_url
+        try:
+            engine = make_engine(url)
+            with engine.connect() as conn:
+                conn.execute(sa_text("SELECT 1"))
+            engine.dispose()
+            self._lbl_status.setText("Connected ✓")
+            self._lbl_status.setStyleSheet("color: #4caf50; font-weight: bold;")
+            return True
+        except Exception as exc:
+            short = mask_url(str(exc).split("\n")[0])[:160]
+            self._lbl_status.setText(f"Error: {short}")
+            self._lbl_status.setStyleSheet("color: #f44336;")
+            return False
+
+    def _save(self):
+        url = self._build_url()
+        if not self._test_connection(url):
+            return
+        from ..core import app_settings as _as
+        from ..core.db_config import reset_engines
+        from ..core.db import reset_repos
+        s = {
+            "db_backend":  "postgresql" if self._rb_pg.isChecked() else "sqlite",
+            "sqlite_path": self._sqlite_path.text().strip(),
+            "pg_host":     self._pg_host.text().strip() or "localhost",
+            "pg_port":     int(self._pg_port.text() or "5432"),
+            "pg_database": self._pg_db.text().strip() or "valscanner",
+            "pg_user":     self._pg_user.text().strip(),
+            "pg_password": self._pg_pw.text(),
+        }
+        _as.save(s)
+        reset_engines()
+        reset_repos()
+        self.settings_saved.emit()
+        self.accept()
+
+    def _build_url(self) -> str:
+        from pathlib import Path
+        if self._rb_pg.isChecked():
+            user = quote(self._pg_user.text().strip(), safe="")
+            pw   = quote(self._pg_pw.text(), safe="")
+            auth = f"{user}:{pw}@" if user else ""
+            host = self._pg_host.text().strip() or "localhost"
+            port = self._pg_port.text() or "5432"
+            db   = self._pg_db.text().strip() or "valscanner"
+            return f"postgresql://{auth}{host}:{port}/{db}"
+        return f"sqlite:///{Path(self._sqlite_path.text().strip()).expanduser().as_posix()}"

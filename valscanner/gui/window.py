@@ -29,8 +29,8 @@ from .constants import (
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX, make_folder_row, _FOLDER_SENTINEL
 from . import icons as _icons
 from .delegates import FileCardDelegate, FileRowDelegate
-from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, PAGE_SIZE
-from .dialogs import ScanOptionsDialog, ViewFiltersDialog
+from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, ConnectWorker, PAGE_SIZE
+from .dialogs import ScanOptionsDialog, ViewFiltersDialog, DatabaseSettingsDialog
 from .panels.detail import DetailPanel
 from .panels.folders import FolderPanel
 from .panels.similar import SimilarFoldersPanel
@@ -39,9 +39,12 @@ from .panels.console import ConsolePanel, _StderrBridge
 from .panels.process import ProcessPanel, ProcessRegistry
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
 from ..core.export import export_csv, export_json
-from ..core.db import list_scans
+from ..core.db import list_scans, reset_repos
+from ..core.db_config import reset_engines
 from ..core.schema import human_size
 from ..core.scanner import _SYSTEM_DIRS, _CACHE_DIRS, _VCS_DIRS, _BINARY_EXTS, _TEMP_EXTS, _LOG_EXTS
+from ..core import app_settings as _app_settings
+from ..core.app_settings import active_url, mask_url
 
 
 class MainWindow(QMainWindow):
@@ -50,6 +53,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ValScanner")
         self.resize(1440, 860)
         self._db_path                = ""
+        self._db_url                 = ""  # authoritative SQLAlchemy URL
+        self._connect_worker: ConnectWorker | None = None
         self._worker                 = None
         self._db_load_worker: DbLoadWorker | None = None
         self._all_rows: list         = []
@@ -264,6 +269,10 @@ class MainWindow(QMainWindow):
         a_pref.triggered.connect(self._open_preferences)
         fm.addAction(a_pref)
 
+        sm = mb.addMenu("Settings")
+        db_action = sm.addAction("Database…")
+        db_action.triggered.connect(self._open_db_settings)
+
         vm        = mb.addMenu("View")
         a_expand  = QAction("Expand All Folders",   self, shortcut="Ctrl+]")
         a_collapse = QAction("Collapse All Folders", self, shortcut="Ctrl+[")
@@ -315,9 +324,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Not found", f"File no longer exists:\n{path}")
             self._rebuild_recent_menu()
             return
-        self.db_edit.setText(path)
-        self._db_path = path
-        self._load_db(path)
+        self._push_recent(path)
+        self._load_url(active_url(path))
 
     def _clear_recent(self) -> None:
         pref_settings().setValue(self._RECENT_KEY, [])
@@ -334,7 +342,7 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self, changed: dict) -> None:
         if "defaultDbPath" in changed:
-            if not self._db_path:
+            if not self._db_url and hasattr(self, "db_edit"):
                 self.db_edit.setText(changed["defaultDbPath"] or "file_index.db")
         if "computeHashesByDefault" in changed:
             self.hash_chk.setChecked(bool(changed["computeHashesByDefault"]))
@@ -493,11 +501,12 @@ class MainWindow(QMainWindow):
         self._toggle_filterbar(_ps.value("panelFilterBarVisible", True, type=bool))
         self._toggle_statsbar(_ps.value("panelStatsBarVisible", True, type=bool))
 
-        if pref_get("openLastDbOnStartup"):
-            recents = self._recent_paths()
-            if recents:
-                from PySide6.QtCore import QTimer as _T
-                _T.singleShot(0, lambda: self._open_recent(recents[0]))
+        # Auto-connect: open recent (SQLite) or active_url() (may be PG)
+        recents = self._recent_paths()
+        if pref_get("openLastDbOnStartup") and recents:
+            QTimer.singleShot(0, lambda: self._load_url(active_url(recents[0])))
+        else:
+            QTimer.singleShot(0, lambda: self._load_url(active_url()))
 
     def closeEvent(self, ev) -> None:
         if pref_get("restoreWindowState"):
@@ -1243,32 +1252,84 @@ class MainWindow(QMainWindow):
             self.db_edit.setText(path)
 
     def _open_db(self) -> None:
-        start = self.db_edit.text().strip() or str(Path.home())
+        start = getattr(self, "db_edit", None)
+        start = (start.text().strip() if start else "") or str(Path.home())
         path, _ = QFileDialog.getOpenFileName(
             self, "Open existing database", start,
             "SQLite databases (*.db);;All files (*)",
         )
-        if not path:
+        if not path or not Path(path).exists():
             return
-        if not Path(path).exists():
-            QMessageBox.warning(self, "Not found", f"File not found:\n{path}")
+        self._push_recent(path)
+        self._load_url(active_url(path))
+
+    def _open_db_settings(self) -> None:
+        dlg = DatabaseSettingsDialog(self)
+        dlg.settings_saved.connect(lambda: self._load_url(active_url()))
+        dlg.exec()
+
+    def _load_url(self, url: str) -> None:
+        """Async entry point: dispatch a ConnectWorker for the given URL."""
+        if not url:
             return
-        try:
-            from sqlalchemy import create_engine, inspect as sa_inspect
-            _chk_engine = create_engine(f"sqlite:///{path}")
-            tables = set(sa_inspect(_chk_engine).get_table_names())
-            _chk_engine.dispose()
-            if "files" not in tables:
-                QMessageBox.warning(self, "Invalid database",
-                                    "This file doesn't look like a ValScanner database.")
-                return
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not open database:\n{e}")
-            self._set_status(f"Error: Could not open database: {e}")
-            return
-        self.db_edit.setText(path)
-        self._db_path = path
-        self._load_db(path)
+        if self._connect_worker and self._connect_worker.isRunning():
+            self._connect_worker.quit()
+
+        self._db_url = url
+        self._set_status("Connecting…")
+        self._set_loading(True)
+
+        self._connect_worker = ConnectWorker(url)
+        self._connect_worker.connected.connect(self._on_connected)
+        self._connect_worker.error.connect(self._on_connect_error)
+        self._connect_worker.start()
+
+    def _set_loading(self, on: bool) -> None:
+        for w in (self.csv_btn, self.json_btn):
+            w.setEnabled(not on)
+
+    def _on_connected(self, result: dict) -> None:
+        self._set_loading(False)
+        url = result["url"]
+        self._db_url  = url
+        display = mask_url(url)
+        self._set_status(f"Connected — {display}")
+        self.setWindowTitle(f"ValScanner — {display}")
+
+        # Derive a local path for legacy code that still needs _db_path.
+        if url.startswith("sqlite:///"):
+            self._db_path = url[len("sqlite:///"):]
+        else:
+            self._db_path = url
+
+        if hasattr(self, "db_edit"):
+            self.db_edit.setText(self._db_path)
+
+        self._load_db_panels(url)
+
+    def _on_connect_error(self, msg: str) -> None:
+        self._set_loading(False)
+        self._set_status(f"Connection failed: {msg}")
+
+    def _load_db_panels(self, url: str) -> None:
+        """Re-feed every panel with the new URL after a successful connect."""
+        self.csv_btn.setEnabled(True)
+        self.json_btn.setEnabled(True)
+        self.similar_panel.set_db(url)
+        self.detail.set_db(url)
+        _THUMB_CACHE.set_db(url)
+        self._refresh_scan_combo()
+        self.scans_panel.load(url)
+        self._load_from_db()
+        self.folder_panel.load(url)
+        self._switch_to_results()
+        display = mask_url(url)
+        if hasattr(self, "db_status_lbl"):
+            self.db_status_lbl.setText(f"  ●  {display}  ")
+            self.db_status_lbl.setStyleSheet(
+                f"color: {GREEN}; font-size: 10px; background: {GREEN:11}; "
+                f"border: 1px solid {GREEN:44}; border-radius: 8px; padding: 2px 10px;"
+            )
 
     def _load_db(self, path: str) -> None:
         self._db_path = path
@@ -1313,8 +1374,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Invalid path", f"Folder not found:\n{root}")
             return
 
-        db = self.db_edit.text().strip() or "file_index.db"
-        self._db_path = db
+        db = self._db_url or self.db_edit.text().strip() or "file_index.db"
+        self._db_path = db if not db.startswith("sqlite:///") else db[len("sqlite:///"):]
         self._clear_folder_filter()
         self.search_edit.clear()
 
@@ -1421,7 +1482,10 @@ class MainWindow(QMainWindow):
                 msg += f", {stats['errors']} errors"
 
         self._set_status(msg)
-        self._load_db(self._db_path)
+        if self._db_url:
+            self._load_db_panels(self._db_url)
+        else:
+            self._load_db(self._db_path)
 
     # ── Load / filter ─────────────────────────────────────────────────────────
 
