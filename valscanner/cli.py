@@ -14,6 +14,8 @@ import time
 import argparse
 from pathlib import Path
 
+from .core.app_settings import active_url, mask_url
+from .core.bootstrap import ensure_schema
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE
 from .core.scanner import scan
 from .core.export import export_csv, export_json
@@ -26,8 +28,9 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("path",           nargs="?", help="Root directory to scan")
-    parser.add_argument("--db",           default="file_index.db",
-                        help="SQLite database path (default: file_index.db)")
+    parser.add_argument("--db",           default=None,
+                        help="SQLite file path or full SQLAlchemy URL "
+                             "(default: configured database)")
     parser.add_argument("--label",        metavar="NAME", default="",
                         help="Human-readable label for this scan")
     parser.add_argument("--export-csv",   action="store_true", help="Export results to CSV")
@@ -39,8 +42,11 @@ def main() -> None:
     parser.add_argument("--delete-scan",  type=int, metavar="ID", help="Delete a scan by ID")
     args = parser.parse_args()
 
+    url = active_url(args.db)
+    ensure_schema(url)
+
     if args.list_scans:
-        scans = list_scans(args.db)
+        scans = list_scans(url)
         if not scans:
             print("No scans in database.")
         for s in scans:
@@ -49,7 +55,7 @@ def main() -> None:
         sys.exit(0)
 
     if args.delete_scan is not None:
-        delete_scan(args.db, args.delete_scan)
+        delete_scan(url, args.delete_scan)
         print(f"✓ Scan {args.delete_scan} deleted.")
         sys.exit(0)
 
@@ -62,7 +68,8 @@ def main() -> None:
         sys.exit(1)
 
     print(f"\n🔎 Scanning: {root}")
-    print(f"   Database: {args.db}")
+    if args.verbose:
+        print(f"   Database: {mask_url(url)}")
     if args.label:
         print(f"   Label:    {args.label}")
     if not PIL_AVAILABLE:
@@ -74,7 +81,7 @@ def main() -> None:
     print()
 
     t0      = time.time()
-    stats   = scan(root, args.db, compute_hash=not args.no_hash,
+    stats   = scan(root, url, compute_hash=not args.no_hash,
                    verbose=args.verbose, label=args.label)
     elapsed = time.time() - t0
 
@@ -84,14 +91,15 @@ def main() -> None:
           f"{stats['errors']:,} errors, "
           f"{stats['skipped']:,} skipped")
 
-    print_summary(args.db)
+    print_summary(url)
 
+    db_stem = (args.db or "scan").replace(".db", "")
     if args.export_csv:
-        export_csv(args.db, args.db.replace(".db", ".csv"), scan_id=stats["scan_id"])
+        export_csv(url, f"{db_stem}.csv", scan_id=stats["scan_id"])
     if args.export_json:
-        export_json(args.db, args.db.replace(".db", ".json"), scan_id=stats["scan_id"])
+        export_json(url, f"{db_stem}.json", scan_id=stats["scan_id"])
     if args.query:
-        query_db(args.db, args.query)
+        query_db(url, args.query)
 
     print(f"  💡 Run with --query photos, --list-scans, or open the GUI:\n"
           f"     valscanner-gui\n")
