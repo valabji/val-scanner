@@ -368,7 +368,12 @@ class ConnectWorker(QThread):
 
     def run(self) -> None:
         try:
+            from ..core.bootstrap import ensure_schema
             from ..core.db import repo_for
+            # Bring the target DB up to head before any read query — otherwise
+            # a fresh PostgreSQL database fails the smoke summary() call with
+            # "relation 'files' does not exist".
+            ensure_schema(self.url)
             repo    = repo_for(self.url)
             summary = repo.summary()
             self.connected.emit({"url": self.url, "summary": summary})

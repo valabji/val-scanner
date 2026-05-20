@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     Float,
     ForeignKey,
@@ -28,7 +29,7 @@ scans = Table(
     Column("root", Text, nullable=False),
     Column("scanned_at", Text, nullable=False),
     Column("file_count", Integer, default=0),
-    Column("total_bytes", Integer, default=0),
+    Column("total_bytes", BigInteger, default=0),
     Column("total_human", Text, default=""),
 )
 
@@ -42,7 +43,7 @@ files = Table(
     Column("extension", Text),
     Column("category", Text),
     Column("mime_type", Text),
-    Column("size_bytes", Integer),
+    Column("size_bytes", BigInteger),
     Column("size_human", Text),
     Column("sha256", Text),
     Column("created_at", Text),
@@ -69,7 +70,7 @@ folders = Table(
     Column("scan_id", Integer, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False),
     Column("path", Text, nullable=False),
     Column("file_count", Integer, default=0),
-    Column("total_bytes", Integer, default=0),
+    Column("total_bytes", BigInteger, default=0),
     Column("total_human", Text),
     Column("indexed_at", Text),
     UniqueConstraint("scan_id", "path", name="uq_folders_scan_path"),

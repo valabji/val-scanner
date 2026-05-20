@@ -1,21 +1,24 @@
 # ValScanner
 
-A recursive file scanner with rich metadata extraction, full-text search, auto-tagging, thumbnail generation, and similar-folder detection — available as both a CLI tool and a PySide6 GUI.
+A recursive file scanner with rich metadata extraction, full-text search, auto-tagging, thumbnail generation, and similar-folder detection — available as a CLI, a PySide6 desktop GUI, and a browser-based Web UI.
 
 ---
 
 ## Features
 
-- **Recursive scan** — indexes every file under a root directory into a local SQLite database
+- **Three front-ends, one database** — CLI for scripting, Qt desktop GUI for everyday browsing, FastAPI + React Web UI for remote / cross-machine viewing
+- **Recursive scan** — indexes every file under a root directory through a backend-agnostic database layer
+- **Multiple database backends** — SQLite (default, zero-config) or local PostgreSQL (optional, better for very large indexes and concurrent access); switch between them through the GUI's Database Settings dialog with no env vars or config-file editing
 - **Rich metadata** — image EXIF, audio tags, PDF page count (optional deps: Pillow, mutagen, PyPDF2)
 - **Thumbnails** — JPEG blobs stored in-database; shown in GUI grid view (requires Pillow or ffmpeg)
 - **Media samples** — short low-quality audio/video clips stored in-database (requires ffmpeg)
 - **Auto-tagging** — rule-based tags from path keywords, filename, size bucket, and extension
-- **Full-text search** — FTS5 virtual table over filenames and paths; live search in the GUI
+- **Full-text search** — FTS5 (SQLite) or `tsvector` + GIN (PostgreSQL); live search in the GUI and Web UI
 - **Similar-folder detection** — pairwise comparison using filename Jaccard + extension cosine + size ratio + SHA-256 Jaccard
 - **View filters** — slice the result set by category, size range, extension, or path pattern without re-scanning
-- **Export** — CSV and JSON from both CLI and GUI
+- **Export** — CSV and JSON from CLI, GUI, and Web UI
 - **Multiple scan sessions** — each scan stored with a label; compare, list, or delete past sessions
+- **Versioned migrations** — schema changes managed by Alembic; v0.1.x databases auto-upgrade in place
 
 ---
 
@@ -24,11 +27,18 @@ A recursive file scanner with rich metadata extraction, full-text search, auto-t
 | Requirement | Version | Role |
 |---|---|---|
 | Python | 3.8+ | runtime |
-| PySide6 | any recent | GUI |
+| PySide6 | any recent | desktop GUI |
+| SQLAlchemy | ≥ 2.0 | dialect-agnostic database access |
+| Alembic | ≥ 1.13 | schema migrations (runs automatically at startup) |
+| keyring | ≥ 24.0 | OS-keychain storage for the PostgreSQL password (falls back to settings.json when no keychain is available) |
+| platformdirs | ≥ 4.0 | locating the per-user settings directory |
 | Pillow *(optional)* | any | image EXIF + thumbnails |
 | mutagen *(optional)* | any | audio metadata (artist, album, duration, …) |
 | PyPDF2 *(optional)* | any | PDF page count |
 | ffmpeg *(optional)* | any | video thumbnails + media samples |
+| psycopg2-binary *(optional)* | ≥ 2.9 | PostgreSQL driver — only needed if you choose the PostgreSQL backend |
+| FastAPI + uvicorn *(optional)* | recent | Web UI HTTP server (`pip install ".[web]"`) |
+| Node.js *(optional)* | ≥ 18 | building the Web UI from source (only needed when developing or producing a release build) |
 
 ---
 
@@ -92,9 +102,14 @@ cd valscanner
 ### pip (manual)
 
 ```bash
-pip install valscanner              # CLI + GUI
+pip install valscanner              # CLI + desktop GUI
 pip install "valscanner[rich]"      # + image EXIF / audio tags / PDF metadata
+pip install "valscanner[web]"       # + FastAPI Web UI server (valscanner-web)
+pip install "valscanner[postgres]"  # + PostgreSQL driver (psycopg2-binary)
+pip install "valscanner[rich,web,postgres]"   # everything
 ```
+
+Extras are additive — combine the ones you need. The base install always includes the CLI and desktop GUI.
 
 ---
 
@@ -104,11 +119,16 @@ pip install "valscanner[rich]"      # + image EXIF / audio tags / PDF metadata
 # Index your Downloads folder
 valscanner ~/Downloads
 
-# Open the result in the GUI
+# Open the result in the desktop GUI
 valscanner-gui
+
+# Or in your browser (requires the [web] extra)
+valscanner-web
 ```
 
-The GUI will load your most recent scan automatically. Switch between grid and list view, search by filename, filter by category or size, and inspect any file in the detail panel on the right.
+The GUI loads your most recent scan automatically. Switch between grid and list view, search by filename, filter by category or size, and inspect any file in the detail panel on the right.
+
+All three front-ends share the same database, so a scan started from the CLI shows up immediately in the GUI and the Web UI. The default database is `~/valscanner.db` (a plain SQLite file) — see [Database backends](#database-backends) to switch this or to use PostgreSQL instead.
 
 ---
 
@@ -120,7 +140,7 @@ The GUI will load your most recent scan automatically. Switch between grid and l
 valscanner /path/to/scan
 ```
 
-Writes results to `file_index.db` in the current directory. Prints a summary when done:
+Writes results to the active database (default: `~/valscanner.db`; configurable via the GUI's Database Settings dialog or the `--db` flag). Prints a summary when done:
 
 ```
 ✅ Done in 4.2s — scan #1, 12,847 indexed, 0 errors, 3 skipped
@@ -197,7 +217,7 @@ valscanner --delete-scan 3 --db archive.db
 | Flag | Default | Description |
 |---|---|---|
 | `path` | — | Root directory to scan (required unless using `--list-scans` or `--delete-scan`) |
-| `--db PATH` | `file_index.db` | SQLite database file to write to / read from |
+| `--db PATH` | active settings (default `~/valscanner.db`) | SQLite file path *or* full SQLAlchemy URL (e.g. `postgresql://user:pw@host/db`) to write to / read from |
 | `--label NAME` | *(timestamp)* | Human-readable label for this scan session |
 | `--no-hash` | off | Skip SHA-256 hashing (faster; lighter similarity model) |
 | `--export-csv` | off | Write `<db-name>.csv` after scan |
@@ -296,6 +316,97 @@ Results are shown as collapsible cards. Each card shows the two folder paths, th
 ### Exporting from the GUI
 
 **File → Export CSV** / **File → Export JSON** writes the current scan to a file of your choice.
+
+### Database Settings dialog
+
+**Settings → Database…** opens a modal dialog for switching between SQLite and PostgreSQL without editing any config files:
+
+- **SQLite** (default) — pick any `.db` path with **Browse…**, or leave the default `~/valscanner.db`
+- **PostgreSQL** — fill in host, port, database, user, and password (the password is stored in the OS keyring; a plaintext fallback is used on platforms with no keychain, e.g. headless Linux). Install the optional driver first: `pip install ".[postgres]"`
+
+Click **Test Connection** to verify the engine can reach the database, then **Save & Reload** to switch — the app re-opens against the new database in the background, no restart required. Settings are persisted to a per-user JSON file (see [Database backends](#database-backends)).
+
+---
+
+## Web UI
+
+The Web UI is a single-page React app served by a FastAPI backend on `localhost:7070`. It re-uses the same scanner, repository layer, and database as the CLI and desktop GUI.
+
+### Run a pre-built Web UI
+
+If you installed with the `[web]` extra (and the project ships a pre-built SPA), this is all you need:
+
+```bash
+valscanner-web                       # serves on http://127.0.0.1:7070
+valscanner-web --db /path/to/db      # point at a specific SQLite file or SQLAlchemy URL
+valscanner-web --host 0.0.0.0 --port 8080   # bind elsewhere (loopback-only by default; see below)
+valscanner-web --no-browser          # don't auto-open a browser tab
+```
+
+By default the server binds to `127.0.0.1` only — because the scan endpoint reads arbitrary filesystem paths from request bodies, exposing it on a public interface is unsafe. To opt in to non-loopback binding, set `VALSCANNER_ALLOW_REMOTE=1` in the environment.
+
+### Develop against the Web UI
+
+You'll need Node.js ≥ 18. From a source checkout:
+
+```bash
+# One-time
+pip install -e ".[web]"
+cd web-ui && npm install && cd ..
+
+# Two terminals
+valscanner-web --db my.db --dev      # terminal 1 — FastAPI on :7070
+cd web-ui && npm run dev             # terminal 2 — Vite dev server on :5173 with HMR
+```
+
+Open `http://localhost:5173`. Vite proxies `/api/*` to the FastAPI server in `--dev` mode.
+
+### Build the Web UI for production
+
+```bash
+./scripts/build_web.sh               # bundles the SPA into valscanner/web/static/
+valscanner-web --db my.db            # serves the built app on :7070
+```
+
+---
+
+## Database backends
+
+The scanner, GUI, CLI, and Web UI all talk to a single backend-agnostic layer (SQLAlchemy Core + Alembic). Two backends are supported:
+
+| Backend | Best for | Driver |
+|---|---|---|
+| **SQLite** *(default)* | Everyone. Zero setup, single `.db` file, full-text search via FTS5, easy to share. | bundled with Python |
+| **PostgreSQL** *(optional)* | Power users who already run Postgres locally. Better concurrent access for several front-ends hammering the DB at once, larger indexes, `tsvector`/`GIN` full-text search. | `psycopg2-binary` (install via `pip install ".[postgres]"`) |
+
+The app does **not** install or manage a PostgreSQL server for you — that's your responsibility. The Database Settings dialog only stores connection details and connects to a database you've already created.
+
+### Where settings live
+
+Non-secret connection details (backend choice, SQLite path, PG host/port/db/user) are stored in a per-user JSON file:
+
+| Platform | Location |
+|---|---|
+| macOS | `~/Library/Application Support/valscanner/settings.json` |
+| Linux | `~/.config/valscanner/settings.json` |
+| Windows | `%APPDATA%\valscanner\settings.json` |
+
+The PostgreSQL password is stored separately in the OS keyring under service `"valscanner"`, username `"pg_password"`. If your platform doesn't have a keychain available (e.g. headless Linux without DBus), the app falls back to a `pg_password` field in `settings.json` and logs a warning at startup.
+
+### URL resolution order
+
+Whenever you launch any front-end, the active database URL is resolved in this priority order:
+
+1. An explicit `--db` argument (CLI, `valscanner-web`)
+2. The `DATABASE_URL` environment variable (intended for headless / CI use)
+3. The saved settings.json (+ keyring for the PG password)
+4. The built-in default (`sqlite:///~/valscanner.db`)
+
+Every front-end masks passwords before logging or displaying URLs.
+
+### Migrations
+
+The first time any front-end touches a database, Alembic upgrades it to the latest schema revision. Fresh databases get created from scratch; existing v0.1.x databases are stamped at the baseline revision and then upgraded — your old scan history is preserved.
 
 ---
 
@@ -404,7 +515,7 @@ Every file receives a set of tags automatically. Tags are visible in the detail 
 
 ## Database schema
 
-Every `.db` file contains six tables:
+Every database contains the same logical schema regardless of backend:
 
 | Table | Contents |
 |---|---|
@@ -413,12 +524,18 @@ Every `.db` file contains six tables:
 | `folders` | Cumulative byte/file counts for every ancestor directory up to the scan root |
 | `thumbnails` | JPEG blobs keyed by `file_id` |
 | `media_samples` | Low-quality audio/video clips keyed by `file_id` |
-| `files_fts` | FTS5 virtual table mirroring `files`; populated by `AFTER INSERT` / `AFTER DELETE` triggers |
+| `analysis_runs` | One row per similar-folders analysis; stores results, filters, threshold, duration |
+| `alembic_version` | Single-row table tracking the current migration revision |
 
-The database is plain SQLite — query it directly with any SQLite client:
+**Full-text search** is implemented per-dialect:
+
+- **SQLite** — an additional FTS5 virtual table `files_fts` mirrors `files`, kept in sync by `AFTER INSERT / UPDATE / DELETE` triggers
+- **PostgreSQL** — `files.fts` is a `tsvector` column with a GIN index, populated by a `BEFORE INSERT OR UPDATE` trigger that weights filename > category/tags > path
+
+The SQLite database is a plain `.db` file — query it directly with any SQLite client:
 
 ```bash
-sqlite3 file_index.db "SELECT name, size_bytes, category FROM files ORDER BY size_bytes DESC LIMIT 20"
+sqlite3 ~/valscanner.db "SELECT filename, size_bytes, category FROM files ORDER BY size_bytes DESC LIMIT 20"
 ```
 
 ---
@@ -426,40 +543,68 @@ sqlite3 file_index.db "SELECT name, size_bytes, category FROM files ORDER BY siz
 ## Project layout
 
 ```
-valscanner/
+myscanner/                  ← repo root
 ├── pyproject.toml          ← packaging & entry points
 ├── valscanner.spec         ← PyInstaller spec (native app)
 ├── app_entry.py            ← PyInstaller entry point
 ├── scripts/
 │   ├── build_app.sh        ← macOS/Linux native app builder
 │   ├── build_app.ps1       ← Windows native app builder
+│   ├── build_web.sh        ← bundles the React SPA into valscanner/web/static/
 │   ├── install.sh          ← macOS/Linux installer
 │   ├── install.ps1         ← Windows PowerShell installer
 │   └── bump_version.py     ← update version across all files
+├── web-ui/                 ← React + Vite source for the Web UI
+│   ├── src/                ← components, hooks, API client
+│   ├── package.json
+│   └── vite.config.js
+├── tests/                  ← pytest suite (core repository, web routers, settings)
 │
-└── valscanner/
+└── valscanner/             ← installable Python package
     ├── cli.py              ← CLI entry point (valscanner)
-    ├── core/               ← zero Qt dependencies
-    │   ├── schema.py       ← DDL, human_size(), ts()
+    ├── alembic.ini         ← in-package migration config
+    ├── migrations/         ← Alembic versions 0001 → 0004
+    │
+    ├── core/               ← zero Qt dependencies; backend-agnostic
+    │   ├── app_settings.py ← load/save settings.json + active_url() + mask_url()
+    │   ├── db_config.py    ← SQLAlchemy engine factory + per-URL cache
+    │   ├── bootstrap.py    ← ensure_schema(): runs Alembic at startup
+    │   ├── exceptions.py   ← DBConnectionError, DuplicateRecordError, …
+    │   ├── schema.py       ← SQLAlchemy Table metadata + FTS helpers
+    │   ├── db.py           ← thin facade re-exporting Repository + free fns
+    │   ├── repository/     ← Repository split into domain mixins
+    │   │   ├── scans.py    ← create/list/delete scans
+    │   │   ├── files.py    ← insert/list files, iter_files_for_export
+    │   │   ├── folders.py  ← upsert/list folders
+    │   │   ├── media.py    ← thumbnails + media samples
+    │   │   ├── search.py   ← search_paged (FTS5 / tsvector), search_files
+    │   │   └── analysis.py ← similar-folder run persistence
     │   ├── categories.py   ← extension → category mapping
-    │   ├── metadata.py     ← EXIF, audio, PDF extractors
+    │   ├── metadata.py     ← EXIF, audio, PDF, thumbnail, media-sample extractors
     │   ├── tagging.py      ← generate_tags()
-    │   ├── scanner.py      ← scan()
+    │   ├── scanner.py      ← scan() — calls ensure_schema, then walks + indexes
     │   ├── similarity.py   ← find_similar_folders()
-    │   ├── export.py       ← export_csv(), export_json()
-    │   └── db.py           ← query_db(), list_scans(), delete_scan()
-    └── gui/                ← PySide6 front-end (valscanner-gui)
-        ├── window.py       ← MainWindow
-        ├── workers.py      ← ScanWorker, AnalysisWorker (QThread)
-        ├── models.py       ← FileTableModel, FileIconModel, ThumbnailCache
-        ├── delegates.py    ← FileCardDelegate (grid), FileRowDelegate (list)
-        ├── dialogs.py      ← ScanOptionsDialog, ViewFiltersDialog
-        └── panels/
-            ├── detail.py   ← file inspector (tags, metadata, thumbnail)
-            ├── folders.py  ← folder tree
-            ├── similar.py  ← similar-folder cards
-            ├── scans.py    ← scan session switcher
-            └── console.py  ← stderr bridge / log output
+    │   └── export.py       ← export_csv(), export_json()
+    │
+    ├── gui/                ← PySide6 desktop GUI (valscanner-gui)
+    │   ├── window.py       ← MainWindow
+    │   ├── workers.py      ← ScanWorker, AnalysisWorker, ConnectWorker
+    │   ├── models.py       ← FileTableModel, FileIconModel, ThumbnailCache
+    │   ├── delegates.py    ← FileCardDelegate (grid), FileRowDelegate (list)
+    │   ├── dialogs.py      ← ScanOptions, ViewFilters, DatabaseSettings dialogs
+    │   └── panels/
+    │       ├── detail.py   ← file inspector (tags, metadata, thumbnail)
+    │       ├── folders.py  ← folder tree
+    │       ├── similar.py  ← similar-folder cards
+    │       ├── scans.py    ← scan session switcher
+    │       └── console.py  ← stderr bridge / log output
+    │
+    └── web/                ← FastAPI Web UI server (valscanner-web)
+        ├── server.py       ← create_app() — wires routers, serves SPA, mounts /api
+        ├── scan_registry.py ← in-process scan progress + SSE fan-out
+        ├── models.py       ← Pydantic request/response shapes
+        ├── routers/        ← scans, files, folders, media, export, reveal
+        └── static/         ← built SPA (populated by scripts/build_web.sh)
 ```
 
 ---
@@ -467,15 +612,39 @@ valscanner/
 ## Development
 
 ```bash
-# Editable install with all optional extras
-pip install -e ".[rich]"
+# Editable install with every optional extra
+pip install -e ".[rich,web,postgres,dev]"
 
-# Run without installing
-python -m valscanner.gui.window    # GUI
-python -m valscanner.cli /path     # CLI
+# Web UI dev deps (Node ≥ 18)
+cd web-ui && npm install && cd ..
+
+# Run without installing — module entry points
+python -m valscanner.gui.window     # desktop GUI
+python -m valscanner.cli /path      # CLI
+python -m valscanner.web.server     # Web UI server (or: valscanner-web)
+
+# Run the test suite
+python -m pytest                    # full suite (PG tests auto-skip without DATABASE_URL)
+DATABASE_URL=postgresql://localhost/test python -m pytest tests/core/test_repository_pg.py
 ```
 
-Output files (`*.db`, `*.csv`, `*.json`) are gitignored.
+Output files (`*.db`, `*.csv`, `*.json`) and the Web UI build output (`valscanner/web/static/`, `web-ui/dist/`, `web-ui/node_modules/`) are gitignored.
+
+### Database migrations
+
+Alembic configuration lives in-package at `valscanner/alembic.ini` and `valscanner/migrations/`. To author a new migration:
+
+```bash
+# Auto-generate a revision against your current dev DB
+DATABASE_URL=sqlite:///./dev.db \
+    alembic -c valscanner/alembic.ini revision --autogenerate -m "describe change"
+
+# Apply
+DATABASE_URL=sqlite:///./dev.db \
+    alembic -c valscanner/alembic.ini upgrade head
+```
+
+In production `core.bootstrap.ensure_schema()` runs `upgrade head` on every startup, so users never have to invoke Alembic manually.
 
 ### Building native apps
 
