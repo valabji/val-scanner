@@ -1,9 +1,10 @@
 from __future__ import annotations
+
+import tempfile
 from pathlib import Path
 
 import pytest
 
-from valscanner.web.server import create_app
 from valscanner.core.scanner import scan as run_scan
 
 
@@ -32,11 +33,13 @@ def populated_db(db_path: str, fixture_tree: Path) -> str:
 
 @pytest.fixture
 def app(db_path: str):
+    from valscanner.web.server import create_app
     return create_app(db_path)
 
 
 @pytest.fixture
 def app_populated(populated_db: str):
+    from valscanner.web.server import create_app
     return create_app(populated_db)
 
 
@@ -50,3 +53,19 @@ def client(app):
 def client_populated(app_populated):
     from fastapi.testclient import TestClient
     return TestClient(app_populated)
+
+
+@pytest.fixture
+def web_client():
+    with tempfile.TemporaryDirectory() as scandir, tempfile.TemporaryDirectory() as dbdir:
+        (Path(scandir) / "a.txt").write_text("hi")
+        (Path(scandir) / "b.pdf").write_text("pdf")
+
+        db_path = f"{dbdir}/web.db"
+        run_scan(Path(scandir), db_path, compute_hash=False)
+
+        from valscanner.web.server import create_app
+        from fastapi.testclient import TestClient
+        app = create_app(db_path)
+        with TestClient(app) as c:
+            yield c, db_path
