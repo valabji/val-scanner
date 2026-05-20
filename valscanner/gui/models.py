@@ -1,9 +1,11 @@
 from __future__ import annotations
-import sqlite3
+
+from sqlalchemy import text
 
 from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListModel, QRect
 from PySide6.QtGui import QColor, QFont, QPixmap, QPainter, QBrush
 
+from ..core.db import repo_for
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, SUBTEXT
 from . import icons as _icons
 
@@ -214,12 +216,13 @@ class ThumbnailCache:
             return self._px[key]
         if self._db_path and category in ("photo", "image", "video"):
             try:
-                conn = sqlite3.connect(self._db_path)
-                row  = conn.execute(
-                    "SELECT t.data FROM thumbnails t"
-                    " JOIN files f ON f.id = t.file_id WHERE f.path=?", (path,)
-                ).fetchone()
-                conn.close()
+                engine = repo_for(self._db_path).engine
+                with engine.connect() as conn:
+                    row = conn.execute(
+                        text("SELECT t.data FROM thumbnails t"
+                             " JOIN files f ON f.id = t.file_id WHERE f.path=:p"),
+                        {"p": path},
+                    ).fetchone()
                 if row:
                     px = QPixmap()
                     px.loadFromData(row[0])

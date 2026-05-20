@@ -1,10 +1,10 @@
 from __future__ import annotations
 import math
-import sqlite3
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Callable
 
+from .db import repo_for
 from .filters import file_is_skipped, path_has_skipped_dir
 
 
@@ -45,21 +45,8 @@ def _strict_subpath(child: str, parent: str) -> bool:
 def _compute_folder_data_and_pairs(
     db_path, min_files, threshold, scan_ids, filters, stop_flag, progress_cb,
 ):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-
-    base_q = (
-        "SELECT f.scan_id, COALESCE(NULLIF(s.label,''), s.root) AS scan_label, "
-        "       f.path, f.filename, f.extension, f.size_bytes, f.sha256, "
-        "       LOWER(REPLACE(REPLACE(f.filename,' ',''),'_','')) AS norm_name "
-        "FROM files f JOIN scans s ON s.id = f.scan_id"
-    )
-    if scan_ids:
-        placeholders = ",".join("?" * len(scan_ids))
-        rows = conn.execute(base_q + f" WHERE f.scan_id IN ({placeholders})", scan_ids).fetchall()
-    else:
-        rows = conn.execute(base_q).fetchall()
-    conn.close()
+    repo = repo_for(db_path)
+    rows = list(repo.iter_similarity_rows(scan_ids=scan_ids))
 
     fopts = filters or {}
     apply_filters = any(fopts.get(k) for k in (

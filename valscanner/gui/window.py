@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import os
-import sqlite3
 import subprocess
 import sys
 import time
@@ -1255,9 +1254,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Not found", f"File not found:\n{path}")
             return
         try:
-            conn   = sqlite3.connect(path)
-            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            conn.close()
+            from sqlalchemy import create_engine, inspect as sa_inspect
+            _chk_engine = create_engine(f"sqlite:///{path}")
+            tables = set(sa_inspect(_chk_engine).get_table_names())
+            _chk_engine.dispose()
             if "files" not in tables:
                 QMessageBox.warning(self, "Invalid database",
                                     "This file doesn't look like a ValScanner database.")
@@ -1348,9 +1348,9 @@ class MainWindow(QMainWindow):
 
         self._worker.progress.connect(self._on_progress)
         self._worker.progress.connect(
-            lambda count, path: reg.set_progress(pid, min(count // 1000, 99))
+            lambda ev: reg.set_progress(pid, min(ev.get("scanned", 0) // 1000, 99))
         )
-        self._worker.finished.connect(self._on_scan_done)
+        self._worker.done.connect(self._on_scan_done)
         self._worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
         self._worker.start()
 
@@ -1396,7 +1396,9 @@ class MainWindow(QMainWindow):
         m, s = divmod(secs, 60)
         self.elapsed_lbl.setText(f"{m:02d}:{s:02d}")
 
-    def _on_progress(self, count: int, path: str) -> None:
+    def _on_progress(self, ev: dict) -> None:
+        count = ev.get("scanned", 0)
+        path  = ev.get("path", "")
         short = path[-70:] if len(path) > 70 else path
         self.status.showMessage(f"Indexing… {count:,} files  —  {short}")
         if count % 1000 == 0:

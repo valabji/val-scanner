@@ -1,6 +1,8 @@
 from __future__ import annotations
-import sqlite3
 from pathlib import Path
+
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from PySide6.QtCore import Qt, Signal, QSortFilterProxyModel
 from PySide6.QtGui import QColor, QStandardItemModel, QStandardItem
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, SEL_BG, SEL_TEXT
+from ...core.db import repo_for
 from ...core.schema import human_size
 from .. import icons as _icons
 
@@ -196,30 +199,31 @@ class FolderPanel(QWidget):
             return
 
         self.model.removeRows(0, self.model.rowCount())
-        conn = sqlite3.connect(db_path)
+        engine = repo_for(db_path).engine
 
         if self._separate_scans and scan_id == 0:
             try:
-                scans = conn.execute(
-                    "SELECT id, label, total_bytes, file_count FROM scans ORDER BY label"
-                ).fetchall()
-            except sqlite3.OperationalError:
+                with engine.connect() as conn:
+                    scans = conn.execute(
+                        text("SELECT id, label, total_bytes, file_count FROM scans ORDER BY label")
+                    ).fetchall()
+            except OperationalError:
                 scans = []
 
             global_max = 0
             scan_data: list[tuple] = []
             for sid, label, stb, sfc in scans:
-                rows = conn.execute(
-                    "SELECT path, SUM(total_bytes), SUM(file_count) "
-                    "FROM folders WHERE scan_id=? GROUP BY path ORDER BY path", (sid,)
-                ).fetchall()
+                with engine.connect() as conn:
+                    rows = conn.execute(
+                        text("SELECT path, SUM(total_bytes), SUM(file_count) "
+                             "FROM folders WHERE scan_id=:sid GROUP BY path ORDER BY path"),
+                        {"sid": sid},
+                    ).fetchall()
                 data = {r[0]: (r[1], r[2]) for r in rows}
                 if data:
                     local_max  = max(v[0] for v in data.values())
                     global_max = max(global_max, local_max)
                 scan_data.append((sid, label, stb or 0, sfc or 0, data))
-
-            conn.close()
             root_bytes = global_max or 1
 
             for sid, label, stb, sfc, data in scan_data:
@@ -250,13 +254,18 @@ class FolderPanel(QWidget):
                     self._build_subtree(scan_name_item, data, root_bytes)
 
         else:
-            where = "WHERE scan_id=?" if scan_id else ""
-            args  = (scan_id,) if scan_id else ()
-            rows  = conn.execute(
-                f"SELECT path, SUM(total_bytes) AS total_bytes, SUM(file_count) AS file_count "
-                f"FROM folders {where} GROUP BY path ORDER BY path", args
-            ).fetchall()
-            conn.close()
+            with engine.connect() as conn:
+                if scan_id:
+                    rows = conn.execute(
+                        text("SELECT path, SUM(total_bytes) AS total_bytes, SUM(file_count) AS file_count "
+                             "FROM folders WHERE scan_id=:sid GROUP BY path ORDER BY path"),
+                        {"sid": scan_id},
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        text("SELECT path, SUM(total_bytes) AS total_bytes, SUM(file_count) AS file_count "
+                             "FROM folders GROUP BY path ORDER BY path")
+                    ).fetchall()
             if not rows:
                 return
             data       = {r[0]: (r[1], r[2]) for r in rows}

@@ -2,12 +2,14 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
-import sqlite3
+import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from .schema import SCHEMA, human_size, ts
 from .categories import EXT_CATEGORY, MIME_CATEGORY
+from .db import repo_for
+from .exceptions import DuplicateRecordError
 from .filters import (
     SYSTEM_DIRS as _SYSTEM_DIRS,
     CACHE_DIRS as _CACHE_DIRS,
@@ -20,6 +22,7 @@ from .metadata import (
     extract_image_metadata, extract_audio_metadata, extract_pdf_metadata,
     file_sha256, _thumb_image, _thumb_video, _sample_media,
 )
+from .schema import human_size, ts
 from .tagging import generate_tags
 
 
@@ -43,26 +46,26 @@ def scan(
     skip_temp:         bool = False,
     skip_logs:         bool = False,
     cancel_event=None,
-    scan_id=None,
+    scan_id: int | None = None,
+    on_progress: Callable[[dict], None] | None = None,
 ) -> dict:
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
-    cur = conn.cursor()
+    repo = repo_for(db_path)
 
     now        = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     scan_label = label.strip() or root.name
 
     if scan_id is None:
-        cur.execute(
-            "INSERT INTO scans (label, root, scanned_at) VALUES (?, ?, ?)",
-            (scan_label, str(root), now),
-        )
-        scan_id = cur.lastrowid
-        conn.commit()
+        scan_id = repo.create_scan(root=str(root), label=scan_label, scanned_at=now)
 
     stats: dict = {"scanned": 0, "errors": 0, "skipped": 0, "scan_id": scan_id, "total_bytes": 0}
     folder_totals: dict = {}
+
+    def _emit(event: dict) -> None:
+        if on_progress is not None:
+            try:
+                on_progress(event)
+            except Exception:
+                pass  # never let UI callbacks abort a scan
 
     def _keep_dir(name: str) -> bool:
         if skip_hidden_dirs and name.startswith("."):
@@ -89,8 +92,6 @@ def scan(
     for dirpath, dirnames, filenames in os.walk(root):
         if cancel_event is not None and cancel_event.is_set():
             stats["cancelled"] = True
-            conn.commit()
-            conn.close()
             return stats
 
         dirnames[:] = [d for d in dirnames if _keep_dir(d)]
@@ -98,8 +99,6 @@ def scan(
         for fname in filenames:
             if cancel_event is not None and cancel_event.is_set():
                 stats["cancelled"] = True
-                conn.commit()
-                conn.close()
                 return stats
             ext_check = Path(fname).suffix.lower()
             if not _keep_file(fname, ext_check):
@@ -148,15 +147,11 @@ def scan(
                     "indexed_at":  now,
                 }
 
-                cur.execute("""
-                    INSERT OR REPLACE INTO files
-                    (scan_id,path,filename,extension,category,mime_type,size_bytes,size_human,
-                     sha256,created_at,modified_at,accessed_at,is_hidden,tags,extra_meta,indexed_at)
-                    VALUES
-                    (:scan_id,:path,:filename,:extension,:category,:mime_type,:size_bytes,:size_human,
-                     :sha256,:created_at,:modified_at,:accessed_at,:is_hidden,:tags,:extra_meta,:indexed_at)
-                """, row)
-                file_id = cur.lastrowid
+                try:
+                    file_id = repo.insert_file(row)
+                except DuplicateRecordError:
+                    stats["skipped"] += 1
+                    continue
 
                 if store_thumbnails:
                     thumb = None
@@ -165,20 +160,13 @@ def scan(
                     elif category == "video":
                         thumb = _thumb_video(fpath, thumb_size, thumb_quality)
                     if thumb:
-                        cur.execute(
-                            "INSERT OR REPLACE INTO thumbnails (file_id, data) VALUES (?, ?)",
-                            (file_id, thumb),
-                        )
+                        repo.save_thumbnail(file_id, thumb, 0, 0)
 
                 if store_samples and category in ("audio", "video"):
                     sample = _sample_media(fpath, category, sample_duration)
                     if sample:
                         data, fmt = sample
-                        cur.execute(
-                            "INSERT OR REPLACE INTO media_samples (file_id, data, format, duration)"
-                            " VALUES (?, ?, ?, ?)",
-                            (file_id, data, fmt, sample_duration),
-                        )
+                        repo.save_media_sample(file_id, data, fmt, float(sample_duration))
 
                 stats["scanned"]     += 1
                 stats["total_bytes"] += size
@@ -200,21 +188,25 @@ def scan(
                 if verbose:
                     print(f"  [{category:14s}] {fpath}")
 
+                _emit({"scanned": stats["scanned"], "path": str(fpath)})
+
             except (PermissionError, FileNotFoundError, OSError) as e:
                 stats["errors"] += 1
                 if verbose:
                     print(f"  [ERROR] {fpath}: {e}")
 
+    indexed_at = ts(time.time())
     for fpath_str, (fc, tb) in folder_totals.items():
-        cur.execute("""
-            INSERT OR REPLACE INTO folders (scan_id, path, file_count, total_bytes, total_human, indexed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (scan_id, fpath_str, fc, tb, human_size(tb), now))
+        repo.upsert_folder(
+            scan_id=scan_id, path=fpath_str,
+            file_count=fc, total_bytes=tb,
+            total_human=human_size(tb),
+            indexed_at=indexed_at,
+        )
 
-    cur.execute(
-        "UPDATE scans SET file_count=?, total_bytes=?, total_human=? WHERE id=?",
-        (stats["scanned"], stats["total_bytes"], human_size(stats["total_bytes"]), scan_id),
+    repo.update_scan_totals(
+        scan_id, stats["scanned"], stats["total_bytes"],
+        human_size(stats["total_bytes"]),
     )
-    conn.commit()
-    conn.close()
+    _emit({"done": True, "scan_id": scan_id, "scanned": stats["scanned"]})
     return stats

@@ -1,11 +1,12 @@
 from __future__ import annotations
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from sqlalchemy import text
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QTextEdit, QHBoxLayout, QMessageBox,
 )
 
+from ...core.db import repo_for
 from ..constants import CATEGORY_COLORS, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
 from .. import icons as _icons
 
@@ -150,12 +152,13 @@ class DetailPanel(QWidget):
         thumb_loaded = False
         if self._db_path and cat in ("photo", "image", "video"):
             try:
-                conn = sqlite3.connect(self._db_path)
-                res  = conn.execute(
-                    "SELECT t.data FROM thumbnails t JOIN files f ON f.id = t.file_id WHERE f.path=?",
-                    (row[0],),
-                ).fetchone()
-                conn.close()
+                engine = repo_for(self._db_path).engine
+                with engine.connect() as conn:
+                    res = conn.execute(
+                        text("SELECT t.data FROM thumbnails t"
+                             " JOIN files f ON f.id = t.file_id WHERE f.path=:p"),
+                        {"p": row[0]},
+                    ).fetchone()
                 if res:
                     px = QPixmap()
                     px.loadFromData(res[0])
@@ -212,12 +215,13 @@ class DetailPanel(QWidget):
         self.sample_btn.hide()
         if self._db_path and cat in ("audio", "video"):
             try:
-                conn = sqlite3.connect(self._db_path)
-                has  = conn.execute(
-                    "SELECT 1 FROM media_samples ms JOIN files f ON f.id = ms.file_id WHERE f.path=?",
-                    (row[0],),
-                ).fetchone()
-                conn.close()
+                engine = repo_for(self._db_path).engine
+                with engine.connect() as conn:
+                    has = conn.execute(
+                        text("SELECT 1 FROM media_samples ms"
+                             " JOIN files f ON f.id = ms.file_id WHERE f.path=:p"),
+                        {"p": row[0]},
+                    ).fetchone()
                 if has:
                     self.sample_btn.show()
             except Exception:
@@ -227,13 +231,13 @@ class DetailPanel(QWidget):
         if not self._current_path or not self._db_path:
             return
         try:
-            conn = sqlite3.connect(self._db_path)
-            res  = conn.execute(
-                "SELECT ms.data, ms.format FROM media_samples ms"
-                " JOIN files f ON f.id = ms.file_id WHERE f.path=?",
-                (self._current_path,),
-            ).fetchone()
-            conn.close()
+            engine = repo_for(self._db_path).engine
+            with engine.connect() as conn:
+                res = conn.execute(
+                    text("SELECT ms.data, ms.format FROM media_samples ms"
+                         " JOIN files f ON f.id = ms.file_id WHERE f.path=:p"),
+                    {"p": self._current_path},
+                ).fetchone()
             if not res:
                 return
             data, fmt = res
