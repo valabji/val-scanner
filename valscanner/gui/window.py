@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
         self._elapsed_timer          = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
         self._scan_options: dict     = {}
+        self._scan_queue: list[dict] = []
         self._view_filters: dict     = persistence.get_json(persistence.Keys.FILES_FILTERS, {})
         self._group_by: str          = ""
         self._view_filters_dlg: ViewFiltersDialog | None = None
@@ -800,6 +801,7 @@ class MainWindow(QMainWindow):
 
         root_lay.addWidget(self._build_toolbar())
         root_lay.addWidget(self._build_scan_progress())
+        root_lay.addWidget(self._build_queue_strip())
         root_lay.addWidget(self._build_filterbar())
 
         self.console = ConsolePanel()
@@ -985,6 +987,49 @@ class MainWindow(QMainWindow):
         sl.addWidget(self.elapsed_lbl)
         self._scan_strip.hide()
         return self._scan_strip
+
+    def _build_queue_strip(self) -> QWidget:
+        self._queue_strip = QWidget()
+        self._queue_strip.setFixedHeight(30)
+        self._queue_strip.setStyleSheet(
+            f"background: {DARK_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        ql = QHBoxLayout(self._queue_strip)
+        ql.setContentsMargins(16, 0, 16, 0)
+        ql.setSpacing(10)
+
+        queue_icon = QLabel("◎")
+        queue_icon.setStyleSheet(f"color: {ACCENT}; font-size: 11px;")
+        ql.addWidget(queue_icon)
+
+        self._queue_status_lbl = QLabel()
+        self._queue_status_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        ql.addWidget(self._queue_status_lbl, 1)
+
+        self._clear_queue_btn = QPushButton("Clear queue")
+        self._clear_queue_btn.setFlat(True)
+        self._clear_queue_btn.setCursor(Qt.PointingHandCursor)
+        self._clear_queue_btn.setStyleSheet(
+            f"QPushButton{{color:{SUBTEXT};font-size:11px;border:none;padding:0;}}"
+            f"QPushButton:hover{{color:{TEXT};}}"
+        )
+        self._clear_queue_btn.clicked.connect(self._clear_queue)
+        ql.addWidget(self._clear_queue_btn)
+
+        self._queue_strip.hide()
+        return self._queue_strip
+
+    def _refresh_queue_strip(self) -> None:
+        if not self._scan_queue:
+            self._queue_strip.hide()
+            return
+        n = len(self._scan_queue)
+        names = [Path(item["root"]).name for item in self._scan_queue[:3]]
+        preview = "  ·  ".join(names)
+        if n > 3:
+            preview += f"  ·  +{n - 3} more"
+        self._queue_status_lbl.setText(f"{n} pending:  {preview}")
+        self._queue_strip.show()
 
     def _build_filterbar(self) -> QWidget:
         self._filterbar = QWidget()
@@ -1708,6 +1753,10 @@ class MainWindow(QMainWindow):
                 detail=root)
             return
 
+        if self._worker and self._worker.isRunning():
+            self._enqueue_scan()
+            return
+
         db = self._db_url or self.db_edit.text().strip() or "file_index.db"
         self._db_path = db if not db.startswith("sqlite:///") else db[len("sqlite:///"):]
         self._clear_folder_filter()
@@ -1851,6 +1900,42 @@ class MainWindow(QMainWindow):
             self._load_db_panels(self._db_url)
         else:
             self._load_db(self._db_path)
+
+        if not stats.get("cancelled") and self._scan_queue:
+            self._dequeue_and_start()
+
+    # ── Scan queue ────────────────────────────────────────────────────────────
+
+    def _enqueue_scan(self) -> None:
+        root = self.path_edit.text().strip()
+        db = self._db_url or self.db_edit.text().strip() or "file_index.db"
+        self._scan_queue.append({
+            "root":     root,
+            "db":       db,
+            "label":    self.label_edit.text().strip(),
+            "use_hash": self.hash_chk.isChecked(),
+            "options":  self._scan_options.copy(),
+        })
+        self._refresh_queue_strip()
+        name = Path(root).name
+        n = len(self._scan_queue)
+        self._set_status(f"Added '{name}' to scan queue ({n} pending)")
+
+    def _dequeue_and_start(self) -> None:
+        if not self._scan_queue:
+            return
+        item = self._scan_queue.pop(0)
+        self._refresh_queue_strip()
+        self.path_edit.setText(item["root"])
+        self.label_edit.setText(item["label"])
+        self.hash_chk.setChecked(item["use_hash"])
+        self._scan_options = item["options"]
+        self._start_scan()
+
+    def _clear_queue(self) -> None:
+        self._scan_queue.clear()
+        self._refresh_queue_strip()
+        self._set_status("Scan queue cleared.")
 
     # ── Load / filter ─────────────────────────────────────────────────────────
 
