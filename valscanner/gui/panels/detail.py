@@ -227,12 +227,13 @@ class DetailPanel(QWidget):
                         {"p": row[0]},
                     ).fetchone()
                 if res:
+                    data = bytes(res[0])
                     px = QPixmap()
-                    px.loadFromData(res[0])
-                    self.icon_label.setPixmap(
-                        px.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    )
-                    thumb_loaded = True
+                    if px.loadFromData(data):
+                        self.icon_label.setPixmap(
+                            px.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        )
+                        thumb_loaded = True
             except Exception:
                 pass
         if not thumb_loaded:

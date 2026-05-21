@@ -224,11 +224,12 @@ class ThumbnailCache:
                         {"p": path},
                     ).fetchone()
                 if row:
+                    data = bytes(row[0])
                     px = QPixmap()
-                    px.loadFromData(row[0])
-                    px = px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self._px[key] = px
-                    return px
+                    if px.loadFromData(data):
+                        px = px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        self._px[key] = px
+                        return px
             except Exception:
                 pass
         cat_key = f"{category}@{size}"
