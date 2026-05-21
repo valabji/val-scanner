@@ -69,3 +69,45 @@ class CacheMixin(RepositoryBase):
                 conn.execute(delete(gui_cache))
         except (OperationalError, Exception):
             pass
+
+    def warm_gui_cache(self, page_size: int = 2_000) -> None:
+        """Pre-populate folder_tree:all and file_list:all after a scan.
+
+        Runs synchronously in ScanWorker's background thread, before done.emit(),
+        so the panel reload workers always get cache hits regardless of view mode.
+        Silently no-ops on any error.
+        """
+        try:
+            version = self.db_version()
+            if not version:
+                return
+            with self._engine.connect() as conn:
+                folder_rows = conn.execute(
+                    text(
+                        "SELECT path, SUM(total_bytes), SUM(file_count) "
+                        "FROM folders GROUP BY path ORDER BY path"
+                    )
+                ).fetchall()
+                self.set_gui_cache(
+                    "folder_tree:all", version,
+                    {"mode": "combined", "rows": [list(r) for r in folder_rows]},
+                )
+                total, = conn.execute(text("SELECT COUNT(*) FROM files")).fetchone()
+                total_size, = conn.execute(
+                    text("SELECT SUM(size_bytes) FROM files")
+                ).fetchone()
+                file_rows = conn.execute(
+                    text(
+                        "SELECT path, filename, category, size_bytes, size_human, "
+                        "modified_at, tags, extra_meta "
+                        "FROM files ORDER BY filename LIMIT :lim"
+                    ),
+                    {"lim": page_size},
+                ).fetchall()
+            self.set_gui_cache(
+                "file_list:all", version,
+                {"total": total, "total_size": total_size or 0,
+                 "rows": [list(r) for r in file_rows]},
+            )
+        except Exception:
+            pass

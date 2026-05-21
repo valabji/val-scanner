@@ -98,7 +98,12 @@ class ScanWorker(QThread):
                 on_progress=_on_progress,
                 **self.options,
             )
-            repo_for(self.db_path).invalidate_gui_cache()
+            repo = repo_for(self.db_path)
+            repo.invalidate_gui_cache()
+            if self._pid:
+                from .panels.process import ProcessRegistry
+                ProcessRegistry.instance().push_log(self._pid, "Warming cache…")
+            repo.warm_gui_cache()
             self.done.emit(stats)
             if self._pid:
                 from .panels.process import ProcessRegistry
