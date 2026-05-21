@@ -25,10 +25,10 @@ from ...core.schema import human_size
 from ...core.similarity import normalize_to_group
 
 LABEL_COLORS: dict[str, str] = {
-    "near-identical":   "#f38ba8",
-    "highly similar":   "#fab387",
-    "similar":          "#f9e2af",
-    "possibly related": "#a6e3a1",
+    "near-identical":   "#ff7a85",
+    "highly similar":   "#ffd66b",
+    "similar":          "#ffb547",
+    "possibly related": "#6dd58c",
 }
 
 

@@ -733,8 +733,8 @@ class MainWindow(QMainWindow):
                 background: {ACCENT}; color: white; border: none;
                 border-radius: 7px; padding: 6px 16px; font-weight: 600; font-size: 12px;
             }}
-            QPushButton:hover    {{ background: #9d8fff; }}
-            QPushButton:pressed  {{ background: #6a58d4; }}
+            QPushButton:hover    {{ background: #ffc96b; }}
+            QPushButton:pressed  {{ background: #e0a035; }}
             QPushButton:disabled {{ background: {BORDER}; color: {SUBTEXT}; }}
         """)
         self._apply_icon(b, icon, "#ffffff")
@@ -1818,8 +1818,8 @@ class MainWindow(QMainWindow):
         self.scan_btn.setStyleSheet(
             f"QPushButton{{background:{ACCENT};color:white;border:none;"
             f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
-            f"QPushButton:hover{{background:#9d8fff;}}"
-            f"QPushButton:pressed{{background:#6a58d4;}}"
+            f"QPushButton:hover{{background:#ffc96b;}}"
+            f"QPushButton:pressed{{background:#e0a035;}}"
             f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
         )
         try:

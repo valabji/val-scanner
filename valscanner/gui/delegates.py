@@ -19,8 +19,11 @@ def _css_to_qcolor(css: str) -> QColor:
     c.setAlpha(int(css[7:], 16) if len(css) == 9 else 0x55)
     return c
 
-_SEL_BG   = _css_to_qcolor(SEL_BG)
-_SEL_TEXT = QColor(SEL_TEXT)
+def _sel_bg() -> QColor:
+    return _css_to_qcolor(str(SEL_BG))
+
+def _sel_text() -> QColor:
+    return QColor(str(SEL_TEXT))
 
 
 class FileCardDelegate(QStyledItemDelegate):
@@ -38,17 +41,19 @@ class FileCardDelegate(QStyledItemDelegate):
             return
         path, filename, category, _, size_human = row[0], row[1], row[2], row[3], row[4]
         selected = bool(option.state & QStyle.State_Selected)
+        sel_bg   = _sel_bg()
+        sel_text = _sel_text()
 
         painter.save()
         painter.setRenderHint(painter.RenderHint.Antialiasing)
         r = option.rect.adjusted(4, 4, -4, -4)
 
-        bg = _SEL_BG if selected else QColor(PANEL_BG)
+        bg = sel_bg if selected else QColor(str(PANEL_BG))
         painter.setBrush(QBrush(bg))
-        painter.setPen(QPen(QColor(ACCENT if selected else BORDER), 1))
+        painter.setPen(QPen(QColor(str(ACCENT) if selected else str(BORDER)), 1))
         painter.drawRoundedRect(r, 8, 8)
 
-        cat_color = CATEGORY_COLORS.get(category, "#9E9E9E")
+        cat_color = CATEGORY_COLORS.get(category, "#808080")
         tb_bg     = QColor(cat_color)
         tb_bg.setAlpha(28)
         tb_rect = QRect(r.x() + 1, r.y() + 1, r.width() - 2, self.THUMB)
@@ -71,13 +76,13 @@ class FileCardDelegate(QStyledItemDelegate):
         ty = r.y() + self.THUMB + 7
         fn = QFont(); fn.setPixelSize(11)
         painter.setFont(fn)
-        painter.setPen(_SEL_TEXT if selected else QColor(TEXT))
+        painter.setPen(sel_text if selected else QColor(str(TEXT)))
         nm = QRect(r.x() + 6, ty, r.width() - 12, 16)
         painter.drawText(nm, Qt.AlignLeft | Qt.AlignVCenter,
                          painter.fontMetrics().elidedText(filename, Qt.ElideRight, nm.width()))
 
         fn.setPixelSize(10); painter.setFont(fn)
-        painter.setPen(_SEL_TEXT if selected else QColor(SUBTEXT))
+        painter.setPen(sel_text if selected else QColor(str(SUBTEXT)))
         painter.drawText(QRect(r.x() + 6, ty + 18, r.width() - 12, 13),
                          Qt.AlignLeft | Qt.AlignVCenter, size_human)
 
@@ -97,14 +102,16 @@ class FileRowDelegate(QStyledItemDelegate):
             return
         path, filename, category, _, size_human = row[0], row[1], row[2], row[3], row[4]
         selected = bool(option.state & QStyle.State_Selected)
+        sel_bg   = _sel_bg()
+        sel_text = _sel_text()
 
         painter.save()
         r  = option.rect
-        bg = _SEL_BG if selected else QColor(ROW_ALT if index.row() % 2 else DARK_BG)
+        bg = sel_bg if selected else QColor(str(ROW_ALT) if index.row() % 2 else str(DARK_BG))
         painter.fillRect(r, bg)
 
         painter.setRenderHint(painter.RenderHint.Antialiasing)
-        cat_color = CATEGORY_COLORS.get(category, "#9E9E9E")
+        cat_color = CATEGORY_COLORS.get(category, "#808080")
 
         sw = QRect(r.x() + 8, r.y() + (r.height() - 10) // 2, 10, 10)
         painter.setBrush(QBrush(QColor(cat_color)))
@@ -113,13 +120,13 @@ class FileRowDelegate(QStyledItemDelegate):
 
         fn = QFont(); fn.setPixelSize(12)
         painter.setFont(fn)
-        painter.setPen(_SEL_TEXT if selected else QColor(TEXT))
+        painter.setPen(sel_text if selected else QColor(str(TEXT)))
         avail = int(r.width() * 0.55)
         nm = QRect(r.x() + 26, r.y(), avail, r.height())
         painter.drawText(nm, Qt.AlignLeft | Qt.AlignVCenter,
                          painter.fontMetrics().elidedText(filename, Qt.ElideRight, avail))
 
-        painter.setPen(_SEL_TEXT if selected else QColor(SUBTEXT))
+        painter.setPen(sel_text if selected else QColor(str(SUBTEXT)))
         fn.setPixelSize(11); painter.setFont(fn)
         sz = QRect(r.right() - 140, r.y(), 72, r.height())
         painter.drawText(sz, Qt.AlignRight | Qt.AlignVCenter, size_human)

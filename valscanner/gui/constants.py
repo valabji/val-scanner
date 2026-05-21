@@ -61,20 +61,20 @@ class LazyColor(str):
 
 
 CATEGORY_COLORS: dict[str, str] = {
-    "photo":        "#4CAF50",
-    "video":        "#2196F3",
-    "audio":        "#9C27B0",
-    "document":     "#FF9800",
-    "spreadsheet":  "#009688",
-    "presentation": "#E91E63",
-    "code":         "#00BCD4",
-    "data":         "#607D8B",
-    "archive":      "#795548",
-    "executable":   "#F44336",
-    "font":         "#FF5722",
-    "ebook":        "#8BC34A",
-    "image":        "#CDDC39",
-    "other":        "#9E9E9E",
+    "photo":        "#5ec27a",
+    "video":        "#5aa9ff",
+    "audio":        "#b681ff",
+    "document":     "#e8943a",
+    "spreadsheet":  "#4dcab0",
+    "presentation": "#f06595",
+    "code":         "#4ec9b0",
+    "data":         "#7b9eb5",
+    "archive":      "#a08060",
+    "executable":   "#ff7a85",
+    "font":         "#ff8c66",
+    "ebook":        "#8ec84a",
+    "image":        "#c8d44a",
+    "other":        "#808080",
 }
 
 DARK_BG  = LazyColor("DARK_BG")
@@ -89,3 +89,7 @@ RED      = LazyColor("RED")
 YELLOW   = LazyColor("YELLOW")
 SEL_BG   = LazyColor("SEL_BG")
 SEL_TEXT = LazyColor("SEL_TEXT")
+DIVIDER2 = LazyColor("DIVIDER2")
+DIVIDER3 = LazyColor("DIVIDER3")
+BG2      = LazyColor("BG2")
+BG3      = LazyColor("BG3")

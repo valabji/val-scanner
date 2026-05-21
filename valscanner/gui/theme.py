@@ -6,44 +6,57 @@ APP_NAME = "ValScanner"
 PALETTE_KEYS = (
     "DARK_BG", "PANEL_BG", "ROW_ALT", "ACCENT",
     "TEXT", "SUBTEXT", "BORDER", "GREEN", "RED", "YELLOW", "SEL_BG", "SEL_TEXT",
+    "DIVIDER2", "DIVIDER3", "BG2", "BG3",
 )
 
 THEMES: dict[str, dict[str, str]] = {
     "dark": {
-        "DARK_BG":  "#1e1e2e",
-        "PANEL_BG": "#2a2a3e",
-        "ROW_ALT":  "#252535",
-        "ACCENT":   "#7c6af7",
-        "TEXT":     "#cdd6f4",
-        "SUBTEXT":  "#a6adc8",
-        "BORDER":   "#45475a",
-        "GREEN":    "#a6e3a1",
-        "RED":      "#f38ba8",
-        "YELLOW":   "#f9e2af",
+        "DARK_BG":  "#0c0d10",
+        "PANEL_BG": "#111317",
+        "ROW_ALT":  "#15181d",
+        "ACCENT":   "#ffb547",
+        "TEXT":     "#e8eaed",
+        "SUBTEXT":  "#9aa0aa",
+        "BORDER":   "#1f2329",
+        "GREEN":    "#6dd58c",
+        "RED":      "#ff7a85",
+        "YELLOW":   "#ffd66b",
+        "DIVIDER2": "#272c34",
+        "DIVIDER3": "#343a44",
+        "BG2":      "#15181d",
+        "BG3":      "#1b1f25",
     },
     "light": {
-        "DARK_BG":  "#f5f5f7",
+        "DARK_BG":  "#f4f4f6",
         "PANEL_BG": "#ffffff",
-        "ROW_ALT":  "#fafafa",
-        "ACCENT":   "#7c6af7",
-        "TEXT":     "#1d1d1f",
-        "SUBTEXT":  "#6e6e73",
-        "BORDER":   "#d2d2d7",
-        "GREEN":    "#34a853",
-        "RED":      "#d93025",
-        "YELLOW":   "#f29900",
+        "ROW_ALT":  "#f9f9fb",
+        "ACCENT":   "#d4830a",
+        "TEXT":     "#1a1c1f",
+        "SUBTEXT":  "#6b7079",
+        "BORDER":   "#d8dbe0",
+        "GREEN":    "#1e7e34",
+        "RED":      "#c0392b",
+        "YELLOW":   "#b8860b",
+        "DIVIDER2": "#e5e7eb",
+        "DIVIDER3": "#d1d5db",
+        "BG2":      "#f0f1f4",
+        "BG3":      "#e8eaed",
     },
     "high_contrast": {
         "DARK_BG":  "#000000",
         "PANEL_BG": "#1a1a1a",
         "ROW_ALT":  "#0d0d0d",
-        "ACCENT":   "#00e5ff",
+        "ACCENT":   "#ffb547",
         "TEXT":     "#ffffff",
         "SUBTEXT":  "#e0e0e0",
         "BORDER":   "#888888",
         "GREEN":    "#00ff66",
         "RED":      "#ff5252",
         "YELLOW":   "#ffeb3b",
+        "DIVIDER2": "#444444",
+        "DIVIDER3": "#555555",
+        "BG2":      "#111111",
+        "BG3":      "#1a1a1a",
     },
 }
 
@@ -67,7 +80,9 @@ def _build_palette(base_name: str) -> dict[str, str]:
     """Build a full palette dict (including SEL_BG/SEL_TEXT) for a resolved theme name."""
     from PySide6.QtCore import QSettings
     s = QSettings(ORG_NAME, APP_NAME)
-    palette = dict(THEMES.get(base_name, THEMES[DEFAULT_THEME]))
+    base = THEMES.get(base_name, THEMES[DEFAULT_THEME])
+    # Ensure all PALETTE_KEYS are present (fill missing keys from dark theme as fallback)
+    palette = {k: base.get(k, THEMES["dark"].get(k, "")) for k in PALETTE_KEYS}
     accent = s.value("accentColor", "") or ""
     if accent and accent.startswith("#") and len(accent) in (4, 7, 9):
         palette["ACCENT"] = accent
