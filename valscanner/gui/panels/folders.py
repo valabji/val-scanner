@@ -1,9 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
 
-from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
-
 import subprocess
 import sys
 
@@ -16,7 +13,6 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, SEL_BG, SEL_TEXT
-from ...core.db import repo_for
 from ...core.schema import human_size
 from .. import icons as _icons
 
@@ -26,9 +22,10 @@ class FolderPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._last_db_path   = ""
-        self._last_scan_id   = 0
-        self._separate_scans = False
+        self._last_db_path    = ""
+        self._last_scan_id    = 0
+        self._separate_scans  = False
+        self._folder_worker   = None  # type: ignore[assignment]
         self._build_ui()
         from ..theme import Theme
         Theme.instance().on_changed(self._apply_stylesheet)
@@ -240,41 +237,44 @@ class FolderPanel(QWidget):
         self._reload()
 
     def _reload(self) -> None:
-        db_path = self._last_db_path
-        scan_id = self._last_scan_id
-        if not db_path:
+        if not self._last_db_path:
             self._content_stack.setCurrentIndex(0)
             return
 
-        self.model.removeRows(0, self.model.rowCount())
-        engine = repo_for(db_path).engine
+        # Cancel any in-flight load
+        if self._folder_worker is not None:
+            self._folder_worker.stop()
+            self._folder_worker.wait(500)
+            self._folder_worker = None
 
-        if self._separate_scans and scan_id == 0:
-            try:
-                with engine.connect() as conn:
-                    scans = conn.execute(
-                        text("SELECT id, label, total_bytes, file_count FROM scans ORDER BY label")
-                    ).fetchall()
-            except OperationalError:
-                scans = []
+        self._folders_empty_lbl.setText("Loading…")
+        self._content_stack.setCurrentIndex(0)
+
+        from ..workers import FolderLoadWorker
+        w = FolderLoadWorker(self._last_db_path, self._last_scan_id, self._separate_scans)
+        w.data_ready.connect(self._on_folder_data)
+        w.error.connect(lambda e: self._folders_empty_lbl.setText(f"Error: {e}"))
+        self._folder_worker = w
+        w.start()
+
+    def _on_folder_data(self, payload: dict) -> None:
+        self._folder_worker = None
+        self.model.beginResetModel()
+        self.model.removeRows(0, self.model.rowCount())
+
+        if payload["mode"] == "separate":
+            scans     = payload["scans"]
+            scan_data = payload["scan_data"]
 
             global_max = 0
-            scan_data: list[tuple] = []
-            for sid, label, stb, sfc in scans:
-                with engine.connect() as conn:
-                    rows = conn.execute(
-                        text("SELECT path, SUM(total_bytes), SUM(file_count) "
-                             "FROM folders WHERE scan_id=:sid GROUP BY path ORDER BY path"),
-                        {"sid": sid},
-                    ).fetchall()
-                data = {r[0]: (r[1], r[2]) for r in rows}
+            for sid, _label, _stb, _sfc in scans:
+                data = scan_data.get(sid, {})
                 if data:
-                    local_max  = max(v[0] for v in data.values())
-                    global_max = max(global_max, local_max)
-                scan_data.append((sid, label, stb or 0, sfc or 0, data))
+                    global_max = max(global_max, max(v[0] for v in data.values()))
             root_bytes = global_max or 1
 
-            for sid, label, stb, sfc, data in scan_data:
+            for sid, label, stb, sfc in scans:
+                data    = scan_data.get(sid, {})
                 scan_tb = stb or (max(v[0] for v in data.values()) if data else 0)
                 scan_fc = sfc or (sum(v[1] for v in data.values()) if data else 0)
                 ratio   = scan_tb / root_bytes
@@ -302,25 +302,18 @@ class FolderPanel(QWidget):
                     self._build_subtree(scan_name_item, data, root_bytes)
 
         else:
-            with engine.connect() as conn:
-                if scan_id:
-                    rows = conn.execute(
-                        text("SELECT path, SUM(total_bytes) AS total_bytes, SUM(file_count) AS file_count "
-                             "FROM folders WHERE scan_id=:sid GROUP BY path ORDER BY path"),
-                        {"sid": scan_id},
-                    ).fetchall()
-                else:
-                    rows = conn.execute(
-                        text("SELECT path, SUM(total_bytes) AS total_bytes, SUM(file_count) AS file_count "
-                             "FROM folders GROUP BY path ORDER BY path")
-                    ).fetchall()
+            rows = payload["rows"]
             if not rows:
+                self.model.endResetModel()
+                self._folders_empty_lbl.setText("Scan a folder first to populate this view.")
                 self._content_stack.setCurrentIndex(0)
                 return
             data       = {r[0]: (r[1], r[2]) for r in rows}
             root_bytes = max(v[0] for v in data.values()) or 1
             self._build_subtree(None, data, root_bytes)
 
+        self.model.endResetModel()
+        self._folders_empty_lbl.setText("Scan a folder first to populate this view.")
         self._content_stack.setCurrentIndex(1)
         self.tree.expandToDepth(1)
         col   = self.tree.header().sortIndicatorSection()

@@ -427,6 +427,90 @@ class BrowserLoadWorker(QThread):
                 reg.mark_error(self._pid)
 
 
+class FolderLoadWorker(QThread):
+    """Queries folder data from DB in background for FolderPanel.
+
+    Emits ``data_ready`` with a dict:
+      - mode "combined": {"mode": "combined", "rows": [(path, bytes, count), ...]}
+      - mode "separate": {"mode": "separate",
+                          "scans": [(id, label, total_bytes, file_count), ...],
+                          "scan_data": {scan_id: {path: (bytes, count)}}}
+    """
+    data_ready = Signal(dict)
+    error      = Signal(str)
+
+    def __init__(self, db_path: str, scan_id: int, separate_scans: bool):
+        super().__init__()
+        self.db_path        = db_path
+        self.scan_id        = scan_id
+        self.separate_scans = separate_scans
+        self._interrupt     = threading.Event()
+        self._pid: str      = ""
+
+    def stop(self) -> None:
+        self._interrupt.set()
+
+    def run(self) -> None:
+        from .panels.process import ProcessRegistry
+        reg = ProcessRegistry.instance()
+        self._pid = reg.register(name="Loading folders", cancel_cb=self.stop)
+        ok = False
+        try:
+            engine = repo_for(self.db_path).engine
+
+            if self.separate_scans and self.scan_id == 0:
+                with engine.connect() as conn:
+                    scans = conn.execute(
+                        text("SELECT id, label, total_bytes, file_count FROM scans ORDER BY label")
+                    ).fetchall()
+                    if self._interrupt.is_set():
+                        return
+                    # single query instead of one per scan
+                    all_rows = conn.execute(
+                        text(
+                            "SELECT scan_id, path, SUM(total_bytes), SUM(file_count) "
+                            "FROM folders GROUP BY scan_id, path ORDER BY path"
+                        )
+                    ).fetchall()
+
+                scan_data: dict[int, dict] = {}
+                for r in all_rows:
+                    scan_data.setdefault(r[0], {})[r[1]] = (r[2], r[3])
+
+                self.data_ready.emit({
+                    "mode":      "separate",
+                    "scans":     list(scans),
+                    "scan_data": scan_data,
+                })
+            else:
+                with engine.connect() as conn:
+                    if self.scan_id:
+                        rows = conn.execute(
+                            text(
+                                "SELECT path, SUM(total_bytes), SUM(file_count) "
+                                "FROM folders WHERE scan_id=:sid GROUP BY path ORDER BY path"
+                            ),
+                            {"sid": self.scan_id},
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(
+                            text(
+                                "SELECT path, SUM(total_bytes), SUM(file_count) "
+                                "FROM folders GROUP BY path ORDER BY path"
+                            )
+                        ).fetchall()
+
+                self.data_ready.emit({"mode": "combined", "rows": list(rows)})
+            ok = True
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            if ok or self._interrupt.is_set():
+                reg.mark_done(self._pid)
+            else:
+                reg.mark_error(self._pid)
+
+
 class ConnectWorker(QThread):
     """Non-blocking database connect + initial summary load.
 
