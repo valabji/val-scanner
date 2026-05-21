@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from ..schema import files as _files_t, folders as _folders_t, scans as _scans_t
 from .analysis import AnalysisMixin
+from .cache import CacheMixin
 from .files import FilesMixin
 from .folders import FoldersMixin
 from .media import MediaMixin
@@ -15,7 +16,7 @@ from .search import SearchMixin
 
 class Repository(
     ScansMixin, FilesMixin, FoldersMixin,
-    MediaMixin, SearchMixin, AnalysisMixin,
+    MediaMixin, SearchMixin, AnalysisMixin, CacheMixin,
 ):
     """Single entry point for all database reads and writes.
 

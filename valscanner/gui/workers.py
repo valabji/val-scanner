@@ -98,6 +98,7 @@ class ScanWorker(QThread):
                 on_progress=_on_progress,
                 **self.options,
             )
+            repo_for(self.db_path).invalidate_gui_cache()
             self.done.emit(stats)
             if self._pid:
                 from .panels.process import ProcessRegistry
@@ -214,8 +215,23 @@ class DbLoadWorker(QThread):
         self._pid = reg.register(name="Loading database", cancel_cb=self.stop)
         ok = False
         try:
-            engine = repo_for(self.db_path).engine
-            sid = self.scan_id
+            repo = repo_for(self.db_path)
+            sid  = self.scan_id
+
+            # Only cache the unfiltered initial load (scan_id None/0, offset 0)
+            cache_key = f"file_list:{'all' if not sid else f'scan_{sid}'}"
+            version   = repo.db_version()
+            if version:
+                cached = repo.get_gui_cache(cache_key, version)
+                if cached is not None:
+                    self.db_loaded.emit(cached)
+                    ok = True
+                    return
+
+            if self._interrupt.is_set():
+                return
+
+            engine = repo.engine
             with engine.connect() as conn:
                 if self._interrupt.is_set():
                     return
@@ -252,11 +268,14 @@ class DbLoadWorker(QThread):
                         {"lim": self.page_size, "off": 0},
                     ).fetchall()
 
-            self.db_loaded.emit({
+            payload = {
                 "total":      total,
                 "total_size": total_size or 0,
-                "rows":       list(rows),
-            })
+                "rows":       [list(r) for r in rows],
+            }
+            if version:
+                repo.set_gui_cache(cache_key, version, payload)
+            self.db_loaded.emit(payload)
             ok = True
         except Exception as e:
             self.error.emit(str(e))
@@ -456,7 +475,31 @@ class FolderLoadWorker(QThread):
         self._pid = reg.register(name="Loading folders", cancel_cb=self.stop)
         ok = False
         try:
-            engine = repo_for(self.db_path).engine
+            repo = repo_for(self.db_path)
+
+            # Determine cache key and try the cache first
+            if self.separate_scans and self.scan_id == 0:
+                cache_key = "folder_tree:separate"
+            elif self.scan_id:
+                cache_key = f"folder_tree:scan_{self.scan_id}"
+            else:
+                cache_key = "folder_tree:all"
+
+            version = repo.db_version()
+            if version:
+                cached = repo.get_gui_cache(cache_key, version)
+                if cached is not None:
+                    # JSON stores int dict keys as strings; restore them
+                    if cached.get("mode") == "separate" and "scan_data" in cached:
+                        cached["scan_data"] = {int(k): v for k, v in cached["scan_data"].items()}
+                    self.data_ready.emit(cached)
+                    ok = True
+                    return
+
+            if self._interrupt.is_set():
+                return
+
+            engine = repo.engine
 
             if self.separate_scans and self.scan_id == 0:
                 with engine.connect() as conn:
@@ -477,11 +520,11 @@ class FolderLoadWorker(QThread):
                 for r in all_rows:
                     scan_data.setdefault(r[0], {})[r[1]] = (r[2], r[3])
 
-                self.data_ready.emit({
+                payload: dict = {
                     "mode":      "separate",
-                    "scans":     list(scans),
+                    "scans":     [list(r) for r in scans],
                     "scan_data": scan_data,
-                })
+                }
             else:
                 with engine.connect() as conn:
                     if self.scan_id:
@@ -500,7 +543,11 @@ class FolderLoadWorker(QThread):
                             )
                         ).fetchall()
 
-                self.data_ready.emit({"mode": "combined", "rows": list(rows)})
+                payload = {"mode": "combined", "rows": [list(r) for r in rows]}
+
+            if version:
+                repo.set_gui_cache(cache_key, version, payload)
+            self.data_ready.emit(payload)
             ok = True
         except Exception as e:
             self.error.emit(str(e))

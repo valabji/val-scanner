@@ -96,6 +96,15 @@ media_samples = Table(
     Column("duration", Float),
 )
 
+gui_cache = Table(
+    "gui_cache",
+    metadata,
+    Column("key", Text, primary_key=True),
+    Column("value_json", Text, nullable=False),
+    Column("version", Text, nullable=False),
+    Column("created_at", Text, nullable=False),
+)
+
 # `scope_scan_ids` is intentionally NOT a separate column — it moves into
 # filters_json under the key "scope_scan_ids" so we have one parser, not two.
 analysis_runs = Table(

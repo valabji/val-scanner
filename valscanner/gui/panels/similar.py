@@ -603,6 +603,14 @@ class SimilarFoldersPanel(QWidget):
         self._rebuild_partition_row()
         self._refresh_history_btn()
 
+    def auto_load_last_run(self) -> None:
+        """Auto-populate with the most recent saved analysis run on DB open."""
+        if not self._db_path or self._results:
+            return
+        runs = list_analysis_runs(self._db_path)
+        if runs:
+            self._load_run(runs[0]["id"])
+
     def _rebuild_partition_row(self) -> None:
         while self._part_layout.count() > 1:
             item = self._part_layout.takeAt(0)
