@@ -8,12 +8,14 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QLabel, QPushButton,
-    QTextEdit, QHBoxLayout, QMessageBox,
+    QTextEdit, QHBoxLayout, QMessageBox, QStackedWidget,
 )
+
+from ..layouts import FlowLayout
 
 from ...core.db import repo_for
 from ..constants import CATEGORY_COLORS, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
@@ -35,24 +37,84 @@ class TagChip(QLabel):
         """)
 
 
-class FlowLayout(QHBoxLayout):
-    """Minimal flow-style layout using wrapping QHBoxLayout trick."""
-    pass
-
-
 class DetailPanel(QWidget):
+    status_message = Signal(str, str)  # (msg, level)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumWidth(260)
         self._db_path = ""
         self._current_path: str | None = None
         self._build_ui()
+        from ..theme import Theme
+        Theme.instance().on_changed(self._apply_stylesheet)
+
+    def _apply_stylesheet(self) -> None:
+        self.name_label.setStyleSheet(f"color: {TEXT}; font-weight: bold; font-size: 13px;")
+        self.cat_label.setStyleSheet(
+            f"color: {ACCENT}; font-size: 11px; border: 1px solid {ACCENT};"
+            f"border-radius:8px; padding:2px 8px;"
+        )
+        self.tags_title.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; font-weight: bold;")
+        self.meta_title.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; font-weight: bold;")
+        self.meta_text.setStyleSheet(f"""
+            QTextEdit {{
+                background: {PANEL_BG}; color: {SUBTEXT};
+                border: 1px solid {BORDER}; border-radius: 6px;
+                font-size: 11px; font-family: monospace; padding: 4px;
+            }}
+        """)
+        self.open_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {ACCENT}; color: white; border: none;
+                border-radius: 6px; padding: 6px 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #9d8fff; }}
+            QPushButton:pressed {{ background: #6a58d4; }}
+        """)
+        self.sample_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {GREEN};
+                border: 1px solid {GREEN}66; border-radius: 6px;
+                padding: 6px 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: {GREEN}22; border-color: {GREEN}; }}
+            QPushButton:pressed {{ background: {GREEN}33; }}
+        """)
 
     def set_db(self, db_path: str) -> None:
         self._db_path = db_path
 
+    def _build_placeholder(self) -> QWidget:
+        w   = QWidget()
+        pl  = QVBoxLayout(w)
+        pl.setAlignment(Qt.AlignCenter)
+        pl.setSpacing(10)
+        ico = QLabel()
+        ico.setPixmap(_icons.pixmap("file", 48, color=str(SUBTEXT)))
+        ico.setAlignment(Qt.AlignCenter)
+        pl.addWidget(ico, 0, Qt.AlignHCenter)
+        title = QLabel("Select a file")
+        title.setStyleSheet(f"color: {SUBTEXT}; font-weight: bold; font-size: 13px;")
+        title.setAlignment(Qt.AlignCenter)
+        pl.addWidget(title)
+        hint = QLabel("Metadata, tags, and previews will appear here.")
+        hint.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setWordWrap(True)
+        pl.addWidget(hint)
+        return w
+
     def _build_ui(self) -> None:
-        lay = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_placeholder())   # page 0: placeholder
+
+        content = QWidget()
+        lay = QVBoxLayout(content)
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(10)
 
@@ -136,6 +198,10 @@ class DetailPanel(QWidget):
 
         lay.addStretch()
 
+        self._stack.addWidget(content)      # page 1: live detail
+        self._stack.setCurrentIndex(0)      # start on placeholder
+        outer.addWidget(self._stack)
+
     def _grid_row(self, label: str, value, row: int) -> None:
         lbl = QLabel(label)
         lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
@@ -146,6 +212,7 @@ class DetailPanel(QWidget):
         self.grid_lay.addWidget(val, row, 1)
 
     def show_file(self, row) -> None:
+        self._stack.setCurrentIndex(1)
         self._current_path = row[0]
         cat = row[2]
 
@@ -239,27 +306,46 @@ class DetailPanel(QWidget):
                     {"p": self._current_path},
                 ).fetchone()
             if not res:
+                from ..feedback import notify_error
+                notify_error(self, "Sample unavailable",
+                    "No sample is stored for this file. "
+                    "Re-scan with 'Store samples' enabled to generate one.")
                 return
             data, fmt = res
             suffix = f".{fmt or 'mp3'}"
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp.write(data)
                 tmp_path = tmp.name
-            if sys.platform == "darwin":
-                subprocess.Popen(["open", tmp_path])
-            elif sys.platform == "win32":
-                os.startfile(tmp_path)
-            else:
-                subprocess.Popen(["xdg-open", tmp_path])
+            name = Path(self._current_path).name
+            self.status_message.emit(f"Opening sample for {name}…", "info")
+            try:
+                if sys.platform == "darwin":
+                    subprocess.Popen(["open", tmp_path])
+                elif sys.platform == "win32":
+                    os.startfile(tmp_path)
+                else:
+                    subprocess.Popen(["xdg-open", tmp_path])
+            except OSError as exc:
+                from ..feedback import notify_error
+                notify_error(self, "Could not open sample",
+                    "The system reported an error when opening this media file.",
+                    detail=str(exc))
         except Exception as e:
-            QMessageBox.warning(self, "Sample error", str(e))
+            from ..feedback import notify_error
+            notify_error(self, "Could not open sample",
+                "An unexpected error occurred when reading the sample.",
+                detail=str(e))
 
     def _open_file(self) -> None:
         if not self._current_path:
             return
         p = Path(self._current_path)
         if not p.exists():
-            QMessageBox.warning(self, "Not found", f"File not found:\n{self._current_path}")
+            from ..feedback import notify_error
+            notify_error(self, "File no longer exists",
+                f"'{p.name}' was indexed previously but is missing now. "
+                "Re-scan to refresh.",
+                detail=str(p))
             return
         if sys.platform == "darwin":
             subprocess.Popen(["open", str(p)])

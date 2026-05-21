@@ -37,35 +37,54 @@ class ConsolePanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._build_ui()
+        from ..theme import Theme
+        Theme.instance().on_changed(self._apply_stylesheet)
+
+    def _apply_stylesheet(self) -> None:
+        self._hdr.setStyleSheet(f"background:{PANEL_BG};border-top:1px solid {BORDER};")
+        self._title.setStyleSheet(f"color:{SUBTEXT};font-size:11px;font-weight:bold;")
+        self._clear_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
+            f"border-radius:3px;font-size:10px;}}"
+            f"QPushButton:hover{{color:{TEXT};border-color:{TEXT};}}"
+        )
+        self._output.setStyleSheet(f"""
+            QTextEdit {{
+                background: {PANEL_BG};
+                color: {TEXT}; border: none;
+                font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+                font-size: 11px; padding: 4px 8px;
+            }}
+        """)
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        hdr = QWidget()
-        hdr.setFixedHeight(28)
-        hdr.setStyleSheet(f"background:{PANEL_BG};border-top:1px solid {BORDER};")
-        hl = QHBoxLayout(hdr)
+        self._hdr = QWidget()
+        self._hdr.setFixedHeight(28)
+        self._hdr.setStyleSheet(f"background:{PANEL_BG};border-top:1px solid {BORDER};")
+        hl = QHBoxLayout(self._hdr)
         hl.setContentsMargins(12, 0, 8, 0)
         hl.setSpacing(6)
         icon = QLabel()
         icon.setPixmap(_icons.pixmap("console", 14, color=str(SUBTEXT)))
         hl.addWidget(icon)
-        title = QLabel("Console")
-        title.setStyleSheet(f"color:{SUBTEXT};font-size:11px;font-weight:bold;")
-        hl.addWidget(title)
+        self._title = QLabel("Console")
+        self._title.setStyleSheet(f"color:{SUBTEXT};font-size:11px;font-weight:bold;")
+        hl.addWidget(self._title)
         hl.addStretch()
-        clear_btn = QPushButton("Clear")
-        clear_btn.setFixedSize(48, 18)
-        clear_btn.setStyleSheet(
+        self._clear_btn = QPushButton("Clear")
+        self._clear_btn.setFixedSize(48, 18)
+        self._clear_btn.setStyleSheet(
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
             f"border-radius:3px;font-size:10px;}}"
             f"QPushButton:hover{{color:{TEXT};border-color:{TEXT};}}"
         )
-        clear_btn.clicked.connect(lambda: self._output.clear())
-        hl.addWidget(clear_btn)
-        lay.addWidget(hdr)
+        self._clear_btn.clicked.connect(lambda: self._output.clear())
+        hl.addWidget(self._clear_btn)
+        lay.addWidget(self._hdr)
 
         self._output = QTextEdit()
         self._output.setReadOnly(True)

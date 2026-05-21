@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QSettings, QSize
-from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QVBoxLayout, QHBoxLayout,
@@ -37,7 +37,9 @@ from .panels.similar import SimilarFoldersPanel
 from .panels.scans import ScansPanel
 from .panels.console import ConsolePanel, _StderrBridge
 from .panels.process import ProcessPanel, ProcessRegistry
+from .recent import RecentDBsModel
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
+from . import persistence
 from ..core.export import export_csv, export_json
 from ..core.db import list_scans, reset_repos
 from ..core.db_config import reset_engines
@@ -50,6 +52,7 @@ from ..core.app_settings import active_url, mask_url
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        persistence.migrate()
         self.setWindowTitle("ValScanner")
         self.resize(1440, 860)
         self._db_path                = ""
@@ -65,7 +68,7 @@ class MainWindow(QMainWindow):
         self._elapsed_timer          = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
         self._scan_options: dict     = {}
-        self._view_filters: dict     = {}
+        self._view_filters: dict     = persistence.get_json(persistence.Keys.FILES_FILTERS, {})
         self._group_by: str          = ""
         self._view_filters_dlg: ViewFiltersDialog | None = None
         self._filtered_rows: list    = []
@@ -77,16 +80,24 @@ class MainWindow(QMainWindow):
         self._browser_path           = ""          # current path in browser mode
         self._browser_worker: BrowserLoadWorker | None = None
         self._browser_history: list[str] = []
+        self._current_view_index     = 0           # 0=table 1=grid 2=list
 
-        self._apply_palette()
+        self.recent_dbs = RecentDBsModel.instance()
+        self.recent_dbs.changed.connect(self._rebuild_recent_menu)
+        self.recent_dbs.changed.connect(self._on_recents_changed)
+
+        self._apply_global_stylesheet()
         self._build_menu()
         self._build_ui()
+
+        from .theme import Theme
+        Theme.instance().on_changed(self._apply_global_stylesheet)
 
         self.setAcceptDrops(True)
         self._install_shortcuts()
         self._apply_startup_settings()
 
-    def _apply_palette(self) -> None:
+    def _apply_global_stylesheet(self) -> None:
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{
                 background: {DARK_BG}; color: {TEXT};
@@ -197,18 +208,106 @@ class MainWindow(QMainWindow):
 
         _mk("/",              self._focus_search)
         _mk("Ctrl+F",         self._focus_search)
+        _mk("Ctrl+R",         self._toggle_folder_depth)
         _mk("Ctrl+Shift+R",   self._reveal_active_file)
         _mk("Ctrl+Shift+C",   self._copy_active_path)
+        _mk("Esc",            self._on_escape)
+        _mk("Ctrl+.",         self._hard_cancel)
+        _mk("Ctrl+Shift+B",   self._toggle_folder_panel)
+        _mk("Ctrl+Shift+D",   self._toggle_detail_panel)
+        _mk("Ctrl+`",         self._toggle_console)
+
+        for i, key in enumerate(("Ctrl+1", "Ctrl+2", "Ctrl+3")):
+            _mk(key, lambda i=i: self.center_tabs.setCurrentIndex(i))
 
         for v in (self.table, self.grid_view, self.list_view):
             for seq in ("Return", "Enter"):
                 sc = QShortcut(QKeySequence(seq), v)
                 sc.setContext(Qt.WidgetShortcut)
                 sc.activated.connect(self._open_active_file)
+            sc_a = QShortcut(QKeySequence("Ctrl+A"), v)
+            sc_a.setContext(Qt.WidgetShortcut)
+            sc_a.activated.connect(v.selectAll)
+
+    def _on_escape(self) -> None:
+        busy = self._busy_workers()
+        if busy:
+            kinds = " and ".join(busy)
+            if QMessageBox.question(
+                self, "Cancel task?", f"A {kinds} is running. Cancel it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            ) == QMessageBox.Yes:
+                self._hard_cancel()
+            return
+        if self.search_edit.hasFocus() and self.search_edit.text():
+            self.search_edit.clear()
+            return
+        if self._any_filter_active():
+            if QMessageBox.question(
+                self, "Clear filters?", "Clear all active view filters?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            ) == QMessageBox.Yes:
+                self._reset_all_filters()
+
+    def _hard_cancel(self) -> None:
+        if getattr(self, "_worker", None) and self._worker.isRunning():
+            self._worker.stop()
+        sp_worker = getattr(getattr(self, "similar_panel", None), "_worker", None)
+        if sp_worker and sp_worker.isRunning():
+            sp_worker.stop()
+        self._set_status("Cancelling…")
+
+    def _busy_workers(self) -> list:
+        out = []
+        if getattr(self, "_worker", None) and self._worker.isRunning():
+            out.append("scan")
+        sp_worker = getattr(getattr(self, "similar_panel", None), "_worker", None)
+        if sp_worker and sp_worker.isRunning():
+            out.append("similarity analysis")
+        return out
+
+    def _any_filter_active(self) -> bool:
+        if self._active_folder_filter:
+            return True
+        if hasattr(self, "search_edit") and self.search_edit.text().strip():
+            return True
+        if hasattr(self, "cat_combo") and self.cat_combo.currentText() != "All types":
+            return True
+        return self._count_active_view_filters() > 0
+
+    def _reset_all_filters(self) -> None:
+        self._clear_folder_filter()
+        if hasattr(self, "search_edit"):
+            self.search_edit.clear()
+        if hasattr(self, "cat_combo"):
+            self.cat_combo.setCurrentIndex(0)
+        self._on_view_filters_changed({})
+
+    def _toggle_folder_panel(self) -> None:
+        if hasattr(self, "folder_panel"):
+            self._set_folder_panel_visible(not self.folder_panel.isVisible())
+
+    def _toggle_detail_panel(self) -> None:
+        if hasattr(self, "detail"):
+            self._set_detail_panel_visible(not self.detail.isVisible())
+
+    def _toggle_console(self) -> None:
+        if hasattr(self, "_main_vsplit"):
+            sizes = self._main_vsplit.sizes()
+            self._set_console_visible(sizes[1] == 0)
 
     def _focus_search(self) -> None:
         self.search_edit.setFocus()
         self.search_edit.selectAll()
+
+    def _open_path(self, path: str) -> None:
+        """Open a file path in the OS default application."""
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        elif sys.platform == "win32":
+            subprocess.Popen(["start", "", path], shell=True)
+        else:
+            subprocess.Popen(["xdg-open", path])
 
     def _open_active_file(self) -> None:
         row = self._active_row()
@@ -286,52 +385,48 @@ class MainWindow(QMainWindow):
 
     # ── Recent databases ──────────────────────────────────────────────────────
 
-    _RECENT_KEY = "recentDatabases"
-    _RECENT_MAX = 5
-
-    def _recent_paths(self) -> list[str]:
-        raw = pref_settings().value(self._RECENT_KEY, [])
-        if isinstance(raw, str):
-            raw = [raw]
-        return [p for p in (raw or []) if p and Path(p).exists()][: self._RECENT_MAX]
-
     def _push_recent(self, path: str) -> None:
-        path  = str(Path(path).resolve())
-        items = [p for p in self._recent_paths() if Path(p).resolve() != Path(path)]
-        items.insert(0, path)
-        pref_settings().setValue(self._RECENT_KEY, items[: self._RECENT_MAX])
-        self._rebuild_recent_menu()
+        self.recent_dbs.push(Path(path).resolve())
+
+    def _on_recents_changed(self) -> None:
         if hasattr(self, "_recents_strip"):
             self._refresh_recents_strip()
 
     def _rebuild_recent_menu(self) -> None:
+        if not hasattr(self, "_recent_menu"):
+            return
         self._recent_menu.clear()
-        paths = self._recent_paths()
-        if not paths:
+        items = self.recent_dbs.items()
+        active = self.recent_dbs.active()
+        if not items:
             a = self._recent_menu.addAction("(none)")
             a.setEnabled(False)
             return
-        for p in paths:
-            act = self._recent_menu.addAction(Path(p).name)
-            act.setToolTip(p)
-            act.triggered.connect(lambda _c=False, path=p: self._open_recent(path))
+        for p in items:
+            label = ("● " if active and p == active else "") + p.name
+            act = self._recent_menu.addAction(label)
+            act.setToolTip(str(p))
+            act.triggered.connect(lambda _c=False, path=str(p): self._open_recent(path))
         self._recent_menu.addSeparator()
         clear = self._recent_menu.addAction("Clear Recent")
         clear.triggered.connect(self._clear_recent)
 
     def _open_recent(self, path: str) -> None:
         if not Path(path).exists():
-            QMessageBox.warning(self, "Not found", f"File no longer exists:\n{path}")
-            self._rebuild_recent_menu()
+            from .feedback import notify_error
+            notify_error(self, "File no longer exists",
+                f"The database at '{path}' was opened recently but is missing now. "
+                "It may have been moved or deleted.",
+                detail=path)
+            self.recent_dbs.remove(path)
             return
-        self._push_recent(path)
+        self.recent_dbs.push(path)
         self._load_url(active_url(path))
 
     def _clear_recent(self) -> None:
-        pref_settings().setValue(self._RECENT_KEY, [])
-        self._rebuild_recent_menu()
-        if hasattr(self, "_recents_strip"):
-            self._refresh_recents_strip()
+        from PySide6.QtCore import QSettings
+        QSettings("valscanner", "ValScanner").setValue("recentDatabases", [])
+        self.recent_dbs.changed.emit()
 
     # ── Preferences ───────────────────────────────────────────────────────────
 
@@ -348,14 +443,30 @@ class MainWindow(QMainWindow):
             self.hash_chk.setChecked(bool(changed["computeHashesByDefault"]))
         if "showConsoleOnStartup" in changed and hasattr(self, "_main_vsplit"):
             self._apply_console_visibility(bool(changed["showConsoleOnStartup"]))
-        if "theme" in changed or "accentColor" in changed or "selectionColor" in changed or "selectionTextColor" in changed:
-            self._set_status("Theme change will take effect after restart.")
+        if "accentColor" in changed or "selectionColor" in changed or "selectionTextColor" in changed:
+            self._apply_global_stylesheet()
+            self._set_status("Accent colour updated.")
 
     def _apply_console_visibility(self, visible: bool) -> None:
         self._set_console_visible(visible)
 
     def _add_panel_toggles(self) -> None:
         vm = self._view_menu
+
+        # ── Theme submenu ──────────────────────────────────────────────────
+        from .theme import Theme
+        theme_menu = vm.addMenu("Theme")
+        ag = QActionGroup(self)
+        ag.setExclusive(True)
+        current = Theme.instance().current_mode()
+        for label, name in (("System", "system"), ("Light", "light"), ("Dark", "dark")):
+            act = QAction(label, self, checkable=True)
+            act.setChecked(current == name)
+            act.triggered.connect(lambda _=False, n=name: Theme.instance().set(n))
+            ag.addAction(act)
+            theme_menu.addAction(act)
+        self._theme_action_group = ag
+
         vm.addSeparator()
         s           = pref_settings()
         folder_vis  = s.value("panelFolderVisible",    True,                                   type=bool)
@@ -484,15 +595,39 @@ class MainWindow(QMainWindow):
 
         if pref_get("restoreWindowState"):
             s = pref_settings()
-            geo   = s.value("windowGeometry")
-            state = s.value("splitterState")
-            vstate = s.value("vsplitterState")
+            geo    = s.value(persistence.Keys.WINDOW_GEOMETRY)
+            state  = s.value(persistence.Keys.SPLITTER_STATE)
+            vstate = s.value(persistence.Keys.VSPLITTER_STATE)
             if geo:
                 self.restoreGeometry(geo)
             if state and hasattr(self, "splitter"):
                 self.splitter.restoreState(state)
             if vstate and hasattr(self, "_main_vsplit"):
                 self._main_vsplit.restoreState(vstate)
+
+            # Restore file-table view mode (browser / flat)
+            saved_mode = s.value(persistence.Keys.FILE_VIEW_MODE, "browser") or "browser"
+            if saved_mode != "browser":
+                self._browse_toggle.blockSignals(True)
+                self._browse_toggle.setChecked(False)
+                self._browse_toggle.blockSignals(False)
+                self._view_mode = "flat"
+
+            # Restore Details / Grid / List index
+            try:
+                saved_idx = int(s.value(persistence.Keys.FILE_VIEW_INDEX, 0) or 0)
+            except (TypeError, ValueError):
+                saved_idx = 0
+            if saved_idx != 0:
+                btn = self._view_btn_grp.button(saved_idx)
+                if btn:
+                    btn.setChecked(True)
+                self._current_view_index = saved_idx
+
+            # Restore column widths / sort order
+            hdr_state = s.value(persistence.Keys.FILE_TABLE_HDR)
+            if hdr_state and hasattr(self, "table"):
+                self.table.horizontalHeader().restoreState(hdr_state)
 
         _ps = pref_settings()
         self._set_console_visible(_ps.value("panelConsoleVisible", bool(pref_get("showConsoleOnStartup")), type=bool))
@@ -502,20 +637,36 @@ class MainWindow(QMainWindow):
         self._toggle_statsbar(_ps.value("panelStatsBarVisible", True, type=bool))
 
         # Auto-connect: open recent (SQLite) or active_url() (may be PG)
-        recents = self._recent_paths()
+        recents = self.recent_dbs.items()
         if pref_get("openLastDbOnStartup") and recents:
-            QTimer.singleShot(0, lambda: self._load_url(active_url(recents[0])))
+            QTimer.singleShot(0, lambda: self._load_url(active_url(str(recents[0]))))
         else:
             QTimer.singleShot(0, lambda: self._load_url(active_url()))
 
     def closeEvent(self, ev) -> None:
+        busy = self._busy_workers()
+        if busy:
+            msg = "A " + " and a ".join(busy) + " is still running. Quit anyway?"
+            if QMessageBox.question(
+                self, "Quit ValScanner", msg,
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            ) != QMessageBox.Yes:
+                ev.ignore()
+                return
         if pref_get("restoreWindowState"):
             s = pref_settings()
-            s.setValue("windowGeometry", self.saveGeometry())
+            s.setValue(persistence.Keys.WINDOW_GEOMETRY, self.saveGeometry())
             if hasattr(self, "splitter"):
-                s.setValue("splitterState", self.splitter.saveState())
+                s.setValue(persistence.Keys.SPLITTER_STATE, self.splitter.saveState())
             if hasattr(self, "_main_vsplit"):
-                s.setValue("vsplitterState", self._main_vsplit.saveState())
+                s.setValue(persistence.Keys.VSPLITTER_STATE, self._main_vsplit.saveState())
+            s.setValue(persistence.Keys.FILE_VIEW_MODE, self._view_mode)
+            s.setValue(persistence.Keys.FILE_VIEW_INDEX, self._current_view_index)
+            if hasattr(self, "table"):
+                s.setValue(persistence.Keys.FILE_TABLE_HDR,
+                           self.table.horizontalHeader().saveState())
+            if hasattr(self, "scans_panel"):
+                self.scans_panel._persist_header()
         _ps = pref_settings()
         _ps.setValue("panelFolderVisible",    self.folder_panel.isVisible() if hasattr(self, "folder_panel") else True)
         _ps.setValue("panelDetailVisible",    self.detail.isVisible()       if hasattr(self, "detail")        else True)
@@ -529,8 +680,9 @@ class MainWindow(QMainWindow):
             item = self._recents_lay.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        paths = self._recent_paths()
-        if not paths:
+        items  = self.recent_dbs.items()
+        active = self.recent_dbs.active()
+        if not items:
             return
         hdr = QLabel("Recent databases")
         hdr.setAlignment(Qt.AlignCenter)
@@ -545,13 +697,20 @@ class MainWindow(QMainWindow):
             f"border:1px solid {BORDER};border-radius:12px;padding:4px 12px;font-size:11px;}}"
             f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
         )
-        for p in paths:
-            chip = QPushButton(Path(p).name)
-            chip.setIcon(_icons.icon("open", color=str(SUBTEXT)))
+        active_ss = (
+            f"QPushButton{{background:{GREEN:11};color:{GREEN};"
+            f"border:1px solid {GREEN:44};border-radius:12px;padding:4px 12px;font-size:11px;}}"
+            f"QPushButton:hover{{border-color:{GREEN};background:{GREEN:22};}}"
+        )
+        for p in items:
+            is_active = active is not None and p == active
+            label = ("● " if is_active else "") + p.name
+            chip = QPushButton(label)
+            chip.setIcon(_icons.icon("open", color=str(GREEN if is_active else SUBTEXT)))
             chip.setIconSize(QSize(14, 14))
-            chip.setToolTip(p)
-            chip.setStyleSheet(chip_ss)
-            chip.clicked.connect(lambda _c=False, path=p: self._open_recent(path))
+            chip.setToolTip(str(p))
+            chip.setStyleSheet(active_ss if is_active else chip_ss)
+            chip.clicked.connect(lambda _c=False, path=str(p): self._open_recent(path))
             chip_row.addWidget(chip)
         container = QWidget()
         container.setLayout(chip_row)
@@ -656,11 +815,13 @@ class MainWindow(QMainWindow):
 
         root_lay.addWidget(self._build_statsbar())
 
-        # Process monitor dock
+        # Process monitor dock — float so it overlays rather than resizing the window
         self._process_dock = ProcessPanel(self)
-        self._process_dock.setMinimumWidth(280)
+        self._process_dock.setFloating(True)
+        self._process_dock.setMinimumWidth(320)
+        self._process_dock.setMaximumWidth(420)
+        self._process_dock.resize(360, 480)
         self.addDockWidget(Qt.RightDockWidgetArea, self._process_dock)
-        # Keep docked but hidden initially using a 0-tab fold; show on first scan/load
         self._process_dock.setVisible(False)
 
         self._add_panel_toggles()
@@ -669,6 +830,9 @@ class MainWindow(QMainWindow):
         sb.setFixedHeight(26)
         self.setStatusBar(sb)
         self.status = sb
+        self._task_pill = self._build_task_pill()
+        sb.addPermanentWidget(self._task_pill)
+        ProcessRegistry.instance().add_listener(self._update_task_pill)
         self._set_status("Open a database or scan a folder to get started.  "
                          "  Ctrl+O = Open DB  ·  Ctrl+Shift+S = Scan")
 
@@ -737,16 +901,10 @@ class MainWindow(QMainWindow):
         self.scan_btn.setFixedWidth(110)
         self.scan_btn.clicked.connect(self._start_scan)
         rl.addWidget(self.scan_btn)
-
-        self.stop_btn = self._btn_danger("Stop", "Abort current scan", icon="stop")
-        self.stop_btn.setFixedWidth(90)
-        self.stop_btn.clicked.connect(self._stop_scan)
-        self.stop_btn.setEnabled(False)
-        rl.addWidget(self.stop_btn)
         outer.addWidget(r1)
 
         r2 = QWidget()
-        r2.setStyleSheet(f"background: {DARK_BG}; border-top: 1px solid {BORDER};")
+        r2.setStyleSheet(f"background: {PANEL_BG};")
         r2.setFixedHeight(40)
         rl2 = QHBoxLayout(r2)
         rl2.setContentsMargins(16, 0, 16, 0)
@@ -842,7 +1000,7 @@ class MainWindow(QMainWindow):
         self.search_edit.setPlaceholderText("Search filename, tag, path…   (press /)")
         self.search_edit.addAction(_icons.icon("search", color=str(SUBTEXT)), QLineEdit.LeadingPosition)
         self.search_edit.setMinimumWidth(260)
-        self.search_edit.setFixedHeight(30)
+        self.search_edit.setFixedHeight(28)
         self.search_edit.setClearButtonEnabled(True)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -857,14 +1015,14 @@ class MainWindow(QMainWindow):
         fl.addWidget(self.search_edit)
 
         self.scan_combo = QComboBox()
-        self.scan_combo.setFixedHeight(30)
+        self.scan_combo.setFixedHeight(28)
         self.scan_combo.addItem("All scans", userData=0)
         self.scan_combo.currentIndexChanged.connect(self._on_scan_filter_changed)
         self.scan_combo.setFixedWidth(160)
         fl.addWidget(self.scan_combo)
 
         self.cat_combo = QComboBox()
-        self.cat_combo.setFixedHeight(30)
+        self.cat_combo.setFixedHeight(28)
         self.cat_combo.addItem("All types")
         for cat in sorted(CATEGORY_COLORS.keys()):
             self.cat_combo.addItem(cat)
@@ -873,7 +1031,7 @@ class MainWindow(QMainWindow):
         fl.addWidget(self.cat_combo)
 
         self.sort_combo = QComboBox()
-        self.sort_combo.setFixedHeight(30)
+        self.sort_combo.setFixedHeight(28)
         self.sort_combo.addItems(["Name ↑", "Size ↓", "Modified ↓", "Category"])
         self.sort_combo.currentIndexChanged.connect(self._apply_sort)
         self.sort_combo.setFixedWidth(120)
@@ -887,7 +1045,7 @@ class MainWindow(QMainWindow):
         self._vf_btn = QPushButton("Filters")
         self._vf_btn.setIcon(_icons.icon("filters", color=str(SUBTEXT)))
         self._vf_btn.setIconSize(QSize(14, 14))
-        self._vf_btn.setFixedHeight(30)
+        self._vf_btn.setFixedHeight(28)
         self._vf_btn.setToolTip("Show / hide view filters (no re-scan needed)")
         self._vf_btn.setStyleSheet(
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
@@ -903,7 +1061,7 @@ class MainWindow(QMainWindow):
         fl.addWidget(group_lbl)
 
         self._group_combo = QComboBox()
-        self._group_combo.setFixedHeight(30)
+        self._group_combo.setFixedHeight(28)
         self._group_combo.addItems(["None", "Category", "Extension", "Folder", "Date"])
         self._group_combo.setFixedWidth(110)
         self._group_combo.setToolTip("Group files in the Details view")
@@ -927,17 +1085,6 @@ class MainWindow(QMainWindow):
             f"color: {ACCENT}; font-size: 11px; border: none; background: transparent;"
         )
         pill_lay.addWidget(self.folder_pill_lbl)
-        self.folder_depth_btn = QPushButton("·/")
-        self.folder_depth_btn.setFixedSize(20, 16)
-        self.folder_depth_btn.setCheckable(True)
-        self.folder_depth_btn.setToolTip("Direct children only · click to include all descendants")
-        self.folder_depth_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {ACCENT:88}; border: none; font-size: 10px; font-weight: bold; padding: 0; }}"
-            f"QPushButton:hover {{ color: {ACCENT}; }}"
-            f"QPushButton:checked {{ color: {ACCENT}; }}"
-        )
-        self.folder_depth_btn.toggled.connect(self._on_folder_depth_toggled)
-        pill_lay.addWidget(self.folder_depth_btn)
         dismiss_pill = QPushButton()
         dismiss_pill.setIcon(_icons.icon("close", color=str(ACCENT)))
         dismiss_pill.setIconSize(QSize(12, 12))
@@ -1000,6 +1147,47 @@ class MainWindow(QMainWindow):
         fl.addWidget(clear_btn)
         return self._filterbar
 
+    def _build_depth_seg(self) -> QWidget:
+        """Segmented control for folder-filter depth: This folder / + subfolders."""
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        seg_ss = (
+            f"QPushButton{{background:{PANEL_BG};color:{SUBTEXT};border:1px solid {BORDER};"
+            f"padding:2px 9px;font-size:11px;}}"
+            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};}}"
+        )
+        left_ss  = seg_ss + "QPushButton{border-radius:0;border-top-left-radius:5px;border-bottom-left-radius:5px;}"
+        right_ss = seg_ss + "QPushButton{border-radius:0;border-top-right-radius:5px;border-bottom-right-radius:5px;border-left:none;}"
+
+        self._depth_this_btn = QPushButton("This folder")
+        self._depth_this_btn.setCheckable(True)
+        self._depth_this_btn.setChecked(True)
+        self._depth_this_btn.setFixedHeight(22)
+        self._depth_this_btn.setStyleSheet(left_ss)
+        self._depth_this_btn.setToolTip("Show only direct children of this folder  (Ctrl+R)")
+        self._depth_this_btn.setAccessibleName("Filter: this folder only")
+
+        self._depth_sub_btn = QPushButton("+ subfolders")
+        self._depth_sub_btn.setCheckable(True)
+        self._depth_sub_btn.setFixedHeight(22)
+        self._depth_sub_btn.setStyleSheet(right_ss)
+        self._depth_sub_btn.setToolTip("Show all files in this folder and descendants  (Ctrl+R)")
+        self._depth_sub_btn.setAccessibleName("Filter: include subfolders")
+
+        self._depth_grp = QButtonGroup(w)
+        self._depth_grp.setExclusive(True)
+        self._depth_grp.addButton(self._depth_this_btn, 0)
+        self._depth_grp.addButton(self._depth_sub_btn, 1)
+        self._depth_grp.idClicked.connect(self._on_depth_seg_clicked)
+
+        lay.addWidget(self._depth_this_btn)
+        lay.addWidget(self._depth_sub_btn)
+        return w
+
     def _build_body(self) -> QSplitter:
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setHandleWidth(1)
@@ -1031,6 +1219,9 @@ class MainWindow(QMainWindow):
         self._breadcrumb_lay.setContentsMargins(12, 0, 12, 0)
         self._breadcrumb_lay.setSpacing(4)
         self._breadcrumb_lay.addStretch()
+        self._depth_seg_ctrl = self._build_depth_seg()
+        self._depth_seg_ctrl.hide()
+        self._breadcrumb_lay.addWidget(self._depth_seg_ctrl)
         ftl.addWidget(self._breadcrumb_bar)
 
         self._view_stack = QStackedWidget()
@@ -1039,6 +1230,7 @@ class MainWindow(QMainWindow):
         self.table       = QTableView()
         self.table.setModel(self.table_model)
         self.table.setSortingEnabled(True)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setShowGrid(False)
@@ -1110,11 +1302,16 @@ class MainWindow(QMainWindow):
         self.list_view.customContextMenuRequested.connect(self._context_menu)
         self._view_stack.addWidget(self.list_view)
 
+        self.empty_state = self._build_empty_state()
+        self._view_stack.addWidget(self.empty_state)
+
         ftl.addWidget(self._view_stack)
         self.center_tabs.addTab(file_tab, _icons.icon("file", color=str(SUBTEXT)), "Files")
 
         self.similar_panel = SimilarFoldersPanel()
-        self.similar_panel.status_message.connect(self._set_status)
+        self.similar_panel.status_message.connect(
+            lambda m, lvl="info": self._set_status(m, lvl)
+        )
         self.center_tabs.addTab(self.similar_panel, _icons.icon("similar", color=str(SUBTEXT)), "Similar Folders")
 
         self.scans_panel = ScansPanel()
@@ -1126,6 +1323,7 @@ class MainWindow(QMainWindow):
 
         self.detail = DetailPanel()
         self.detail.setStyleSheet(f"background: {PANEL_BG}; border-left: 1px solid {BORDER};")
+        self.detail.status_message.connect(lambda m, lvl: self._set_status(m, lvl))
         self.splitter.addWidget(self.detail)
 
         self.splitter.setSizes([220, 900, 280])
@@ -1150,7 +1348,7 @@ class MainWindow(QMainWindow):
         headline.setAlignment(Qt.AlignCenter)
         lay.addWidget(headline)
 
-        sub = QLabel("Index and explore your files with metadata, tags, and similarity detection.")
+        sub = QLabel("Scan and explore your files with metadata, tags, and similarity detection.")
         sub.setStyleSheet(f"color: {SUBTEXT}; font-size: 13px;")
         sub.setAlignment(Qt.AlignCenter)
         lay.addWidget(sub)
@@ -1184,6 +1382,132 @@ class MainWindow(QMainWindow):
         tips.setAlignment(Qt.AlignCenter)
         lay.addWidget(tips)
         return w
+
+    def _build_empty_state(self) -> QWidget:
+        w   = QWidget()
+        w.setStyleSheet(f"background: {DARK_BG};")
+        lay = QVBoxLayout(w)
+        lay.setAlignment(Qt.AlignCenter)
+        lay.setSpacing(12)
+        ico = QLabel()
+        ico.setPixmap(_icons.pixmap("search", 64, color=str(SUBTEXT)))
+        ico.setAlignment(Qt.AlignCenter)
+        lay.addWidget(ico, 0, Qt.AlignHCenter)
+        headline = QLabel("No files match these filters")
+        headline.setStyleSheet(f"color: {TEXT}; font-size: 16px; font-weight: bold;")
+        headline.setAlignment(Qt.AlignCenter)
+        lay.addWidget(headline)
+        hint = QLabel("Try clearing the search, changing the category, or resetting view filters.")
+        hint.setStyleSheet(f"color: {SUBTEXT}; font-size: 12px;")
+        hint.setAlignment(Qt.AlignCenter)
+        lay.addWidget(hint)
+        clear_btn = self._btn_secondary("Clear all filters", icon="close")
+        clear_btn.clicked.connect(self._reset_all_filters)
+        lay.addWidget(clear_btn, 0, Qt.AlignHCenter)
+        return w
+
+    def _refresh_view_stack_page(self) -> None:
+        if not hasattr(self, "_view_stack") or not hasattr(self, "empty_state"):
+            return
+        if not self._db_url:
+            return
+        model_empty = hasattr(self, "table_model") and self.table_model.rowCount() == 0
+        if model_empty and self._any_filter_active():
+            self._view_stack.setCurrentWidget(self.empty_state)
+        else:
+            self._view_stack.setCurrentIndex(self._current_view_index)
+
+    def _build_task_pill(self) -> QWidget:
+        pill = QWidget()
+        pl = QHBoxLayout(pill)
+        pl.setContentsMargins(4, 0, 4, 0)
+        pl.setSpacing(4)
+
+        from PySide6.QtWidgets import QToolButton
+        self._task_gear_btn = QToolButton()
+        self._task_gear_btn.setIcon(_icons.icon("settings", color=str(SUBTEXT)))
+        self._task_gear_btn.setFixedSize(20, 20)
+        self._task_gear_btn.setToolTip("Process monitor")
+        self._task_gear_btn.setStyleSheet(
+            f"QToolButton{{background:transparent;border:none;}}"
+            f"QToolButton:hover{{background:{PANEL_BG};border-radius:3px;}}"
+        )
+        self._task_gear_btn.clicked.connect(
+            lambda: self._set_process_dock_visible(not self._process_dock.isVisible())
+        )
+        pl.addWidget(self._task_gear_btn)
+
+        self._task_count_lbl = QLabel()
+        self._task_count_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:10px;")
+        self._task_count_lbl.hide()
+        pl.addWidget(self._task_count_lbl)
+
+        self._task_name_lbl = QLabel()
+        self._task_name_lbl.setMaximumWidth(160)
+        self._task_name_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:10px;")
+        self._task_name_lbl.hide()
+        pl.addWidget(self._task_name_lbl)
+
+        self._task_stop_btn = QPushButton("⏹")
+        self._task_stop_btn.setFixedSize(18, 18)
+        self._task_stop_btn.setToolTip("Cancel active task")
+        self._task_stop_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{RED};border:none;font-size:11px;}}"
+            f"QPushButton:hover{{background:{RED:22};border-radius:3px;}}"
+        )
+        self._task_stop_btn.clicked.connect(self._on_task_stop_clicked)
+        self._task_stop_btn.hide()
+        pl.addWidget(self._task_stop_btn)
+
+        return pill
+
+    def _update_task_pill(self) -> None:
+        if not hasattr(self, "_task_gear_btn"):
+            return
+        from .panels.process import ProcessState
+        entries = ProcessRegistry.instance().entries()
+        active = [e for e in entries if e.state in (ProcessState.RUNNING, ProcessState.FROZEN)]
+        n = len(active)
+        if n == 0:
+            self._task_count_lbl.hide()
+            self._task_name_lbl.hide()
+            self._task_stop_btn.hide()
+            self._task_gear_btn.setStyleSheet(
+                f"QToolButton{{background:transparent;border:none;}}"
+                f"QToolButton:hover{{background:{PANEL_BG};border-radius:3px;}}"
+            )
+        else:
+            self._task_count_lbl.setText(f"⚙ {n}")
+            self._task_count_lbl.show()
+            name = active[-1].name[:24] + "…" if len(active[-1].name) > 24 else active[-1].name
+            self._task_name_lbl.setText(name)
+            self._task_name_lbl.show()
+            cancellable = [e for e in active if e.cancel_cb is not None]
+            self._task_stop_btn.setVisible(bool(cancellable))
+            self._task_gear_btn.setStyleSheet(
+                f"QToolButton{{background:transparent;border:none;}}"
+                f"QToolButton:hover{{background:{PANEL_BG};border-radius:3px;}}"
+            )
+
+    def _on_task_stop_clicked(self) -> None:
+        from .panels.process import ProcessState
+        from PySide6.QtCore import QPoint
+        entries = ProcessRegistry.instance().entries()
+        active = [e for e in entries
+                  if e.state in (ProcessState.RUNNING, ProcessState.FROZEN)
+                  and e.cancel_cb is not None]
+        if not active:
+            return
+        if len(active) == 1:
+            active[0].cancel_cb()
+            self._set_status(f"Cancelling {active[0].name}…", level="info")
+            return
+        menu = QMenu(self)
+        for e in active:
+            menu.addAction(f"Cancel {e.name}", lambda cb=e.cancel_cb: cb())
+        menu.addSeparator()
+        menu.addAction("Cancel all", lambda: [e.cancel_cb() for e in active])
+        menu.exec(self._task_stop_btn.mapToGlobal(QPoint(0, 0)))
 
     def _build_statsbar(self) -> QWidget:
         bar = QWidget()
@@ -1305,6 +1629,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, "db_edit"):
             self.db_edit.setText(self._db_path)
 
+        if self._db_path and Path(self._db_path).exists():
+            self.recent_dbs.push(self._db_path)
+            self.recent_dbs.set_active(self._db_path)
+
         self._load_db_panels(url)
 
     def _on_connect_error(self, msg: str) -> None:
@@ -1371,7 +1699,11 @@ class MainWindow(QMainWindow):
             self._browse_scan()
             return
         if not Path(root).exists():
-            QMessageBox.warning(self, "Invalid path", f"Folder not found:\n{root}")
+            from .feedback import notify_error
+            notify_error(self, "Scan path is not a folder",
+                f"'{root}' does not point to a directory. "
+                "Choose an existing folder to scan.",
+                detail=root)
             return
 
         db = self._db_url or self.db_edit.text().strip() or "file_index.db"
@@ -1379,8 +1711,7 @@ class MainWindow(QMainWindow):
         self._clear_folder_filter()
         self.search_edit.clear()
 
-        self.scan_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
+        self._set_scan_btn_scanning()
         self.csv_btn.setEnabled(False)
         self.json_btn.setEnabled(False)
         self._scan_strip.show()
@@ -1414,6 +1745,38 @@ class MainWindow(QMainWindow):
         self._worker.done.connect(self._on_scan_done)
         self._worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
         self._worker.start()
+
+    def _set_scan_btn_scanning(self) -> None:
+        self.scan_btn.setText("Stop")
+        self.scan_btn.setIcon(_icons.icon("stop", color="#ffffff"))
+        self.scan_btn.setStyleSheet(
+            f"QPushButton{{background:{RED};color:white;border:none;"
+            f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
+            f"QPushButton:hover{{background:#e55;}}"
+        )
+        try:
+            self.scan_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        self.scan_btn.clicked.connect(self._stop_scan)
+        self.scan_btn.setEnabled(True)
+
+    def _set_scan_btn_idle(self) -> None:
+        self.scan_btn.setText("Scan")
+        self.scan_btn.setIcon(_icons.icon("scan", color="#ffffff"))
+        self.scan_btn.setStyleSheet(
+            f"QPushButton{{background:{ACCENT};color:white;border:none;"
+            f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
+            f"QPushButton:hover{{background:#9d8fff;}}"
+            f"QPushButton:pressed{{background:#6a58d4;}}"
+            f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
+        )
+        try:
+            self.scan_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        self.scan_btn.clicked.connect(self._start_scan)
+        self.scan_btn.setEnabled(True)
 
     def _open_scan_options(self) -> None:
         dlg = ScanOptionsDialog(self, self._scan_options)
@@ -1450,6 +1813,7 @@ class MainWindow(QMainWindow):
         if self._worker:
             self._worker.stop()
         self._elapsed_timer.stop()
+        self._set_scan_btn_idle()
         self._set_status("Scan cancelled.")
 
     def _tick_elapsed(self) -> None:
@@ -1461,15 +1825,14 @@ class MainWindow(QMainWindow):
         count = ev.get("scanned", 0)
         path  = ev.get("path", "")
         short = path[-70:] if len(path) > 70 else path
-        self.status.showMessage(f"Indexing… {count:,} files  —  {short}")
+        self._set_status(f"Scanning… {count:,} files  —  {short}", level="busy")
         if count % 1000 == 0:
-            self.console.log(f"Indexed {count:,} files…", "info")
+            self.console.log(f"Scanned {count:,} files…", "info")
 
     def _on_scan_done(self, stats: dict) -> None:
         self._elapsed_timer.stop()
         self._scan_strip.hide()
-        self.scan_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self._set_scan_btn_idle()
         self.csv_btn.setEnabled(True)
         self.json_btn.setEnabled(True)
         elapsed = int(time.time() - self._scan_start)
@@ -1511,14 +1874,6 @@ class MainWindow(QMainWindow):
         self._db_load_worker.db_loaded.connect(self._on_db_loaded)
         self._db_load_worker.error.connect(lambda e: self._set_status(f"Error loading database: {e}"))
         self._db_load_worker.start()
-
-        reg = ProcessRegistry.instance()
-        pid = reg.register(
-            name="Loading database",
-            cancel_cb=None,
-            kill_cb=None,
-        )
-        self._db_load_worker._pid = pid
         self._process_dock.show()
 
     def _on_db_loaded(self, data: dict) -> None:
@@ -1542,8 +1897,6 @@ class MainWindow(QMainWindow):
             pass
         sb.valueChanged.connect(self._on_table_scroll)
 
-        if hasattr(self, "_db_load_worker") and self._db_load_worker and self._db_load_worker._pid:
-            ProcessRegistry.instance().mark_done(self._db_load_worker._pid)
 
     def _load_browser_view(self) -> None:
         """Browser view: load folders + files at the current path."""
@@ -1561,14 +1914,6 @@ class MainWindow(QMainWindow):
         self._browser_worker.contents_ready.connect(self._on_browser_loaded)
         self._browser_worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
         self._browser_worker.start()
-
-        reg = ProcessRegistry.instance()
-        pid = reg.register(
-            name=f"Loading: {Path(self._browser_path).name or 'root'}",
-            cancel_cb=None,
-            kill_cb=None,
-        )
-        self._browser_worker._pid = pid
 
     def _on_browser_loaded(self, data: dict) -> None:
         """Render folders + files at the current browser path."""
@@ -1610,8 +1955,6 @@ class MainWindow(QMainWindow):
         label = Path(self._browser_path).name if self._browser_path else "root"
         self.center_tabs.setTabText(1, f"{label} ({len(folders)} folders, {len(files)} files)")
 
-        if self._browser_worker and self._browser_worker._pid:
-            ProcessRegistry.instance().mark_done(self._browser_worker._pid)
 
     def _navigate_to(self, path: str) -> None:
         """Navigate browser to the given path."""
@@ -1633,12 +1976,14 @@ class MainWindow(QMainWindow):
 
     def _update_breadcrumb(self) -> None:
         """Rebuild breadcrumb buttons from the current path."""
-        # Clear existing buttons (everything except the trailing stretch)
-        while self._breadcrumb_lay.count() > 1:
+        # Clear existing buttons (keep last 2 items: stretch + depth_seg_ctrl)
+        while self._breadcrumb_lay.count() > 2:
             item = self._breadcrumb_lay.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
+        # Depth seg not used in browser mode
+        self._depth_seg_ctrl.hide()
 
         crumb_ss = (
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;"
@@ -1646,14 +1991,14 @@ class MainWindow(QMainWindow):
             f"QPushButton:hover{{color:{ACCENT};}}"
         )
 
-        # Root segment
+        # Root segment — insert before the stretch (count()-2 keeps stretch+seg_ctrl at end)
         root_btn = QPushButton("Root")
         root_btn.setIcon(_icons.icon("folder", color=str(SUBTEXT)))
         root_btn.setIconSize(QSize(14, 14))
         root_btn.setStyleSheet(crumb_ss)
         root_btn.setCursor(Qt.PointingHandCursor)
         root_btn.clicked.connect(lambda: self._navigate_to_path(""))
-        self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 1, root_btn)
+        self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 2, root_btn)
 
         if self._browser_path:
             # Split path into segments and build a button per segment
@@ -1662,7 +2007,7 @@ class MainWindow(QMainWindow):
             for i, part in enumerate(parts):
                 sep = QLabel("›")
                 sep.setStyleSheet(f"color: {SUBTEXT}; padding: 0 2px;")
-                self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 1, sep)
+                self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 2, sep)
 
                 cumulative = str(Path(cumulative) / part) if cumulative else part
                 btn = QPushButton(part)
@@ -1671,7 +2016,7 @@ class MainWindow(QMainWindow):
                 # Capture cumulative path at this iteration
                 target_path = cumulative
                 btn.clicked.connect(lambda _c=False, p=target_path: self._navigate_to_path(p))
-                self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 1, btn)
+                self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 2, btn)
 
     def _navigate_to_path(self, path: str) -> None:
         """Jump directly to a path (used by breadcrumb)."""
@@ -1795,6 +2140,7 @@ class MainWindow(QMainWindow):
             self.table_model.load(self._group_rows(sorted_rows))
 
         self.icon_model.load(sorted_rows)
+        self._refresh_view_stack_page()
 
     def _group_rows(self, rows: list) -> list:
         """Insert group-header sentinel rows before each group."""
@@ -1840,6 +2186,7 @@ class MainWindow(QMainWindow):
 
     def _on_view_filters_changed(self, filters: dict) -> None:
         self._view_filters = filters
+        persistence.set_json(persistence.Keys.FILES_FILTERS, filters)
         self._apply_filters()
         self._update_vf_btn_label()
 
@@ -1867,7 +2214,17 @@ class MainWindow(QMainWindow):
         self._apply_sort()
 
     def _set_view_mode(self, mode: int) -> None:
-        self._view_stack.setCurrentIndex(mode)
+        self._current_view_index = mode
+        old = self._view_stack.currentWidget()
+        old_scroll = 0
+        if old and hasattr(old, "verticalScrollBar"):
+            old_scroll = old.verticalScrollBar().value()
+        _views = [self.table, self.grid_view, self.list_view]
+        if 0 <= mode < len(_views):
+            new = _views[mode]
+            if hasattr(new, "verticalScrollBar"):
+                new.verticalScrollBar().setValue(old_scroll)
+        self._refresh_view_stack_page()
 
     def _on_icon_selected(self, current, _prev) -> None:
         if not current.isValid():
@@ -1887,36 +2244,46 @@ class MainWindow(QMainWindow):
             return
         self._active_folder_filter    = folder_path
         self._folder_filter_recursive = False
-        self.folder_depth_btn.blockSignals(True)
-        self.folder_depth_btn.setChecked(False)
-        self.folder_depth_btn.blockSignals(False)
+        self._depth_grp.blockSignals(True)
+        self._depth_this_btn.setChecked(True)
+        self._depth_grp.blockSignals(False)
         self._update_pill_label()
         self.folder_pill.show()
+        self._depth_seg_ctrl.show()
+        self._breadcrumb_bar.show()
         self._apply_filters()
         self.center_tabs.setCurrentIndex(1)
 
-    def _on_folder_depth_toggled(self, checked: bool) -> None:
-        self._folder_filter_recursive = checked
-        self.folder_depth_btn.setToolTip(
-            "All descendants · click for direct children only" if checked
-            else "Direct children only · click to include all descendants"
-        )
+    def _on_depth_seg_clicked(self, btn_id: int) -> None:
+        self._folder_filter_recursive = (btn_id == 1)
+        self._update_pill_label()
+        self._apply_filters()
+
+    def _toggle_folder_depth(self) -> None:
+        if not self._active_folder_filter:
+            return
+        self._folder_filter_recursive = not self._folder_filter_recursive
+        self._depth_grp.blockSignals(True)
+        self._depth_grp.button(1 if self._folder_filter_recursive else 0).setChecked(True)
+        self._depth_grp.blockSignals(False)
         self._update_pill_label()
         self._apply_filters()
 
     def _update_pill_label(self, filtered_count: int | None = None) -> None:
         short = Path(self._active_folder_filter).name or self._active_folder_filter
-        mode  = "/**" if self._folder_filter_recursive else "/·"
         suffix = f"  ·  {filtered_count:,}" if filtered_count is not None else ""
-        self.folder_pill_lbl.setText(f"{short}{mode}{suffix}")
+        self.folder_pill_lbl.setText(f"{short}{suffix}")
 
     def _clear_folder_filter(self) -> None:
         self._active_folder_filter    = ""
         self._folder_filter_recursive = False
-        self.folder_depth_btn.blockSignals(True)
-        self.folder_depth_btn.setChecked(False)
-        self.folder_depth_btn.blockSignals(False)
+        self._depth_grp.blockSignals(True)
+        self._depth_this_btn.setChecked(True)
+        self._depth_grp.blockSignals(False)
         self.folder_pill.hide()
+        self._depth_seg_ctrl.hide()
+        if self._view_mode == "flat":
+            self._breadcrumb_bar.hide()
         self._apply_filters()
 
     def _clear_filters(self) -> None:
@@ -1924,6 +2291,7 @@ class MainWindow(QMainWindow):
         self.cat_combo.setCurrentIndex(0)
         self._clear_folder_filter()
         self._view_filters = {}
+        persistence.set_json(persistence.Keys.FILES_FILTERS, {})
         self._update_vf_btn_label()
         if self._view_filters_dlg is not None:
             self._view_filters_dlg.set_filters({})
@@ -1979,35 +2347,86 @@ class MainWindow(QMainWindow):
 
         self.detail._open_file()
 
+    def _selected_rows_data(self, view) -> list:
+        """Return data rows for all selected rows in the given view."""
+        if view is self.table:
+            sel_rows = self.table.selectionModel().selectedRows()
+            rows = []
+            for idx in sel_rows:
+                r = self.table_model._rows[idx.row()]
+                if r and (len(r) <= 2 or r[2] != _FOLDER_SENTINEL):
+                    rows.append(r)
+            return rows
+        else:
+            sel = view.selectionModel().selectedIndexes()
+            rows = []
+            for idx in sel:
+                r = self.icon_model.data(idx, Qt.UserRole)
+                if r and (len(r) <= 2 or r[2] != _FOLDER_SENTINEL):
+                    rows.append(r)
+            return rows
+
+    def _open_selected_files(self) -> None:
+        view = self._active_view()
+        for row in self._selected_rows_data(view):
+            self._open_path(row[0])
+
+    def _reveal_selected(self) -> None:
+        view = self._active_view()
+        rows = self._selected_rows_data(view)
+        if rows:
+            self._reveal(str(Path(rows[0][0]).parent))
+
+    def _copy_selected_paths(self) -> None:
+        view = self._active_view()
+        rows = self._selected_rows_data(view)
+        if rows:
+            text = "\n".join(r[0] for r in rows)
+            QApplication.clipboard().setText(text)
+            n = len(rows)
+            self._set_status(f"Copied {n} path{'s' if n > 1 else ''}")
+
+    def _active_view(self):
+        idx = self._current_view_index
+        return [self.table, self.grid_view, self.list_view][idx]
+
     def _context_menu(self, pos) -> None:
         view  = self.sender()
         index = view.indexAt(pos)
         if not index.isValid():
             return
-        if view is self.table:
-            row = self.table_model._rows[index.row()]
-        else:
-            row = self.icon_model.data(index, Qt.UserRole)
-        if not row:
-            return
-        menu       = QMenu(self)
-        open_act   = menu.addAction(_icons.icon("play",        color=str(TEXT)), "Open file")
-        reveal_act = menu.addAction(_icons.icon("folder-open", color=str(TEXT)), "Reveal in Finder / Explorer")
+        rows = self._selected_rows_data(view)
+        if not rows:
+            if view is self.table:
+                row = self.table_model._rows[index.row()] if index.row() < len(self.table_model._rows) else None
+            else:
+                row = self.icon_model.data(index, Qt.UserRole)
+            if not row:
+                return
+            rows = [row]
+        n = len(rows)
+        menu = QMenu(self)
+        platform_label = "Finder" if sys.platform == "darwin" else "Explorer"
+        open_act   = menu.addAction(_icons.icon("play",        color=str(TEXT)), f"Open {n} file{'s' if n > 1 else ''}")
+        reveal_act = menu.addAction(_icons.icon("folder-open", color=str(TEXT)), f"Reveal in {platform_label}")
         menu.addSeparator()
-        copy_path  = menu.addAction(_icons.icon("copy",        color=str(TEXT)), "Copy path")
-        copy_name  = menu.addAction(_icons.icon("clipboard",   color=str(TEXT)), "Copy filename")
+        copy_path  = menu.addAction(_icons.icon("copy",       color=str(TEXT)), f"Copy {'path' if n == 1 else f'{n} paths'}")
+        copy_name  = menu.addAction(_icons.icon("clipboard",  color=str(TEXT)), "Copy filename")
+        if n > 1:
+            copy_name.setEnabled(False)
         act = menu.exec(view.viewport().mapToGlobal(pos))
         if act == open_act:
-            self.detail._current_path = row[0]
-            self.detail._open_file()
+            for row in rows:
+                self._open_path(row[0])
         elif act == reveal_act:
-            self._reveal(str(Path(row[0]).parent))
+            self._reveal(str(Path(rows[0][0]).parent))
         elif act == copy_path:
-            QApplication.clipboard().setText(row[0])
-            self._set_status(f"Copied path: {row[0]}")
+            text = "\n".join(r[0] for r in rows)
+            QApplication.clipboard().setText(text)
+            self._set_status(f"Copied {n} path{'s' if n > 1 else ''}")
         elif act == copy_name:
-            QApplication.clipboard().setText(row[1])
-            self._set_status(f"Copied: {row[1]}")
+            QApplication.clipboard().setText(rows[0][1])
+            self._set_status(f"Copied: {rows[0][1]}")
 
     def _reveal(self, path: str) -> None:
         if sys.platform == "darwin":
@@ -2087,18 +2506,19 @@ class MainWindow(QMainWindow):
             export_json(self._db_path, path)
             self._set_status(f"JSON saved → {path}")
 
-    def _set_status(self, msg: str) -> None:
-        self.status.showMessage(msg)
+    def _set_status(self, msg: str, level: str = "info",
+                    timeout: int | None = None) -> None:
+        """Single sink for all status messages."""
+        from .feedback import TIMEOUTS, color_for
+        msec = timeout if timeout is not None else TIMEOUTS.get(level, 5000)
+        self.status.setStyleSheet(
+            f"QStatusBar QLabel {{ color: {color_for(level)}; }}"
+        )
+        self.status.showMessage(msg, msec)
         if not hasattr(self, "console"):
             return
-        lower = msg.lower()
-        if "complete" in lower or "saved" in lower or msg.startswith("Loaded"):
-            level = "success"
-        elif "error" in lower or "failed" in lower or "cancelled" in lower:
-            level = "error"
-        else:
-            level = "info"
-        self.console.log(msg, level)
+        if level in ("warning", "error", "success"):
+            self.console.log(msg, level=level)
 
 
 def _app_icon() -> QIcon:

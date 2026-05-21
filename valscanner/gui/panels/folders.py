@@ -4,11 +4,15 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+import subprocess
+import sys
+
 from PySide6.QtCore import Qt, Signal, QSortFilterProxyModel
-from PySide6.QtGui import QColor, QStandardItemModel, QStandardItem
+from PySide6.QtGui import QColor, QStandardItemModel, QStandardItem, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTreeView, QHeaderView, QAbstractItemView,
+    QTreeView, QHeaderView, QAbstractItemView, QStackedWidget, QMenu,
+    QApplication,
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, SEL_BG, SEL_TEXT
@@ -26,6 +30,28 @@ class FolderPanel(QWidget):
         self._last_scan_id   = 0
         self._separate_scans = False
         self._build_ui()
+        from ..theme import Theme
+        Theme.instance().on_changed(self._apply_stylesheet)
+
+    def _apply_stylesheet(self) -> None:
+        self.tree.setStyleSheet(f"""
+            QTreeView {{
+                background: {DARK_BG}; color: {TEXT}; border: none; font-size: 11px;
+            }}
+            QTreeView::item {{ padding: 2px 0; }}
+            QTreeView::item:selected {{
+                background: {SEL_BG}; color: {SEL_TEXT}; border-radius: 4px;
+            }}
+            QTreeView::item:hover:!selected {{
+                background: {PANEL_BG}; border-radius: 4px;
+            }}
+            QTreeView::branch {{ background: {DARK_BG}; }}
+            QHeaderView::section {{
+                background: {PANEL_BG}; color: {SUBTEXT}; border: none;
+                border-bottom: 1px solid {BORDER}; padding: 4px 6px;
+                font-size: 10px; font-weight: bold;
+            }}
+        """)
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
@@ -77,6 +103,15 @@ class FolderPanel(QWidget):
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tree.header().setSortIndicator(1, Qt.DescendingOrder)
         self.tree.clicked.connect(self._on_click)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_context_menu)
+
+        sc_enter = QShortcut(QKeySequence("Return"), self.tree)
+        sc_enter.setContext(Qt.WidgetShortcut)
+        sc_enter.activated.connect(self._apply_selected)
+        sc_enter2 = QShortcut(QKeySequence("Enter"), self.tree)
+        sc_enter2.setContext(Qt.WidgetShortcut)
+        sc_enter2.activated.connect(self._apply_selected)
 
         hdr = QWidget()
         hdr.setStyleSheet(f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};")
@@ -129,7 +164,19 @@ class FolderPanel(QWidget):
         hl.addWidget(self.collapse_btn)
 
         lay.addWidget(hdr)
-        lay.addWidget(self.tree)
+
+        self._content_stack = QStackedWidget()
+        empty_w = QWidget()
+        empty_lay = QVBoxLayout(empty_w)
+        empty_lay.setAlignment(Qt.AlignCenter)
+        self._folders_empty_lbl = QLabel("Scan a folder first to populate this view.")
+        self._folders_empty_lbl.setAlignment(Qt.AlignCenter)
+        self._folders_empty_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:12px;padding:40px;")
+        self._folders_empty_lbl.setWordWrap(True)
+        empty_lay.addWidget(self._folders_empty_lbl)
+        self._content_stack.addWidget(empty_w)    # page 0: empty
+        self._content_stack.addWidget(self.tree)  # page 1: tree
+        lay.addWidget(self._content_stack)
 
     @staticmethod
     def _size_color(ratio: float) -> str:
@@ -196,6 +243,7 @@ class FolderPanel(QWidget):
         db_path = self._last_db_path
         scan_id = self._last_scan_id
         if not db_path:
+            self._content_stack.setCurrentIndex(0)
             return
 
         self.model.removeRows(0, self.model.rowCount())
@@ -267,11 +315,13 @@ class FolderPanel(QWidget):
                              "FROM folders GROUP BY path ORDER BY path")
                     ).fetchall()
             if not rows:
+                self._content_stack.setCurrentIndex(0)
                 return
             data       = {r[0]: (r[1], r[2]) for r in rows}
             root_bytes = max(v[0] for v in data.values()) or 1
             self._build_subtree(None, data, root_bytes)
 
+        self._content_stack.setCurrentIndex(1)
         self.tree.expandToDepth(1)
         col   = self.tree.header().sortIndicatorSection()
         order = self.tree.header().sortIndicatorOrder()
@@ -290,3 +340,48 @@ class FolderPanel(QWidget):
             path = item.data(Qt.UserRole)
             if path:
                 self.folder_selected.emit(path)
+
+    def _get_selected_path(self) -> str | None:
+        idx = self.tree.currentIndex()
+        if not idx.isValid():
+            return None
+        source_idx = self.proxy.mapToSource(
+            self.proxy.index(idx.row(), 0, idx.parent())
+        )
+        item = self.model.itemFromIndex(source_idx)
+        return item.data(Qt.UserRole) if item else None
+
+    def _apply_selected(self) -> None:
+        path = self._get_selected_path()
+        if path:
+            self.folder_selected.emit(path)
+
+    def _show_context_menu(self, pos) -> None:
+        path = self._get_selected_path()
+        if not path:
+            return
+        menu = QMenu(self)
+        apply_act   = menu.addAction(_icons.icon("folder", color=str(ACCENT)), "Apply as folder filter")
+        platform    = "Finder" if sys.platform == "darwin" else "Explorer"
+        reveal_act  = menu.addAction(_icons.icon("folder-open", color=str(TEXT)), f"Open in {platform}")
+        menu.addSeparator()
+        copy_act    = menu.addAction(_icons.icon("copy", color=str(TEXT)), "Copy path")
+        menu.addSeparator()
+        expand_act  = menu.addAction("Expand all children")
+        collapse_act = menu.addAction("Collapse all children")
+        act = menu.exec(self.tree.viewport().mapToGlobal(pos))
+        if act == apply_act:
+            self.folder_selected.emit(path)
+        elif act == reveal_act:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            elif sys.platform == "win32":
+                subprocess.Popen(["explorer", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        elif act == copy_act:
+            QApplication.clipboard().setText(path)
+        elif act == expand_act:
+            self.tree.expandAll()
+        elif act == collapse_act:
+            self.tree.collapseAll()

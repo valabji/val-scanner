@@ -137,6 +137,20 @@ Five tables in every `.db` file:
 - **Never push** — do not run `git push` or any destructive git command
 - **Warn on dirty working tree** — before editing any file, run `git status` and warn the user if there are uncommitted changes; do not proceed until the user acknowledges
 
+## Release discipline
+
+ValScanner is on PyPI. Each merged UX-plan step is potentially a patch
+release. Before publishing a new version:
+
+1. Read `release-notes/CHECKLIST.md` and tick every item.
+2. Author `release-notes/vX.Y.Z.md` from `release-notes/TEMPLATE.md`,
+   pulling bullets from each shipped step's "Release notes" section.
+3. Step 17 (settings migration) and step 10 (persistence) **always
+   ship in the same release**. Step 12 (terminology lock) **always
+   ships alone**.
+
+When uncertain about cadence, ship smaller, more often.
+
 ## Key design notes
 
 - `*.db`, `*.csv`, and `*.json` are gitignored — output files are never committed
@@ -144,3 +158,4 @@ Five tables in every `.db` file:
 - Hidden directories (names starting with `.`) are pruned from `os.walk` in `scan()`; hidden *files* are indexed but tagged `hidden-file`/`dotfile`
 - The similarity algorithm weights differ depending on whether any SHA-256 hashes exist in the DB (`has_hashes` flag)
 - Run the GUI directly with `python -m valscanner.gui.window` or the installed `valscanner-gui` entry point
+- **User-facing terminology** is locked by `local_plans/02_ux_enhancements/GLOSSARY.md`. When adding strings to the GUI, match the canonical forms. Code identifiers may drift; user-facing strings must not.

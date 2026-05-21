@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QMenu, QMessageBox,
 )
 
-from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
+from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED
 from ..dialogs import AnalysisFiltersDialog
 from .. import icons as _icons
 from ..workers import AnalysisWorker
@@ -40,22 +40,41 @@ def _child_total_files(children: list) -> int:
 
 
 class FolderGroupCard(QFrame):
-    open_folder = Signal(str)
+    open_folder      = Signal(str)
+    selected_changed = Signal(object, bool)  # (card, is_selected)
 
     def __init__(self, result: dict, is_child: bool = False, parent=None):
         super().__init__(parent)
-        self._is_child = is_child
-        bg     = DARK_BG  if is_child else PANEL_BG
-        margin = "2px 0px" if is_child else "4px 8px"
+        self._is_child  = is_child
+        self._selected  = False
+        self._bg        = DARK_BG  if is_child else PANEL_BG
+        self._margin    = "2px 0px" if is_child else "4px 8px"
+        self._refresh_style()
+        self._build(result)
+
+    def _refresh_style(self) -> None:
+        border = str(ACCENT) if self._selected else str(BORDER)
         self.setStyleSheet(f"""
             FolderGroupCard {{
-                background: {bg};
-                border: 1px solid {BORDER};
-                border-radius: {"6px" if is_child else "10px"};
-                margin: {margin};
+                background: {self._bg};
+                border: {"2px" if self._selected else "1px"} solid {border};
+                border-radius: {"6px" if self._is_child else "10px"};
+                margin: {self._margin};
             }}
         """)
-        self._build(result)
+
+    def set_selected(self, value: bool) -> None:
+        if self._selected == value:
+            return
+        self._selected  = value
+        self._refresh_style()
+
+    def mousePressEvent(self, ev) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        if ev.button() == _Qt.LeftButton and not self._is_child:
+            self.set_selected(not self._selected)
+            self.selected_changed.emit(self, self._selected)
+        super().mousePressEvent(ev)
 
     def _build(self, r: dict) -> None:
         lay = QVBoxLayout(self)
@@ -71,9 +90,9 @@ class FolderGroupCard(QFrame):
         hdr = QHBoxLayout()
         hdr.setSpacing(6)
 
-        badge = QLabel(f"  {r['label'].upper()}  ")
+        badge = QLabel(f"  ~{r['label']}  ")
         badge.setStyleSheet(
-            f"background:{lc}22;color:{lc};border:1px solid {lc};"
+            f"background:transparent;color:{lc};border:1px solid {lc};"
             f"border-radius:8px;padding:2px 6px;font-size:10px;font-weight:bold;"
         )
         hdr.addWidget(badge)
@@ -284,34 +303,40 @@ class FolderGroupCard(QFrame):
 
 
 class SimilarFoldersPanel(QWidget):
-    status_message = Signal(str)
+    status_message = Signal(str, str)  # (msg, level)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._db_path   = ""
-        self._worker    = None
-        self._results:  list = []
+        self._db_path    = ""
+        self._worker     = None
+        self._results:   list = []
         self._scan_pills: dict[int, QPushButton] = {}
-        self._filters:  dict = {}
+        self._filters:   dict = {}
+        self._filters_dlg: AnalysisFiltersDialog | None = None
+        self._rerun_timer = None
+        self._selected_cards: list = []
         self._build_ui()
+        self._restore_prefs()
+        from ..theme import Theme
+        Theme.instance().on_changed(self._apply_stylesheet)
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        ctrl = QWidget()
-        ctrl.setStyleSheet(f"background:{PANEL_BG};border-bottom:1px solid {BORDER};")
-        ctrl.setFixedHeight(52)
-        cl = QHBoxLayout(ctrl)
+        self._ctrl = QWidget()
+        self._ctrl.setStyleSheet(f"background:{PANEL_BG};border-bottom:1px solid {BORDER};")
+        self._ctrl.setFixedHeight(52)
+        cl = QHBoxLayout(self._ctrl)
         cl.setContentsMargins(16, 0, 16, 0)
         cl.setSpacing(10)
         title_icon = QLabel()
         title_icon.setPixmap(_icons.pixmap("similar", 18, color=str(TEXT)))
         cl.addWidget(title_icon)
-        title = QLabel("Similar & Duplicate Folder Detector")
-        title.setStyleSheet(f"color:{TEXT};font-weight:bold;font-size:13px;")
-        cl.addWidget(title)
+        self._ctrl_title = QLabel("Similar & Duplicate Folder Detector")
+        self._ctrl_title.setStyleSheet(f"color:{TEXT};font-weight:bold;font-size:13px;")
+        cl.addWidget(self._ctrl_title)
         cl.addStretch()
 
         cl.addWidget(self._sublabel("Min files:"))
@@ -354,6 +379,19 @@ class SimilarFoldersPanel(QWidget):
         self.history_btn.setEnabled(False)
         cl.addWidget(self.history_btn)
 
+        self._dismiss_sel_btn = QPushButton("Dismiss selected")
+        self._dismiss_sel_btn.setIcon(_icons.icon("close", color=str(SUBTEXT)))
+        self._dismiss_sel_btn.setIconSize(_QSize(14, 14))
+        self._dismiss_sel_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{SUBTEXT};"
+            f"border:1px solid {BORDER};border-radius:6px;"
+            f"padding:6px 10px;font-size:11px;}}"
+            f"QPushButton:hover{{color:{TEXT};border-color:{TEXT};}}"
+        )
+        self._dismiss_sel_btn.setVisible(False)
+        self._dismiss_sel_btn.clicked.connect(self._dismiss_selected_cards)
+        cl.addWidget(self._dismiss_sel_btn)
+
         self.analyze_btn = QPushButton("Analyze")
         self.analyze_btn.setIcon(_icons.icon("scan", color="#ffffff"))
         self.analyze_btn.setIconSize(_QSize(14, 14))
@@ -365,12 +403,12 @@ class SimilarFoldersPanel(QWidget):
         self.analyze_btn.clicked.connect(self._run_analysis)
         self.analyze_btn.setEnabled(False)
         cl.addWidget(self.analyze_btn)
-        lay.addWidget(ctrl)
+        lay.addWidget(self._ctrl)
 
-        part_bar = QWidget()
-        part_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
-        part_bar.setFixedHeight(44)
-        pl = QHBoxLayout(part_bar)
+        self._part_bar = QWidget()
+        self._part_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
+        self._part_bar.setFixedHeight(44)
+        pl = QHBoxLayout(self._part_bar)
         pl.setContentsMargins(16, 0, 8, 0)
         pl.setSpacing(8)
         part_lbl = self._sublabel("Partitions:")
@@ -399,12 +437,12 @@ class SimilarFoldersPanel(QWidget):
         self._part_layout.addStretch()
         self._part_scroll.setWidget(self._part_inner)
         pl.addWidget(self._part_scroll, 1)
-        lay.addWidget(part_bar)
+        lay.addWidget(self._part_bar)
 
-        view_bar = QWidget()
-        view_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
-        view_bar.setFixedHeight(36)
-        vl = QHBoxLayout(view_bar)
+        self._view_bar = QWidget()
+        self._view_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
+        self._view_bar.setFixedHeight(36)
+        vl = QHBoxLayout(self._view_bar)
         vl.setContentsMargins(16, 0, 16, 0)
         vl.setSpacing(8)
         vl.addWidget(self._sublabel("Sort:"))
@@ -428,7 +466,7 @@ class SimilarFoldersPanel(QWidget):
         self.result_count_lbl = QLabel()
         self.result_count_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
         vl.addWidget(self.result_count_lbl)
-        lay.addWidget(view_bar)
+        lay.addWidget(self._view_bar)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
@@ -452,8 +490,32 @@ class SimilarFoldersPanel(QWidget):
         self.empty_lbl = QLabel("Scan a folder first, then click Analyze to find similar folders.")
         self.empty_lbl.setAlignment(Qt.AlignCenter)
         self.empty_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:13px;padding:60px;")
+        self.empty_lbl.setWordWrap(True)
         self.cards_lay.addWidget(self.empty_lbl)
+
+        self.no_results_lbl = QLabel()
+        self.no_results_lbl.setAlignment(Qt.AlignCenter)
+        self.no_results_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:13px;padding:60px;")
+        self.no_results_lbl.setWordWrap(True)
+        self.no_results_lbl.hide()
+        self.cards_lay.addWidget(self.no_results_lbl)
+
+        self.error_lbl = QLabel()
+        self.error_lbl.setAlignment(Qt.AlignCenter)
+        self.error_lbl.setStyleSheet(f"color:{RED};font-size:13px;padding:60px;")
+        self.error_lbl.setWordWrap(True)
+        self.error_lbl.hide()
+        self.cards_lay.addWidget(self.error_lbl)
+
         self.cards_lay.addStretch()
+
+        from PySide6.QtGui import QShortcut, QKeySequence as _KS
+        from PySide6.QtCore import Qt as _Qt2
+        for seq in (_KS.Delete, _KS("Backspace")):
+            sc = QShortcut(seq, scroll)
+            sc.setContext(_Qt2.WidgetWithChildrenShortcut)
+            sc.activated.connect(self._dismiss_selected_cards)
+
         scroll.setWidget(self.cards_widget)
         lay.addWidget(scroll, 1)
 
@@ -464,6 +526,45 @@ class SimilarFoldersPanel(QWidget):
             f"color:{SUBTEXT};font-size:11px;background:{PANEL_BG};border-top:1px solid {BORDER};"
         )
         lay.addWidget(self.footer)
+
+    def _apply_stylesheet(self) -> None:
+        self._ctrl.setStyleSheet(f"background:{PANEL_BG};border-bottom:1px solid {BORDER};")
+        self._ctrl_title.setStyleSheet(f"color:{TEXT};font-weight:bold;font-size:13px;")
+        _ghost_ss = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};"
+            f"border:1px solid {BORDER};border-radius:6px;"
+            f"padding:6px 12px;font-size:11px;}}"
+            f"QPushButton:hover:enabled{{color:{TEXT};border-color:{TEXT};}}"
+            f"QPushButton:disabled{{color:{BORDER};}}"
+        )
+        self.filters_btn.setStyleSheet(_ghost_ss)
+        self.history_btn.setStyleSheet(_ghost_ss)
+        self.analyze_btn.setStyleSheet(
+            f"QPushButton{{background:{ACCENT};color:white;border:none;"
+            f"border-radius:6px;padding:6px 16px;font-weight:bold;}}"
+            f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
+        )
+        self.min_spin.setStyleSheet(self._input_ss())
+        self._part_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
+        self._part_scroll.setStyleSheet(
+            f"QScrollArea{{border:none;background:transparent;}}"
+            f"QScrollBar:horizontal{{height:3px;background:{DARK_BG};}}"
+            f"QScrollBar::handle:horizontal{{background:{BORDER};border-radius:1px;}}"
+        )
+        self._no_parts_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:11px;font-style:italic;")
+        self._view_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
+        self.result_count_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
+        self.progress.setStyleSheet(
+            f"QProgressBar{{border:none;background:{DARK_BG};}}"
+            f"QProgressBar::chunk{{background:{ACCENT};}}"
+        )
+        self.cards_widget.setStyleSheet(f"background:{DARK_BG};")
+        self.empty_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:13px;padding:60px;")
+        self.no_results_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:13px;padding:60px;")
+        self.error_lbl.setStyleSheet(f"color:{RED};font-size:13px;padding:60px;")
+        self.footer.setStyleSheet(
+            f"color:{SUBTEXT};font-size:11px;background:{PANEL_BG};border-top:1px solid {BORDER};"
+        )
 
     @staticmethod
     def _sublabel(text: str) -> QLabel:
@@ -505,8 +606,9 @@ class SimilarFoldersPanel(QWidget):
     def _rebuild_partition_row(self) -> None:
         while self._part_layout.count() > 1:
             item = self._part_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w is not None and w is not self._no_parts_lbl:
+                w.deleteLater()
         self._scan_pills = {}
 
         scans = list_scans(self._db_path) if self._db_path else []
@@ -544,10 +646,12 @@ class SimilarFoldersPanel(QWidget):
             return
         min_files = self.min_spin.value()
         threshold = float(self.thresh_combo.currentText().split()[0])
-        while self.cards_lay.count() > 2:
-            item = self.cards_lay.takeAt(1)
-            if item.widget():
-                item.widget().deleteLater()
+        i = self.cards_lay.count() - 1
+        while i >= 0:
+            w = self.cards_lay.itemAt(i).widget()
+            if isinstance(w, FolderGroupCard):
+                self.cards_lay.takeAt(i).widget().deleteLater()
+            i -= 1
         scan_ids = self._get_selected_scan_ids()
         scope    = ("  ·  ".join(
             self._scan_pills[sid].text().split("·")[0].strip()
@@ -555,10 +659,16 @@ class SimilarFoldersPanel(QWidget):
         ) if scan_ids else "all partitions")
 
         self.empty_lbl.hide()
+        self.no_results_lbl.hide()
+        self.error_lbl.hide()
         self.progress.show()
-        self.analyze_btn.setEnabled(False)
         self.footer.setText(f"Analysing {scope}…")
-        self.status_message.emit(f"Comparing folders for similarity across {scope}…")
+        self.status_message.emit(f"Analyzing folders for similarity across {scope}…", "busy")
+
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.stop()
+            self._worker.wait(500)
+
         self._worker = AnalysisWorker(
             self._db_path, min_files, threshold,
             scan_ids=scan_ids, scope_label=scope,
@@ -578,10 +688,11 @@ class SimilarFoldersPanel(QWidget):
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
+        self._set_analyze_busy(True)
 
     def _on_done(self, results: list) -> None:
         self.progress.hide()
-        self.analyze_btn.setEnabled(True)
+        self._set_analyze_busy(False)
         self._results = [normalize_to_group(r) for r in results]
         self._apply_sort_filter()
         lc: dict = {}
@@ -591,9 +702,10 @@ class SimilarFoldersPanel(QWidget):
             f"Found {len(self._results)} groups:  " + "  ·  ".join(f"{v} {k}" for k, v in lc.items())
             if self._results else "No similar folders found above the threshold."
         )
-        self.status_message.emit(summary)
+        self.status_message.emit(summary, "success")
 
     def _apply_sort_filter(self) -> None:
+        self._save_prefs()
         results   = list(self._results)
         min_bytes = self._parse_size(self.min_size_combo.currentText())
         if min_bytes > 0:
@@ -613,24 +725,42 @@ class SimilarFoldersPanel(QWidget):
         elif idx == 3:
             results.sort(key=_first_path)
 
-        while self.cards_lay.count() > 2:
-            item = self.cards_lay.takeAt(1)
-            if item.widget():
-                item.widget().deleteLater()
+        i = self.cards_lay.count() - 1
+        while i >= 0:
+            w = self.cards_lay.itemAt(i).widget()
+            if isinstance(w, FolderGroupCard):
+                self.cards_lay.takeAt(i).widget().deleteLater()
+            i -= 1
 
         if not results:
-            msg = ("No groups match the current filters." if self._results
-                   else "No similar folders found above the threshold.")
-            self.empty_lbl.setText(msg)
-            self.empty_lbl.show()
+            self.empty_lbl.hide()
+            self.error_lbl.hide()
+            if self._results:
+                self.no_results_lbl.setText(
+                    f"No groups match the current filters.\n"
+                    f"Try adjusting the minimum size or the threshold."
+                )
+                self.no_results_lbl.show()
+            else:
+                threshold = float(self.thresh_combo.currentText().split()[0])
+                self.no_results_lbl.setText(
+                    f"No similar folders found above the {threshold:.2f} threshold.\n"
+                    f"Try lowering the threshold or reducing the minimum file count."
+                )
+                self.no_results_lbl.show()
             self.footer.setText("No matches found.")
             self.result_count_lbl.setText("")
             return
 
         self.empty_lbl.hide()
+        self.no_results_lbl.hide()
+        self.error_lbl.hide()
+        self._selected_cards.clear()
+        self._dismiss_sel_btn.setVisible(False)
         for r in results:
             card = FolderGroupCard(r)
             card.open_folder.connect(self._open_folder)
+            card.selected_changed.connect(self._on_card_selected)
             self.cards_lay.insertWidget(self.cards_lay.count() - 1, card)
 
         shown = len(results)
@@ -645,17 +775,127 @@ class SimilarFoldersPanel(QWidget):
 
     def _on_error(self, msg: str) -> None:
         self.progress.hide()
-        self.analyze_btn.setEnabled(True)
-        self.empty_lbl.setText(f"Error: {msg}")
-        self.empty_lbl.show()
+        self._set_analyze_busy(False)
+        self.empty_lbl.hide()
+        self.no_results_lbl.hide()
+        self.error_lbl.setText(f"Analysis failed: {msg}\nClick Analyze to try again.")
+        self.error_lbl.show()
         self.footer.setText("Analysis failed.")
-        self.status_message.emit(f"Analysis error: {msg}")
+        self.status_message.emit(f"Analysis error: {msg}", "error")
+
+    def _on_card_selected(self, card, selected: bool) -> None:
+        if selected:
+            if card not in self._selected_cards:
+                self._selected_cards.append(card)
+        else:
+            self._selected_cards = [c for c in self._selected_cards if c is not card]
+        self._dismiss_sel_btn.setVisible(len(self._selected_cards) > 0)
+
+    def _dismiss_selected_cards(self) -> None:
+        for card in list(self._selected_cards):
+            card.hide()
+        self._selected_cards.clear()
+        self._dismiss_sel_btn.setVisible(False)
+
+    def _set_analyze_busy(self, busy: bool) -> None:
+        if busy:
+            self.analyze_btn.setText("Stop")
+            self.analyze_btn.setIcon(_icons.icon("stop", color="#ffffff"))
+            self.analyze_btn.setStyleSheet(
+                f"QPushButton{{background:{RED};color:white;border:none;"
+                f"border-radius:6px;padding:6px 16px;font-weight:bold;}}"
+                f"QPushButton:hover{{background:#e55;}}"
+            )
+            try:
+                self.analyze_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self.analyze_btn.clicked.connect(self._cancel_analysis)
+        else:
+            self.analyze_btn.setText("Analyze")
+            self.analyze_btn.setIcon(_icons.icon("scan", color="#ffffff"))
+            self.analyze_btn.setStyleSheet(
+                f"QPushButton{{background:{ACCENT};color:white;border:none;"
+                f"border-radius:6px;padding:6px 16px;font-weight:bold;}}"
+                f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
+            )
+            try:
+                self.analyze_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self.analyze_btn.clicked.connect(self._run_analysis)
+        self.analyze_btn.setEnabled(True)
+
+    def _cancel_analysis(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.stop()
+        self._set_analyze_busy(False)
+        self.progress.hide()
+        self.footer.setText("Analysis cancelled.")
+
+    def _restore_prefs(self) -> None:
+        from .. import persistence
+        s = persistence.settings()
+        for w in (self.sort_combo, self.thresh_combo, self.min_spin, self.min_size_combo):
+            w.blockSignals(True)
+        try:
+            idx = int(s.value(persistence.Keys.SIM_SORT_IDX, 0) or 0)
+            if 0 <= idx < self.sort_combo.count():
+                self.sort_combo.setCurrentIndex(idx)
+
+            idx = int(s.value(persistence.Keys.SIM_THRESH_IDX, 1) or 1)
+            if 0 <= idx < self.thresh_combo.count():
+                self.thresh_combo.setCurrentIndex(idx)
+
+            min_files = int(s.value(persistence.Keys.SIM_MIN_FILES, 3) or 3)
+            self.min_spin.setValue(min_files)
+
+            min_size = s.value(persistence.Keys.SIM_MIN_SIZE, "0") or "0"
+            self.min_size_combo.setCurrentText(min_size)
+
+            self._filters = persistence.get_json(persistence.Keys.SIM_FILTERS, {})
+            self._refresh_filters_btn()
+        except (TypeError, ValueError):
+            pass
+        finally:
+            for w in (self.sort_combo, self.thresh_combo, self.min_spin, self.min_size_combo):
+                w.blockSignals(False)
+
+        self.thresh_combo.currentIndexChanged.connect(self._save_prefs)
+        self.min_spin.valueChanged.connect(self._save_prefs)
+
+    def _save_prefs(self) -> None:
+        from .. import persistence
+        s = persistence.settings()
+        s.setValue(persistence.Keys.SIM_SORT_IDX,   self.sort_combo.currentIndex())
+        s.setValue(persistence.Keys.SIM_THRESH_IDX, self.thresh_combo.currentIndex())
+        s.setValue(persistence.Keys.SIM_MIN_FILES,  self.min_spin.value())
+        s.setValue(persistence.Keys.SIM_MIN_SIZE,   self.min_size_combo.currentText())
 
     def _open_filters_dialog(self) -> None:
-        dlg = AnalysisFiltersDialog(self, self._filters)
-        if dlg.exec():
-            self._filters = dlg.get_filters()
-            self._refresh_filters_btn()
+        if self._filters_dlg is None:
+            self._filters_dlg = AnalysisFiltersDialog(self, self._filters)
+            self._filters_dlg.setAttribute(Qt.WA_DeleteOnClose, False)
+            self._filters_dlg.filters_changed.connect(self._on_analysis_filters_changed)
+        else:
+            self._filters_dlg.set_filters(self._filters)
+        self._filters_dlg.show()
+        self._filters_dlg.raise_()
+        self._filters_dlg.activateWindow()
+
+    def _on_analysis_filters_changed(self, filters: dict) -> None:
+        self._filters = filters
+        self._refresh_filters_btn()
+        from .. import persistence
+        persistence.set_json(persistence.Keys.SIM_FILTERS, filters)
+        if not self._results:
+            return
+        from PySide6.QtCore import QTimer
+        if self._rerun_timer is None:
+            self._rerun_timer = QTimer(self)
+            self._rerun_timer.setSingleShot(True)
+            self._rerun_timer.timeout.connect(self._apply_sort_filter)
+        self._rerun_timer.start(400)
 
     def _refresh_filters_btn(self) -> None:
         n = sum(1 for k in FILTER_KEYS if self._filters.get(k))
@@ -708,7 +948,7 @@ class SimilarFoldersPanel(QWidget):
             return
         run = load_analysis_run(self._db_path, run_id)
         if run is None:
-            self.status_message.emit(f"Saved run #{run_id} not found.")
+            self.status_message.emit(f"Saved run #{run_id} not found.", "warning")
             return
 
         self.min_spin.setValue(run["min_files"])
@@ -740,7 +980,8 @@ class SimilarFoldersPanel(QWidget):
             f"{n_groups} groups  ·  {dur_s:.1f}s  ·  {scope}"
         )
         self.status_message.emit(
-            f"Loaded saved run #{run['id']} ({n_groups} groups) from {run['ran_at']}."
+            f"Loaded saved run #{run['id']} ({n_groups} groups) from {run['ran_at']}.",
+            "success",
         )
 
     def _clear_history(self) -> None:
@@ -749,18 +990,18 @@ class SimilarFoldersPanel(QWidget):
         runs = list_analysis_runs(self._db_path)
         if not runs:
             return
-        reply = QMessageBox.question(
+        from ..feedback import confirm_destructive
+        if not confirm_destructive(
             self, "Delete saved analysis runs",
             f"Delete all {len(runs)} saved analysis run(s)?\n\n"
             "This only removes the stored results — your indexed files are not affected.",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
+            confirm_label="Delete all",
+        ):
             return
         for r in runs:
             delete_analysis_run(self._db_path, r["id"])
         self._refresh_history_btn()
-        self.status_message.emit("Cleared saved analysis runs.")
+        self.status_message.emit("Cleared saved analysis runs.", "success")
 
     def _open_folder(self, path: str) -> None:
         p      = Path(path)

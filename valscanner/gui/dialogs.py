@@ -1,7 +1,7 @@
 from __future__ import annotations
 from urllib.parse import quote
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QButtonGroup, QDialog, QDialogButtonBox, QFileDialog,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER
 from ..core.metadata import PIL_AVAILABLE, FFMPEG_AVAILABLE
+from . import persistence
 
 
 class ScanOptionsDialog(QDialog):
@@ -89,6 +90,15 @@ class ScanOptionsDialog(QDialog):
         ))
         self.thumb_size.setEnabled(self.thumb_chk.isChecked())
         self.thumb_quality.setEnabled(self.thumb_chk.isChecked())
+
+        if not PIL_AVAILABLE:
+            self.thumb_chk.setEnabled(False)
+            self.thumb_chk.setChecked(False)
+            self.thumb_size.setEnabled(False)
+            self.thumb_quality.setEnabled(False)
+            cap_lbl.setText("  ✗ Pillow not installed  —  pip install Pillow")
+            cap_lbl.setStyleSheet("color:#f38ba8; font-size:11px;")
+
         lay.addWidget(thumb_grp)
 
         sample_grp = QGroupBox("Media Samples")
@@ -124,32 +134,59 @@ class ScanOptionsDialog(QDialog):
 
         self.sample_chk.toggled.connect(self.sample_dur.setEnabled)
         self.sample_dur.setEnabled(self.sample_chk.isChecked())
+
+        if not FFMPEG_AVAILABLE:
+            self.sample_chk.setEnabled(False)
+            self.sample_chk.setChecked(False)
+            self.sample_dur.setEnabled(False)
+
         lay.addWidget(sample_grp)
 
-        filter_grp = QGroupBox("Filters")
+        filter_grp = QGroupBox("Skip during scan")
+        filter_grp.setCheckable(True)
+        expanded = persistence.settings().value(
+            persistence.Keys.SCAN_OPTIONS_FILTERS_EXPANDED, False, type=bool,
+        )
+        filter_grp.setChecked(expanded)
+        filter_grp.toggled.connect(
+            lambda v: persistence.settings().setValue(
+                persistence.Keys.SCAN_OPTIONS_FILTERS_EXPANDED, v,
+            )
+        )
         fl = QVBoxLayout(filter_grp)
         fl.setSpacing(6)
 
         folder_lbl = QLabel("Folders")
-        folder_lbl.setStyleSheet(
-            f"color:{SUBTEXT}; font-size:10px; font-weight:bold;"
-        )
+        folder_lbl.setStyleSheet(f"color:{SUBTEXT}; font-size:10px; font-weight:bold;")
         fl.addWidget(folder_lbl)
 
         self.skip_hidden_dirs_chk = QCheckBox("Hidden folders  (names starting with .)")
         self.skip_hidden_dirs_chk.setChecked(opts.get("skip_hidden_dirs", True))
+        self.skip_hidden_dirs_chk.setWhatsThis(
+            "Skip directories whose name starts with a dot (e.g. .git, .cache, .ssh)."
+        )
         fl.addWidget(self.skip_hidden_dirs_chk)
 
         self.skip_vcs_chk = QCheckBox("Version control  (.git, .svn, .hg, …)")
         self.skip_vcs_chk.setChecked(opts.get("skip_vcs", False))
+        self.skip_vcs_chk.setWhatsThis(
+            "Skip version-control directories such as .git, .svn, and .hg."
+        )
         fl.addWidget(self.skip_vcs_chk)
 
         self.skip_system_chk = QCheckBox("System folders  (Windows, Library, /proc, …)")
         self.skip_system_chk.setChecked(opts.get("skip_system", False))
+        self.skip_system_chk.setWhatsThis(
+            "Skip OS-specific directories such as Windows, System32, /proc, and ~/Library."
+        )
         fl.addWidget(self.skip_system_chk)
 
         self.skip_caches_chk = QCheckBox("Cache & build dirs  (node_modules, __pycache__, venv, …)")
         self.skip_caches_chk.setChecked(opts.get("skip_caches", False))
+        self.skip_caches_chk.setWhatsThis(
+            "Skip directories matching common cache patterns: node_modules, __pycache__, "
+            ".gradle, target, build, dist, venv, .venv, .tox."
+        )
         fl.addWidget(self.skip_caches_chk)
 
         sep_hline = QFrame()
@@ -158,25 +195,33 @@ class ScanOptionsDialog(QDialog):
         fl.addWidget(sep_hline)
 
         files_lbl = QLabel("Files")
-        files_lbl.setStyleSheet(
-            f"color:{SUBTEXT}; font-size:10px; font-weight:bold;"
-        )
+        files_lbl.setStyleSheet(f"color:{SUBTEXT}; font-size:10px; font-weight:bold;")
         fl.addWidget(files_lbl)
 
         self.skip_hidden_files_chk = QCheckBox("Hidden files  (names starting with .)")
         self.skip_hidden_files_chk.setChecked(opts.get("skip_hidden_files", False))
+        self.skip_hidden_files_chk.setWhatsThis(
+            "Skip files whose name starts with a dot (e.g. .DS_Store, .gitignore)."
+        )
         fl.addWidget(self.skip_hidden_files_chk)
 
         self.skip_binaries_chk = QCheckBox("Binary / compiled  (.exe, .dll, .so, .pyc, …)")
         self.skip_binaries_chk.setChecked(opts.get("skip_binaries", False))
+        self.skip_binaries_chk.setWhatsThis(
+            "Skip binary and compiled files: .exe, .dll, .so, .dylib, .o, .pyc, and similar."
+        )
         fl.addWidget(self.skip_binaries_chk)
 
         self.skip_temp_chk = QCheckBox("Temporary files  (.tmp, .bak, .swp, .DS_Store, …)")
         self.skip_temp_chk.setChecked(opts.get("skip_temp", False))
+        self.skip_temp_chk.setWhatsThis(
+            "Skip temporary and backup files: .tmp, .bak, .swp, .DS_Store, Thumbs.db, and similar."
+        )
         fl.addWidget(self.skip_temp_chk)
 
         self.skip_logs_chk = QCheckBox("Log files  (.log)")
         self.skip_logs_chk.setChecked(opts.get("skip_logs", False))
+        self.skip_logs_chk.setWhatsThis("Skip files with a .log extension.")
         fl.addWidget(self.skip_logs_chk)
 
         lay.addWidget(filter_grp)
@@ -215,7 +260,8 @@ class ScanOptionsDialog(QDialog):
         }
 
 
-_DLG_SS = f"""
+def _dlg_ss() -> str:
+    return f"""
     QDialog   {{ background:{DARK_BG}; color:{TEXT}; }}
     QGroupBox {{ color:{SUBTEXT}; font-size:11px; font-weight:bold;
                 border:1px solid {BORDER}; border-radius:6px; margin-top:10px;
@@ -250,9 +296,16 @@ class ViewFiltersDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("View Filters")
         self.setMinimumWidth(520)
-        self.setStyleSheet(_DLG_SS)
+        self.setStyleSheet(_dlg_ss())
         self._suppress = False
         self._build_ui(filters or {})
+        saved_geo = persistence.settings().value(persistence.Keys.VIEW_FILTERS_GEO)
+        if saved_geo:
+            self.restoreGeometry(saved_geo)
+
+    def closeEvent(self, event) -> None:
+        persistence.settings().setValue(persistence.Keys.VIEW_FILTERS_GEO, self.saveGeometry())
+        super().closeEvent(event)
 
     def _build_ui(self, filters: dict) -> None:
         lay = QVBoxLayout(self)
@@ -476,8 +529,13 @@ class ViewFiltersDialog(QDialog):
 
 
 class AnalysisFiltersDialog(QDialog):
-    """Modal dialog to pick which files the similarity analysis should skip,
-    mirroring the same filters offered by the scanner."""
+    """Non-modal dialog to pick which files the similarity analysis should skip.
+
+    Emits `filters_changed` on every checkbox toggle so the caller can debounce
+    a re-run without waiting for the dialog to close.
+    """
+
+    filters_changed = Signal(dict)
 
     _FOLDER_FILTERS = [
         ("skip_hidden_dirs",  "Hidden folders  (names starting with .)"),
@@ -496,13 +554,9 @@ class AnalysisFiltersDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Analysis Filters")
         self.setMinimumWidth(440)
-        self.setStyleSheet(_DLG_SS + f"""
-            QPushButton[primary="true"] {{
-                background:{ACCENT}; color:white; border:none;
-                border-radius:6px; padding:6px 18px; font-weight:bold;
-            }}
-            QPushButton[primary="true"]:hover {{ background:#9d8fff; }}
-        """)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+        self.setModal(False)
+        self.setStyleSheet(_dlg_ss())
         self._chks: dict[str, QCheckBox] = {}
         self._build_ui(filters or {})
 
@@ -512,8 +566,8 @@ class AnalysisFiltersDialog(QDialog):
         lay.setSpacing(12)
 
         intro = QLabel(
-            "Skip these files when looking for similar folders. The indexed "
-            "database is not modified — filtering applies only to this analysis."
+            "Skip these files when looking for similar folders. Changes apply "
+            "immediately — the indexed database is not modified."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
@@ -530,6 +584,7 @@ class AnalysisFiltersDialog(QDialog):
         for key, label in self._FOLDER_FILTERS:
             chk = QCheckBox(label)
             chk.setChecked(bool(opts.get(key)))
+            chk.toggled.connect(self._on_change)
             gl.addWidget(chk)
             self._chks[key] = chk
 
@@ -544,6 +599,7 @@ class AnalysisFiltersDialog(QDialog):
         for key, label in self._FILE_FILTERS:
             chk = QCheckBox(label)
             chk.setChecked(bool(opts.get(key)))
+            chk.toggled.connect(self._on_change)
             gl.addWidget(chk)
             self._chks[key] = chk
 
@@ -554,14 +610,13 @@ class AnalysisFiltersDialog(QDialog):
         clear_btn.clicked.connect(self._clear_all)
         btn_bar.addWidget(clear_btn)
         btn_bar.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        ok_btn = QPushButton("OK")
-        ok_btn.setProperty("primary", True)
-        ok_btn.clicked.connect(self.accept)
-        btn_bar.addWidget(cancel_btn)
-        btn_bar.addWidget(ok_btn)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        btn_bar.addWidget(close_btn)
         lay.addLayout(btn_bar)
+
+    def _on_change(self) -> None:
+        self.filters_changed.emit(self.get_filters())
 
     def _clear_all(self) -> None:
         for chk in self._chks.values():
@@ -569,6 +624,12 @@ class AnalysisFiltersDialog(QDialog):
 
     def get_filters(self) -> dict:
         return {key: chk.isChecked() for key, chk in self._chks.items()}
+
+    def set_filters(self, filters: dict) -> None:
+        for key, chk in self._chks.items():
+            chk.blockSignals(True)
+            chk.setChecked(bool(filters.get(key)))
+            chk.blockSignals(False)
 
 
 class DatabaseSettingsDialog(QDialog):
@@ -611,10 +672,13 @@ class DatabaseSettingsDialog(QDialog):
         root.addWidget(self._stack)
 
         test_row = QHBoxLayout()
-        self._btn_test   = QPushButton("Test Connection")
+        self._btn_test        = QPushButton("Test Connection")
+        self._btn_test_cancel = QPushButton("Cancel")
+        self._btn_test_cancel.setVisible(False)
         self._lbl_status = QLabel("—")
         self._lbl_status.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         test_row.addWidget(self._btn_test)
+        test_row.addWidget(self._btn_test_cancel)
         test_row.addWidget(self._lbl_status)
         root.addLayout(test_row)
 
@@ -623,8 +687,11 @@ class DatabaseSettingsDialog(QDialog):
         self._btn_save   = self._buttons.addButton("Save && Reload", QDialogButtonBox.AcceptRole)
         root.addWidget(self._buttons)
 
+        self._test_worker = None
+
         self._bg.idClicked.connect(self._on_backend_changed)
-        self._btn_test.clicked.connect(lambda: self._test_connection(self._build_url()))
+        self._btn_test.clicked.connect(self._start_test_async)
+        self._btn_test_cancel.clicked.connect(self._cancel_test)
         self._btn_cancel.clicked.connect(self.reject)
         self._btn_save.clicked.connect(self._save)
 
@@ -702,6 +769,37 @@ class DatabaseSettingsDialog(QDialog):
         )
         if path:
             self._sqlite_path.setText(path)
+
+    def _start_test_async(self) -> None:
+        from .workers import ConnectWorker
+        self._lbl_status.setText("Testing…")
+        self._lbl_status.setStyleSheet("")
+        self._btn_test.setEnabled(False)
+        self._btn_test_cancel.setVisible(True)
+        self._test_worker = ConnectWorker(self._build_url(), timeout_sec=10.0)
+        self._test_worker.connected.connect(self._on_test_ok)
+        self._test_worker.error.connect(self._on_test_error)
+        self._test_worker.start()
+
+    def _on_test_ok(self, _data: dict) -> None:
+        self._lbl_status.setText("Connected ✓")
+        self._lbl_status.setStyleSheet("color: #4caf50; font-weight: bold;")
+        self._btn_test.setEnabled(True)
+        self._btn_test_cancel.setVisible(False)
+
+    def _on_test_error(self, msg: str) -> None:
+        self._lbl_status.setText(f"Error: {msg[:160]}")
+        self._lbl_status.setStyleSheet("color: #f44336;")
+        self._btn_test.setEnabled(True)
+        self._btn_test_cancel.setVisible(False)
+
+    def _cancel_test(self) -> None:
+        if self._test_worker is not None:
+            self._test_worker.stop()
+        self._btn_test.setEnabled(True)
+        self._btn_test_cancel.setVisible(False)
+        self._lbl_status.setText("Cancelled.")
+        self._lbl_status.setStyleSheet("")
 
     def _test_connection(self, url: str) -> bool:
         from sqlalchemy import text as sa_text

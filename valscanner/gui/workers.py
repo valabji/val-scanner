@@ -1,3 +1,21 @@
+"""
+GUI worker contract. Every QThread subclass in this module MUST:
+
+  1. Expose ``stop(self) -> None`` that sets an interruption flag and returns
+     immediately. The body checks the flag between emits and exits within 250 ms.
+  2. Call ``ProcessRegistry.instance().register(...)`` at the START of ``run()``;
+     pass ``cancel_cb=self.stop``. Store the returned pid as ``self._pid``.
+  3. Call ``ProcessRegistry.instance().mark_done(self._pid)`` or
+     ``mark_error(...)`` on EVERY exit path. Wrap the worker body in
+     try/finally to guarantee this even on unexpected exceptions.
+  4. Emit a heartbeat (any signal or explicit ``heartbeat()``) at least every
+     2 s during long phases so the process monitor does not appear frozen.
+  5. Emit ``error = Signal(str)`` on failure; do not raise out of ``run()``
+     (Qt will print and swallow); do not silently ``except: pass``.
+
+The owning panel MUST surface every error via ``_set_status(..., level='error')``
+and, if the error blocks further interaction, also show an inline sticky error state.
+"""
 from __future__ import annotations
 import os
 import threading
@@ -55,7 +73,7 @@ class ScanWorker(QThread):
             if self._pid:
                 from .panels.process import ProcessRegistry
                 ProcessRegistry.instance().push_log(
-                    self._pid, f"Total files to index: {estimated_total:,}"
+                    self._pid, f"Estimated files: {estimated_total:,}"
                 )
 
             def _on_progress(ev: dict) -> None:
@@ -70,7 +88,7 @@ class ScanWorker(QThread):
                         reg.set_progress_detailed(self._pid, n, estimated_total)
                         reg.push_log(
                             self._pid,
-                            f"Indexed {n:,} / {estimated_total:,} — {Path(ev['path']).parent.name}",
+                            f"Scanned {n:,} / {estimated_total:,} — {Path(ev['path']).parent.name}",
                         )
 
             stats = scan(
@@ -181,15 +199,26 @@ class DbLoadWorker(QThread):
 
     def __init__(self, db_path: str, scan_id: int | None, page_size: int = PAGE_SIZE):
         super().__init__()
-        self.db_path   = db_path
-        self.scan_id   = scan_id
-        self.page_size = page_size
+        self.db_path    = db_path
+        self.scan_id    = scan_id
+        self.page_size  = page_size
+        self._interrupt = threading.Event()
+        self._pid: str  = ""
+
+    def stop(self) -> None:
+        self._interrupt.set()
 
     def run(self) -> None:
+        from .panels.process import ProcessRegistry
+        reg = ProcessRegistry.instance()
+        self._pid = reg.register(name="Loading database", cancel_cb=self.stop)
+        ok = False
         try:
             engine = repo_for(self.db_path).engine
             sid = self.scan_id
             with engine.connect() as conn:
+                if self._interrupt.is_set():
+                    return
                 if sid:
                     total, = conn.execute(
                         text("SELECT COUNT(*) FROM files WHERE scan_id=:sid"), {"sid": sid}
@@ -197,6 +226,8 @@ class DbLoadWorker(QThread):
                     total_size, = conn.execute(
                         text("SELECT SUM(size_bytes) FROM files WHERE scan_id=:sid"), {"sid": sid}
                     ).fetchone()
+                    if self._interrupt.is_set():
+                        return
                     rows = conn.execute(
                         text(
                             "SELECT path, filename, category, size_bytes, size_human, "
@@ -210,6 +241,8 @@ class DbLoadWorker(QThread):
                     total_size, = conn.execute(
                         text("SELECT SUM(size_bytes) FROM files")
                     ).fetchone()
+                    if self._interrupt.is_set():
+                        return
                     rows = conn.execute(
                         text(
                             "SELECT path, filename, category, size_bytes, size_human, "
@@ -224,8 +257,16 @@ class DbLoadWorker(QThread):
                 "total_size": total_size or 0,
                 "rows":       list(rows),
             })
+            ok = True
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            if self._interrupt.is_set():
+                reg.mark_done(self._pid)
+            elif ok:
+                reg.mark_done(self._pid)
+            else:
+                reg.mark_error(self._pid)
 
 
 class LazyLoadWorker(QThread):
@@ -236,13 +277,24 @@ class LazyLoadWorker(QThread):
     def __init__(self, db_path: str, scan_id: int | None, offset: int,
                  page_size: int = PAGE_SIZE):
         super().__init__()
-        self.db_path   = db_path
-        self.scan_id   = scan_id
-        self.offset    = offset
-        self.page_size = page_size
+        self.db_path    = db_path
+        self.scan_id    = scan_id
+        self.offset     = offset
+        self.page_size  = page_size
+        self._interrupt = threading.Event()
+        self._pid: str  = ""
+
+    def stop(self) -> None:
+        self._interrupt.set()
 
     def run(self) -> None:
+        from .panels.process import ProcessRegistry
+        reg = ProcessRegistry.instance()
+        self._pid = reg.register(name="Loading more files", cancel_cb=self.stop)
+        ok = False
         try:
+            if self._interrupt.is_set():
+                return
             engine = repo_for(self.db_path).engine
             with engine.connect() as conn:
                 if self.scan_id:
@@ -264,8 +316,14 @@ class LazyLoadWorker(QThread):
                         {"lim": self.page_size, "off": self.offset},
                     ).fetchall()
             self.rows_ready.emit(list(rows))
+            ok = True
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            if ok or self._interrupt.is_set():
+                reg.mark_done(self._pid)
+            else:
+                reg.mark_error(self._pid)
 
 
 class BrowserLoadWorker(QThread):
@@ -275,12 +333,24 @@ class BrowserLoadWorker(QThread):
 
     def __init__(self, db_path: str, scan_id: int | None, path: str):
         super().__init__()
-        self.db_path = db_path
-        self.scan_id = scan_id
-        self.path    = path
+        self.db_path    = db_path
+        self.scan_id    = scan_id
+        self.path       = path
+        self._interrupt = threading.Event()
+        self._pid: str  = ""
+
+    def stop(self) -> None:
+        self._interrupt.set()
 
     def run(self) -> None:
+        from .panels.process import ProcessRegistry
+        reg = ProcessRegistry.instance()
+        label = Path(self.path).name if self.path else "root"
+        self._pid = reg.register(name=f"Loading: {label}", cancel_cb=self.stop)
+        ok = False
         try:
+            if self._interrupt.is_set():
+                return
             engine = repo_for(self.db_path).engine
             sid = self.scan_id
             with engine.connect() as conn:
@@ -347,8 +417,14 @@ class BrowserLoadWorker(QThread):
                 "path":     self.path,
                 "scan_id":  sid or 0,
             })
+            ok = True
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            if ok or self._interrupt.is_set():
+                reg.mark_done(self._pid)
+            else:
+                reg.mark_error(self._pid)
 
 
 class ConnectWorker(QThread):
@@ -362,21 +438,64 @@ class ConnectWorker(QThread):
     connected = Signal(dict)
     error     = Signal(str)
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, timeout_sec: float = 10.0):
         super().__init__()
-        self.url = url
+        self.url         = url
+        self._timeout    = timeout_sec
+        self._interrupt  = threading.Event()
+        self._pid: str   = ""
+
+    def stop(self) -> None:
+        self._interrupt.set()
 
     def run(self) -> None:
+        from .panels.process import ProcessRegistry
+        reg = ProcessRegistry.instance()
+        self._pid = reg.register(name="Connecting to database", cancel_cb=self.stop)
+        ok = False
         try:
             from ..core.bootstrap import ensure_schema
             from ..core.db import repo_for
-            # Bring the target DB up to head before any read query — otherwise
-            # a fresh PostgreSQL database fails the smoke summary() call with
-            # "relation 'files' does not exist".
-            ensure_schema(self.url)
-            repo    = repo_for(self.url)
-            summary = repo.summary()
-            self.connected.emit({"url": self.url, "summary": summary})
+
+            done: threading.Event = threading.Event()
+            result: dict = {}
+
+            def _go() -> None:
+                try:
+                    # Bring DB up to head before any read query — a fresh
+                    # PostgreSQL DB fails summary() with "relation 'files' does not exist".
+                    ensure_schema(self.url)
+                    repo = repo_for(self.url)
+                    result["summary"] = repo.summary()
+                except Exception as exc:
+                    result["error"] = exc
+                finally:
+                    done.set()
+
+            t = threading.Thread(target=_go, daemon=True)
+            t.start()
+            # If the engine thread does not return (e.g. wrong host), the
+            # thread leaks but the GUI is freed — acceptable trade-off.
+            if not done.wait(self._timeout) or self._interrupt.is_set():
+                if not self._interrupt.is_set():
+                    self.error.emit(
+                        f"Connection timed out after {self._timeout:.0f} s. "
+                        "Check host and credentials."
+                    )
+                return
+
+            if "error" in result:
+                from ..core.app_settings import mask_url
+                self.error.emit(mask_url(str(result["error"])))
+                return
+
+            self.connected.emit({"url": self.url, "summary": result["summary"]})
+            ok = True
         except Exception as exc:
             from ..core.app_settings import mask_url
             self.error.emit(mask_url(str(exc)))
+        finally:
+            if ok or self._interrupt.is_set():
+                reg.mark_done(self._pid)
+            else:
+                reg.mark_error(self._pid)

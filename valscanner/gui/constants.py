@@ -17,6 +17,49 @@ class HexColor(str):
         return super().__format__(spec)
 
 
+class LazyColor(str):
+    """Color token that reads from the current Theme palette on format/str access.
+
+    Subclasses str so QColor(DARK_BG) and similar C-level APIs work using the
+    initial (import-time) string value. f-strings and str() calls read the
+    current theme via the overridden __format__ / __str__, making
+    _apply_stylesheet() re-evaluate correctly after a theme switch.
+    """
+
+    def __new__(cls, key: str) -> "LazyColor":
+        initial = load_palette()[key]
+        obj = str.__new__(cls, initial)
+        obj._key = key  # type: ignore[attr-defined]
+        return obj
+
+    def _value(self) -> str:
+        return load_palette()[self._key]  # type: ignore[attr-defined]
+
+    def __str__(self) -> str:
+        return self._value()
+
+    def __repr__(self) -> str:
+        return f"LazyColor({self._key!r}={self._value()!r})"  # type: ignore[attr-defined]
+
+    def __format__(self, spec: str) -> str:
+        val = self._value()
+        if len(spec) == 2:
+            try:
+                r = int(val[1:3], 16)
+                g = int(val[3:5], 16)
+                b = int(val[5:7], 16)
+                return f"rgba({r},{g},{b},{int(spec, 16)/255:.3f})"
+            except (ValueError, IndexError):
+                pass
+        return format(val, spec)
+
+    def __eq__(self, other: object) -> bool:
+        return str(self) == str(other)
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+
 CATEGORY_COLORS: dict[str, str] = {
     "photo":        "#4CAF50",
     "video":        "#2196F3",
@@ -34,17 +77,15 @@ CATEGORY_COLORS: dict[str, str] = {
     "other":        "#9E9E9E",
 }
 
-_p = load_palette()
-DARK_BG  = HexColor(_p["DARK_BG"])
-PANEL_BG = HexColor(_p["PANEL_BG"])
-ROW_ALT  = HexColor(_p["ROW_ALT"])
-ACCENT   = HexColor(_p["ACCENT"])
-TEXT     = HexColor(_p["TEXT"])
-SUBTEXT  = HexColor(_p["SUBTEXT"])
-BORDER   = HexColor(_p["BORDER"])
-GREEN    = HexColor(_p["GREEN"])
-RED      = HexColor(_p["RED"])
-YELLOW   = HexColor(_p["YELLOW"])
-# SEL_BG is already rgba() — leave it as plain str
-SEL_BG   = _p["SEL_BG"]
-SEL_TEXT = HexColor(_p["SEL_TEXT"])
+DARK_BG  = LazyColor("DARK_BG")
+PANEL_BG = LazyColor("PANEL_BG")
+ROW_ALT  = LazyColor("ROW_ALT")
+ACCENT   = LazyColor("ACCENT")
+TEXT     = LazyColor("TEXT")
+SUBTEXT  = LazyColor("SUBTEXT")
+BORDER   = LazyColor("BORDER")
+GREEN    = LazyColor("GREEN")
+RED      = LazyColor("RED")
+YELLOW   = LazyColor("YELLOW")
+SEL_BG   = LazyColor("SEL_BG")
+SEL_TEXT = LazyColor("SEL_TEXT")
