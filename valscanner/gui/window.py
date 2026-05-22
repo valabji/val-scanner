@@ -1567,7 +1567,9 @@ class MainWindow(QMainWindow):
         self.grid_view.setResizeMode(QListView.Adjust)
         self.grid_view.setUniformItemSizes(True)
         self.grid_view.setSpacing(2)
-        self.grid_view.setItemDelegate(FileCardDelegate())
+        _card = FileCardDelegate()
+        self.grid_view.setItemDelegate(_card)
+        self.grid_view.setGridSize(QSize(_card.W, _card.H))
         self.grid_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.grid_view.setSelectionMode(QAbstractItemView.SingleSelection)
         self.grid_view.setStyleSheet(
