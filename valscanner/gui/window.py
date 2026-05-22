@@ -192,8 +192,7 @@ class MainWindow(QMainWindow):
             f"border: 1px solid {BORDER}; border-radius: 8px; padding: 1px 10px;"
         )
 
-        # scan strip
-        self._scan_strip.setStyleSheet(f"background: {DARK_BG};")
+        # inline progress
         self.progress.setStyleSheet(
             f"QProgressBar {{ border: none; background: {PANEL_BG}; border-radius: 2px; }}"
             f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
@@ -971,7 +970,6 @@ class MainWindow(QMainWindow):
         root_lay.setSpacing(0)
 
         root_lay.addWidget(self._build_toolbar())
-        root_lay.addWidget(self._build_scan_progress())
         root_lay.addWidget(self._build_queue_strip())
         root_lay.addWidget(self._build_filterbar())
 
@@ -1137,31 +1135,6 @@ class MainWindow(QMainWindow):
         outer.addWidget(r2)
         return bar
 
-    def _build_scan_progress(self) -> QWidget:
-        self._scan_strip = QWidget()
-        self._scan_strip.setFixedHeight(28)
-        self._scan_strip.setStyleSheet(f"background: {DARK_BG};")
-        sl = QHBoxLayout(self._scan_strip)
-        sl.setContentsMargins(16, 0, 16, 0)
-        sl.setSpacing(10)
-
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 0)
-        self.progress.setFixedHeight(4)
-        self.progress.setTextVisible(False)
-        self.progress.setStyleSheet(
-            f"QProgressBar {{ border: none; background: {PANEL_BG}; border-radius: 2px; }}"
-            f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
-        )
-        sl.addWidget(self.progress, 1)
-
-        self.elapsed_lbl = QLabel()
-        self.elapsed_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px; font-family: '{mono_font_family()}', monospace;")
-        self.elapsed_lbl.setFixedWidth(60)
-        sl.addWidget(self.elapsed_lbl)
-        self._scan_strip.hide()
-        return self._scan_strip
-
     def _build_queue_strip(self) -> QWidget:
         self._queue_strip = QWidget()
         self._queue_strip.setFixedHeight(30)
@@ -1288,6 +1261,25 @@ class MainWindow(QMainWindow):
         fl.addWidget(self._group_combo)
 
         fl.addStretch()
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setFixedSize(160, 4)
+        self.progress.setTextVisible(False)
+        self.progress.setStyleSheet(
+            f"QProgressBar {{ border: none; background: {PANEL_BG}; border-radius: 2px; }}"
+            f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
+        )
+        self.progress.hide()
+        fl.addWidget(self.progress)
+
+        self.elapsed_lbl = QLabel()
+        self.elapsed_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; font-family: '{mono_font_family()}', monospace;"
+        )
+        self.elapsed_lbl.setFixedWidth(60)
+        self.elapsed_lbl.hide()
+        fl.addWidget(self.elapsed_lbl)
 
         self.folder_pill = QWidget()
         self.folder_pill.setStyleSheet(
@@ -1962,7 +1954,8 @@ class MainWindow(QMainWindow):
         self._set_scan_btn_scanning()
         self.csv_btn.setEnabled(False)
         self.json_btn.setEnabled(False)
-        self._scan_strip.show()
+        self.progress.show()
+        self.elapsed_lbl.show()
         self.db_status_lbl.setText("  ●  Scanning…  ")
         self.db_status_lbl.setStyleSheet(
             f"color: {YELLOW}; font-size: 10px; background: {YELLOW:11}; "
@@ -2079,7 +2072,8 @@ class MainWindow(QMainWindow):
 
     def _on_scan_done(self, stats: dict) -> None:
         self._elapsed_timer.stop()
-        self._scan_strip.hide()
+        self.progress.hide()
+        self.elapsed_lbl.hide()
         self._set_scan_btn_idle()
         self.csv_btn.setEnabled(True)
         self.json_btn.setEnabled(True)

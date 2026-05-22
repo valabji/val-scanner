@@ -112,7 +112,7 @@ class UndoToast:
     def __init__(self, parent, msg: str, undo_cb, timeout_ms: int = 8000):
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
-        from .constants import PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER
+        from .constants import DARK_BG, ACCENT
 
         self._undo_cb    = undo_cb
         self._committed  = False
@@ -122,23 +122,23 @@ class UndoToast:
         self._frame.setObjectName("undo_toast")
         self._frame.setStyleSheet(
             f"QFrame#undo_toast {{"
-            f"  background:{PANEL_BG}; border:1px solid {ACCENT};"
-            f"  border-radius:8px;"
+            f"  background:{ACCENT};"
+            f"  border-radius:20px;"
             f"}}"
         )
         self._frame.setFixedHeight(40)
 
         lay = QHBoxLayout(self._frame)
-        lay.setContentsMargins(14, 0, 8, 0)
+        lay.setContentsMargins(16, 0, 10, 0)
         lay.setSpacing(8)
 
         lbl = QLabel(msg)
-        lbl.setStyleSheet(f"color:{TEXT}; font-size:12px; border:none; background:transparent;")
+        lbl.setStyleSheet(f"color:{DARK_BG}; font-size:12px; font-weight:600; border:none; background:transparent;")
         lay.addWidget(lbl, 1)
 
         undo_btn = QPushButton("Undo")
         undo_btn.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{ACCENT};border:none;"
+            f"QPushButton{{background:transparent;color:{DARK_BG};border:none;"
             f"font-size:12px;font-weight:bold;padding:0 6px;}}"
             f"QPushButton:hover{{text-decoration:underline;}}"
         )
@@ -148,8 +148,8 @@ class UndoToast:
         close_btn = QPushButton("×")
         close_btn.setFixedSize(22, 22)
         close_btn.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;font-size:14px;}}"
-            f"QPushButton:hover{{color:{TEXT};}}"
+            f"QPushButton{{background:transparent;color:{DARK_BG};border:none;font-size:14px;}}"
+            f"QPushButton:hover{{opacity:0.7;}}"
         )
         close_btn.clicked.connect(self._commit_and_dismiss)
         lay.addWidget(close_btn)
