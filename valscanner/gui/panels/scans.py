@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, RED, SEL_BG, SEL_TEXT
+from ..density import get_row_height, on_changed as _density_on_changed
 from ...core.db import list_scans, delete_scan
 from ...core.schema import human_size
 from .. import icons as _icons
@@ -27,6 +28,11 @@ class ScansPanel(QWidget):
         self._build_ui()
         from ..theme import Theme
         Theme.instance().on_changed(self._apply_stylesheet)
+        _density_on_changed(self._on_density_changed)
+
+    def _on_density_changed(self) -> None:
+        self.table.verticalHeader().setDefaultSectionSize(get_row_height())
+        self.table.update()
 
     def _apply_stylesheet(self) -> None:
         self._hdr.setStyleSheet(f"background:{PANEL_BG};border-bottom:1px solid {BORDER};")
@@ -99,7 +105,7 @@ class ScansPanel(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(36)
+        self.table.verticalHeader().setDefaultSectionSize(get_row_height())
         self.table.horizontalHeader().setHighlightSections(False)
         self.table.setStyleSheet(f"""
             QTableView {{

@@ -41,6 +41,7 @@ from .panels.process import ProcessPanel, ProcessRegistry
 from .recent import RecentDBsModel
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
 from . import persistence
+from . import density as _density
 from .fonts import load_fonts, ui_font_family, mono_font_family
 from ..core.export import export_csv, export_json
 from ..core.db import list_scans, reset_repos
@@ -89,12 +90,14 @@ class MainWindow(QMainWindow):
         self.recent_dbs.changed.connect(self._rebuild_recent_menu)
         self.recent_dbs.changed.connect(self._on_recents_changed)
 
+        _density.load_density()
         self._apply_global_stylesheet()
         self._build_menu()
         self._build_ui()
 
         from .theme import Theme
         Theme.instance().on_changed(self._apply_stylesheet)
+        _density.on_changed(self._on_density_changed)
 
         self.setAcceptDrops(True)
         self._install_shortcuts()
@@ -239,6 +242,8 @@ class MainWindow(QMainWindow):
         self._browse_toggle.setStyleSheet(_vbtn_ss)
         for _b in self._view_btn_grp.buttons():
             _b.setStyleSheet(_vbtn_ss)
+        for _b in self._density_btn_grp.buttons():
+            _b.setStyleSheet(_vbtn_ss)
 
         # breadcrumb + depth buttons
         self._breadcrumb_bar.setStyleSheet(
@@ -320,6 +325,16 @@ class MainWindow(QMainWindow):
                 f"QPushButton:pressed{{background:{BTN_PRESSED};}}"
                 f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
             )
+
+    # ── Density ───────────────────────────────────────────────────────────────
+
+    def _on_density_id_clicked(self, idx: int) -> None:
+        _density.set_density(("compact", "normal", "relaxed")[idx])
+
+    def _on_density_changed(self) -> None:
+        h = _density.get_row_height()
+        self.table.verticalHeader().setDefaultSectionSize(h)
+        self.table.update()
 
     # ── Drag & drop ───────────────────────────────────────────────────────────
 
@@ -1313,6 +1328,29 @@ class MainWindow(QMainWindow):
             f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
             f"QPushButton:hover:!checked{{color:{TEXT};border-color:{HOVER_BORDER};}}"
         )
+
+        self._density_btn_grp = QButtonGroup(self._filterbar)
+        self._density_btn_grp.setExclusive(True)
+        for _di, (_dn, _dl, _dt) in enumerate([
+            ("compact", "S", "Compact rows (26 px)"),
+            ("normal",  "M", "Normal rows (32 px)"),
+            ("relaxed", "L", "Relaxed rows (38 px)"),
+        ]):
+            _db = QPushButton(_dl)
+            _db.setToolTip(_dt)
+            _db.setCheckable(True)
+            _db.setFixedSize(26, 28)
+            _db.setStyleSheet(_vbtn_ss)
+            if _dn == _density.get_density():
+                _db.setChecked(True)
+            self._density_btn_grp.addButton(_db, _di)
+            fl.addWidget(_db)
+        self._density_btn_grp.idClicked.connect(self._on_density_id_clicked)
+
+        sep_v2 = QFrame(); sep_v2.setFrameShape(QFrame.VLine)
+        sep_v2.setStyleSheet(f"color: {BORDER};")
+        sep_v2.setFixedHeight(20)
+        fl.addWidget(sep_v2)
 
         self._browse_toggle = QPushButton("Browse")
         self._browse_toggle.setIcon(_icons.icon("folder", color=str(SUBTEXT)))

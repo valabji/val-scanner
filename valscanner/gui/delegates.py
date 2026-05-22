@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QStyledItemDelegate, QStyle
 
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, SEL_BG, SEL_TEXT
 from .fonts import mono_font_family
+from .density import get_row_height
 from .models import _THUMB_CACHE
 
 
@@ -92,7 +93,10 @@ class FileCardDelegate(QStyledItemDelegate):
 
 class FileRowDelegate(QStyledItemDelegate):
     """Compact single-line row: color swatch + name + size + category chip."""
-    H = 28
+
+    @property
+    def H(self) -> int:
+        return get_row_height()
 
     def sizeHint(self, option, index):
         return QSize(option.rect.width(), self.H)
