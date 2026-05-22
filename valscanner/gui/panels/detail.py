@@ -57,6 +57,11 @@ class DetailPanel(QWidget):
         )
         self.tags_title.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; font-weight: bold;")
         self.meta_title.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; font-weight: bold;")
+        self._exif_toggle.setStyleSheet(
+            f"QPushButton{{color:{SUBTEXT};font-size:11px;font-weight:bold;"
+            f"text-align:left;padding:2px 0;border:none;background:transparent;}}"
+            f"QPushButton:hover{{color:{TEXT};}}"
+        )
         self.meta_text.setStyleSheet(f"""
             QTextEdit {{
                 background: {PANEL_BG}; color: {SUBTEXT};
@@ -168,6 +173,33 @@ class DetailPanel(QWidget):
         """)
         lay.addWidget(self.meta_text)
 
+        # Collapsible EXIF section
+        self._exif_section = QWidget()
+        exif_outer = QVBoxLayout(self._exif_section)
+        exif_outer.setContentsMargins(0, 4, 0, 0)
+        exif_outer.setSpacing(2)
+
+        self._exif_toggle = QPushButton("▼  EXIF")
+        self._exif_toggle.setCheckable(True)
+        self._exif_toggle.setChecked(True)
+        self._exif_toggle.setFlat(True)
+        self._exif_toggle.setStyleSheet(
+            f"QPushButton{{color:{SUBTEXT};font-size:11px;font-weight:bold;"
+            f"text-align:left;padding:2px 0;border:none;background:transparent;}}"
+            f"QPushButton:hover{{color:{TEXT};}}"
+        )
+        self._exif_toggle.clicked.connect(self._on_exif_toggle)
+        exif_outer.addWidget(self._exif_toggle)
+
+        self._exif_content = QWidget()
+        self._exif_grid_lay = QGridLayout(self._exif_content)
+        self._exif_grid_lay.setContentsMargins(0, 0, 0, 0)
+        self._exif_grid_lay.setSpacing(4)
+        exif_outer.addWidget(self._exif_content)
+
+        self._exif_section.hide()
+        lay.addWidget(self._exif_section)
+
         self.open_btn = QPushButton("Open File")
         self.open_btn.setStyleSheet(f"""
             QPushButton {{
@@ -210,6 +242,39 @@ class DetailPanel(QWidget):
         val.setWordWrap(True)
         self.grid_lay.addWidget(lbl, row, 0)
         self.grid_lay.addWidget(val, row, 1)
+
+    def _on_exif_toggle(self) -> None:
+        expanded = self._exif_toggle.isChecked()
+        self._exif_content.setVisible(expanded)
+        self._exif_toggle.setText("▼  EXIF" if expanded else "▶  EXIF")
+
+    def _exif_fields(self, meta: dict, cat: str) -> list:
+        if cat not in ("photo", "image") or not meta:
+            return []
+        fields = []
+        make  = meta.get("exif_camera_make", "")
+        model = meta.get("exif_camera_model", "")
+        if make or model:
+            fields.append(("Camera", " ".join(filter(None, [make, model]))))
+        for key, label in [
+            ("exif_lens",         "Lens"),
+            ("exif_exposure",     "Exposure"),
+            ("exif_iso",          "ISO"),
+            ("exif_focal_length", "Focal Length"),
+            ("exif_datetime",     "Captured"),
+        ]:
+            val = meta.get(key)
+            if val:
+                fields.append((label, str(val)))
+        if meta.get("has_gps"):
+            lat = meta.get("gps_lat", "")
+            lon = meta.get("gps_lon", "")
+            fields.append(("GPS", f"{lat}, {lon}" if (lat and lon) else "Yes"))
+        w = meta.get("img_width")
+        h = meta.get("img_height")
+        if w and h:
+            fields.append(("Dimensions", f"{w} × {h}"))
+        return fields
 
     def show_file(self, row) -> None:
         self._stack.setCurrentIndex(1)
@@ -286,6 +351,25 @@ class DetailPanel(QWidget):
         self.meta_text.setPlainText(
             "\n".join(f"{k}: {v}" for k, v in meta.items()) if meta else "(no extra metadata)"
         )
+
+        exif = self._exif_fields(meta, cat)
+        for i in reversed(range(self._exif_grid_lay.count())):
+            w = self._exif_grid_lay.itemAt(i).widget()
+            if w:
+                w.deleteLater()
+        if exif:
+            for i, (label, value) in enumerate(exif):
+                lbl = QLabel(label)
+                lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+                val = QLabel(str(value))
+                val.setStyleSheet(f"color: {TEXT}; font-size: 11px;")
+                val.setWordWrap(True)
+                self._exif_grid_lay.addWidget(lbl, i, 0)
+                self._exif_grid_lay.addWidget(val, i, 1)
+            self._exif_section.show()
+            self._exif_content.setVisible(self._exif_toggle.isChecked())
+        else:
+            self._exif_section.hide()
 
         self.open_btn.show()
 

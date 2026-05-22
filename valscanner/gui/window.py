@@ -648,7 +648,7 @@ class MainWindow(QMainWindow):
         process_vis = s.value("panelProcessVisible",   False,                                  type=bool)
 
         self._act_folder_panel = QAction("Folder Panel", self, checkable=True, checked=folder_vis)
-        self._act_detail_panel = QAction("Detail Panel", self, checkable=True, checked=detail_vis)
+        self._act_detail_panel = QAction("Inspector", self, checkable=True, checked=detail_vis)
         self._act_console      = QAction("Console",      self, checkable=True, checked=console_vis)
         self._act_filterbar    = QAction("Filter Bar",   self, checkable=True, checked=filter_vis)
         self._act_statsbar     = QAction("Stats Bar",    self, checkable=True, checked=stats_vis)
