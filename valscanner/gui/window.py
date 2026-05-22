@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QSettings, QSize
+from PySide6.QtCore import Qt, QTimer, QSettings, QSize, QEvent
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
@@ -38,6 +38,7 @@ from .panels.scans import ScansPanel
 from .panels.console import ConsolePanel, _StderrBridge
 from .panels.process import ProcessPanel, ProcessRegistry
 from .collapsible import CollapsiblePanel
+from .widgets.hover_peek import HoverPeekCard
 from .recent import RecentDBsModel
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
 from . import persistence
@@ -340,6 +341,29 @@ class MainWindow(QMainWindow):
         h = _density.get_row_height()
         self.table.verticalHeader().setDefaultSectionSize(h)
         self.table.update()
+
+    # ── Hover peek ────────────────────────────────────────────────────────────
+
+    def eventFilter(self, obj, event) -> bool:
+        if (hasattr(self, "table") and obj is self.table.viewport()
+                and self._current_view_index == 0):
+            t = event.type()
+            if t == QEvent.MouseMove:
+                idx = self.table.indexAt(event.pos())
+                if idx.isValid():
+                    row = self.table_model.data(
+                        self.table_model.index(idx.row(), 0), Qt.UserRole
+                    )
+                    if row and len(row) > 2:
+                        gpos = self.table.viewport().mapToGlobal(event.pos())
+                        self._hover_card.show_for(row, gpos, self._db_path)
+                    else:
+                        self._hover_card.hide_soon()
+                else:
+                    self._hover_card.hide_soon()
+            elif t in (QEvent.Leave, QEvent.MouseButtonPress):
+                self._hover_card.hide_now()
+        return super().eventFilter(obj, event)
 
     # ── Drag & drop ───────────────────────────────────────────────────────────
 
@@ -1533,6 +1557,9 @@ class MainWindow(QMainWindow):
         self.table.customContextMenuRequested.connect(self._context_menu)
         self._view_stack.addWidget(self.table)
 
+        self._hover_card = HoverPeekCard()
+        self.table.viewport().installEventFilter(self)
+
         self.icon_model = FileIconModel()
         self.grid_view  = QListView()
         self.grid_view.setModel(self.icon_model)
@@ -2538,6 +2565,8 @@ class MainWindow(QMainWindow):
 
     def _set_view_mode(self, mode: int) -> None:
         self._current_view_index = mode
+        if hasattr(self, "_hover_card"):
+            self._hover_card.hide_now()
         old = self._view_stack.currentWidget()
         old_scroll = 0
         if old and hasattr(old, "verticalScrollBar"):
