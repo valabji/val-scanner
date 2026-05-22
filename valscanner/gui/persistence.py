@@ -91,6 +91,11 @@ def _migrate_v0_to_v1(s: QSettings) -> None:
             s.remove(old)
 
 
+def _migrate_v1_to_v2(s: QSettings) -> None:
+    """Clear saved file-table header state: Hash column added, column order changed."""
+    s.remove(Keys.FILE_TABLE_HDR)
+
+
 def migrate() -> None:
     """Run any pending schema migrations; idempotent across calls."""
     s = settings()
@@ -98,3 +103,6 @@ def migrate() -> None:
     if ver < 1:
         _migrate_v0_to_v1(s)
         s.setValue(Keys.SCHEMA_VER, 1)
+    if ver < 2:
+        _migrate_v1_to_v2(s)
+        s.setValue(Keys.SCHEMA_VER, 2)

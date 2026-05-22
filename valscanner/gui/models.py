@@ -9,7 +9,7 @@ from ..core.db import repo_for
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT
 from . import icons as _icons
 
-COLUMNS = ["Filename", "Category", "Size", "Modified", "Tags", "Path"]
+COLUMNS = ["Filename", "Category", "Size", "Modified", "Hash", "Tags", "Path"]
 COL_IDX = {c: i for i, c in enumerate(COLUMNS)}
 
 _GROUP_SENTINEL = "__group__"
@@ -25,7 +25,7 @@ def make_folder_row(path: str, file_count: int, total_bytes: int, human_size: st
     from pathlib import Path as _Path
     name = _Path(path).name or path
     tag = f"{file_count:,} files" if file_count else "empty"
-    return (path, name, _FOLDER_SENTINEL, total_bytes or 0, human_size, "", tag, "")
+    return (path, name, _FOLDER_SENTINEL, total_bytes or 0, human_size, "", tag, "", "")
 
 
 class FileTableModel(QAbstractTableModel):
@@ -91,6 +91,7 @@ class FileTableModel(QAbstractTableModel):
                 COL_IDX["Category"]: "folder",
                 COL_IDX["Size"]:     row[4],
                 COL_IDX["Modified"]: "",
+                COL_IDX["Hash"]:     "",
                 COL_IDX["Tags"]:     row[6],
                 COL_IDX["Path"]:     row[0],
             }
@@ -101,7 +102,7 @@ class FileTableModel(QAbstractTableModel):
             if role == Qt.ForegroundRole:
                 if col == COL_IDX["Category"]:
                     return QColor(ACCENT)
-                if col in (COL_IDX["Path"], COL_IDX["Tags"]):
+                if col in (COL_IDX["Path"], COL_IDX["Tags"], COL_IDX["Hash"]):
                     return QColor(SUBTEXT)
                 return QColor(str(TEXT))
             if role == Qt.FontRole and col == COL_IDX["Filename"]:
@@ -119,6 +120,7 @@ class FileTableModel(QAbstractTableModel):
             COL_IDX["Category"]: row[2],
             COL_IDX["Size"]:     row[4],
             COL_IDX["Modified"]: row[5],
+            COL_IDX["Hash"]:     row[7] if len(row) > 7 else "",
             COL_IDX["Tags"]:     row[6],
             COL_IDX["Path"]:     row[0],
         }
@@ -130,7 +132,7 @@ class FileTableModel(QAbstractTableModel):
         if role == Qt.ForegroundRole:
             if col == COL_IDX["Category"]:
                 return QColor(CATEGORY_COLORS.get(row[2], str(SUBTEXT)))
-            if col in (COL_IDX["Path"], COL_IDX["Tags"]):
+            if col in (COL_IDX["Path"], COL_IDX["Tags"], COL_IDX["Hash"]):
                 return QColor(SUBTEXT)
         if role == Qt.BackgroundRole:
             return QColor(ROW_ALT if index.row() % 2 else DARK_BG)
@@ -150,6 +152,7 @@ class FileTableModel(QAbstractTableModel):
                 COL_IDX["Filename"]: lambda r: r[1].lower(),
                 COL_IDX["Category"]: lambda r: r[2].lower(),
                 COL_IDX["Modified"]: lambda r: r[5],
+                COL_IDX["Hash"]:     lambda r: (r[7] if len(r) > 7 else "") or "",
                 COL_IDX["Tags"]:     lambda r: r[6],
                 COL_IDX["Path"]:     lambda r: r[0].lower(),
             }

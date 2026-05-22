@@ -253,11 +253,19 @@ class DetailPanel(QWidget):
 
         self._grid_row("Size",     row[4], 0)
         self._grid_row("Modified", row[5], 1)
+        sha = row[7] if len(row) > 7 else ""
+        if sha:
+            sha_lbl = QLabel(sha)
+            sha_lbl.setWordWrap(True)
+            sha_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 9px; font-family: monospace;")
+            self.grid_lay.addWidget(QLabel("SHA-256"), 2, 0)
+            self.grid_lay.addWidget(sha_lbl, 2, 1)
+        path_row = 3 if sha else 2
         path_lbl = QLabel(row[0])
         path_lbl.setWordWrap(True)
         path_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px;")
-        self.grid_lay.addWidget(QLabel("Path"), 2, 0)
-        self.grid_lay.addWidget(path_lbl, 2, 1)
+        self.grid_lay.addWidget(QLabel("Path"), path_row, 0)
+        self.grid_lay.addWidget(path_lbl, path_row, 1)
 
         for i in reversed(range(self.tags_layout.count())):
             w = self.tags_layout.itemAt(i).widget()
@@ -269,9 +277,10 @@ class DetailPanel(QWidget):
                 self.tags_layout.addWidget(TagChip(tag))
 
         meta: dict = {}
-        if row[7]:
+        extra = row[8] if len(row) > 8 else (row[7] if len(row) > 7 else "")
+        if extra:
             try:
-                meta = json.loads(row[7])
+                meta = json.loads(extra)
             except Exception:
                 pass
         self.meta_text.setPlainText(

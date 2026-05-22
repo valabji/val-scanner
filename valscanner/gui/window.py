@@ -1470,17 +1470,19 @@ class MainWindow(QMainWindow):
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.verticalHeader().setDefaultSectionSize(_density.get_row_height())
         self.table.horizontalHeader().setHighlightSections(False)
         for col, mode in [
             (COL_IDX["Filename"], QHeaderView.ResizeToContents),
             (COL_IDX["Category"], QHeaderView.ResizeToContents),
             (COL_IDX["Size"],     QHeaderView.ResizeToContents),
             (COL_IDX["Modified"], QHeaderView.ResizeToContents),
+            (COL_IDX["Hash"],     QHeaderView.Fixed),
             (COL_IDX["Tags"],     QHeaderView.Stretch),
             (COL_IDX["Path"],     QHeaderView.ResizeToContents),
         ]:
             self.table.horizontalHeader().setSectionResizeMode(col, mode)
+        self.table.setColumnWidth(COL_IDX["Hash"], 100)
         self.table.setStyleSheet(f"""
             QTableView {{
                 background: {DARK_BG}; color: {TEXT}; border: none;
@@ -2332,7 +2334,7 @@ class MainWindow(QMainWindow):
                     continue
             if cat and r[2] != cat:
                 continue
-            if term and term not in f"{r[1]} {r[2]} {r[6]} {r[0]}".lower():
+            if term and term not in f"{r[1]} {r[2]} {r[6]} {r[7] if len(r) > 7 else ''} {r[0]}".lower():
                 continue
             filtered.append(r)
 

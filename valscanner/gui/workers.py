@@ -252,7 +252,7 @@ class DbLoadWorker(QThread):
                     rows = conn.execute(
                         text(
                             "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, extra_meta "
+                            "modified_at, tags, sha256, extra_meta "
                             "FROM files WHERE scan_id=:sid ORDER BY filename LIMIT :lim OFFSET :off"
                         ),
                         {"sid": sid, "lim": self.page_size, "off": 0},
@@ -267,7 +267,7 @@ class DbLoadWorker(QThread):
                     rows = conn.execute(
                         text(
                             "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, extra_meta "
+                            "modified_at, tags, sha256, extra_meta "
                             "FROM files ORDER BY filename LIMIT :lim OFFSET :off"
                         ),
                         {"lim": self.page_size, "off": 0},
@@ -325,7 +325,7 @@ class LazyLoadWorker(QThread):
                     rows = conn.execute(
                         text(
                             "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, extra_meta "
+                            "modified_at, tags, sha256, extra_meta "
                             "FROM files WHERE scan_id=:sid ORDER BY filename LIMIT :lim OFFSET :off"
                         ),
                         {"sid": self.scan_id, "lim": self.page_size, "off": self.offset},
@@ -334,7 +334,7 @@ class LazyLoadWorker(QThread):
                     rows = conn.execute(
                         text(
                             "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, extra_meta "
+                            "modified_at, tags, sha256, extra_meta "
                             "FROM files ORDER BY filename LIMIT :lim OFFSET :off"
                         ),
                         {"lim": self.page_size, "off": self.offset},
