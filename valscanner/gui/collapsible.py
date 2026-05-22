@@ -1,15 +1,37 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QFont, QPainter
+from PySide6.QtCore import Qt, Signal, QSize, QEvent
+from PySide6.QtGui import QFont, QPainter, QMouseEvent
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
+    QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy,
 )
 
 from .constants import PANEL_BG, BORDER, SUBTEXT, ACCENT, BG2, DIVIDER2
 from . import icons as _icons
 
 RAIL_W = 28
+
+
+class _ClickWidget(QWidget):
+    """QWidget that emits a clicked() signal on mouse release."""
+
+    from PySide6.QtCore import Signal as _Signal  # noqa: E402
+    clicked = _Signal()
+
+    def mouseReleaseEvent(self, ev: "QMouseEvent") -> None:
+        if ev.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(ev)
+
+    def enterEvent(self, ev: QEvent) -> None:
+        self.setProperty("hover", True)
+        self.style().unpolish(self); self.style().polish(self)
+        super().enterEvent(ev)
+
+    def leaveEvent(self, ev: QEvent) -> None:
+        self.setProperty("hover", False)
+        self.style().unpolish(self); self.style().polish(self)
+        super().leaveEvent(ev)
 
 
 class VerticalLabel(QLabel):
@@ -52,9 +74,9 @@ class CollapsiblePanel(QWidget):
         self._icon_name   = icon_name
 
         # Rail shown when collapsed — entirely click-through to re-expand.
-        self._rail = QPushButton()
+        self._rail = _ClickWidget()
         self._rail.setFixedWidth(RAIL_W)
-        self._rail.setFlat(True)
+        self._rail.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._rail.setCursor(Qt.PointingHandCursor)
         self._rail.clicked.connect(lambda: self.set_expanded(True))
 
@@ -115,10 +137,9 @@ class CollapsiblePanel(QWidget):
 
     def apply_theme(self) -> None:
         self._rail.setStyleSheet(
-            f"QPushButton{{background:{PANEL_BG};color:{SUBTEXT};"
-            f"border:0;border-{self._border_side}:1px solid {BORDER};"
-            f"text-align:center;}}"
-            f"QPushButton:hover{{background:{BG2};color:{ACCENT};}}"
+            f"_ClickWidget{{background:{PANEL_BG};"
+            f"border:0;border-{self._border_side}:1px solid {BORDER};}}"
+            f"_ClickWidget[hover='true']{{background:{BG2};}}"
         )
         self._chev_lbl.setStyleSheet(
             f"color: {SUBTEXT}; font-size: 14px; font-weight: 500; background: transparent;"
