@@ -699,18 +699,18 @@ class MainWindow(QMainWindow):
         vm.addAction(self._act_process_dock)
 
         if hasattr(self, "_process_rail"):
-            self._process_rail.toggled.blockSignals(True)
+            self._process_rail.blockSignals(True)
             self._process_rail.set_expanded(process_vis)
-            self._process_rail.toggled.blockSignals(False)
+            self._process_rail.blockSignals(False)
 
     _DEFAULT_FOLDER_WIDTH = 248
     _DEFAULT_DETAIL_WIDTH = 320
 
     def _set_folder_panel_visible(self, visible: bool) -> None:
         if hasattr(self, "_folder_rail"):
-            self._folder_rail.toggled.blockSignals(True)
+            self._folder_rail.blockSignals(True)
             self._folder_rail.set_expanded(visible)
-            self._folder_rail.toggled.blockSignals(False)
+            self._folder_rail.blockSignals(False)
             if visible:
                 sizes = list(self.splitter.sizes())
                 from .collapsible import RAIL_W
@@ -728,9 +728,9 @@ class MainWindow(QMainWindow):
 
     def _set_detail_panel_visible(self, visible: bool) -> None:
         if hasattr(self, "_detail_rail"):
-            self._detail_rail.toggled.blockSignals(True)
+            self._detail_rail.blockSignals(True)
             self._detail_rail.set_expanded(visible)
-            self._detail_rail.toggled.blockSignals(False)
+            self._detail_rail.blockSignals(False)
             if visible:
                 sizes = list(self.splitter.sizes())
                 from .collapsible import RAIL_W
@@ -763,9 +763,9 @@ class MainWindow(QMainWindow):
 
     def _set_process_dock_visible(self, visible: bool) -> None:
         if hasattr(self, "_process_rail"):
-            self._process_rail.toggled.blockSignals(True)
+            self._process_rail.blockSignals(True)
             self._process_rail.set_expanded(visible)
-            self._process_rail.toggled.blockSignals(False)
+            self._process_rail.blockSignals(False)
         if hasattr(self, "_act_process_dock"):
             self._act_process_dock.setChecked(visible)
         pref_settings().setValue("panelProcessVisible", visible)
