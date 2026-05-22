@@ -92,8 +92,8 @@ class FolderGroupCard(QFrame):
 
         badge = QLabel(f"  ~{r['label']}  ")
         badge.setStyleSheet(
-            f"background:transparent;color:{lc};border:1px solid {lc};"
-            f"border-radius:8px;padding:2px 6px;font-size:10px;font-weight:bold;"
+            f"background:{lc}22;color:{lc};border:1px solid {lc}66;"
+            f"border-radius:10px;padding:2px 8px;font-size:10px;font-weight:bold;"
         )
         hdr.addWidget(badge)
 
@@ -106,8 +106,8 @@ class FolderGroupCard(QFrame):
         if n_mem > 2:
             count_badge = QLabel(f"  {n_mem} folders  ")
             count_badge.setStyleSheet(
-                f"color:{ACCENT};background:{ACCENT:11};border:1px solid {ACCENT:44};"
-                f"border-radius:8px;padding:2px 8px;font-size:10px;font-weight:bold;"
+                f"color:{ACCENT};background:{ACCENT:22};border:1px solid {ACCENT:66};"
+                f"border-radius:10px;padding:2px 8px;font-size:10px;font-weight:bold;"
             )
             hdr.addWidget(count_badge)
 
@@ -120,8 +120,8 @@ class FolderGroupCard(QFrame):
                 f"  ＋{nc} subfolder group{'s' if nc>1 else ''}  ·  {total_cf:,} more files  "
             )
             sub_badge.setStyleSheet(
-                f"color:{ACCENT};background:{ACCENT:11};border:1px solid {ACCENT:44};"
-                f"border-radius:8px;padding:2px 8px;font-size:10px;"
+                f"color:{ACCENT};background:{ACCENT:22};border:1px solid {ACCENT:66};"
+                f"border-radius:10px;padding:2px 8px;font-size:10px;"
             )
             hdr.addWidget(sub_badge)
 

@@ -1363,6 +1363,10 @@ class MainWindow(QMainWindow):
         self.folder_pill.hide()
         fl.addWidget(self.folder_pill)
 
+        self._depth_seg_ctrl = self._build_depth_seg()
+        self._depth_seg_ctrl.setEnabled(False)
+        fl.addWidget(self._depth_seg_ctrl)
+
         sep_v = QFrame(); sep_v.setFrameShape(QFrame.VLine)
         sep_v.setStyleSheet(f"color: {BORDER};")
         sep_v.setFixedHeight(20)
@@ -1509,9 +1513,6 @@ class MainWindow(QMainWindow):
         self._breadcrumb_lay.setContentsMargins(12, 0, 12, 0)
         self._breadcrumb_lay.setSpacing(4)
         self._breadcrumb_lay.addStretch()
-        self._depth_seg_ctrl = self._build_depth_seg()
-        self._depth_seg_ctrl.hide()
-        self._breadcrumb_lay.addWidget(self._depth_seg_ctrl)
         ftl.addWidget(self._breadcrumb_bar)
 
         self._view_stack = QStackedWidget()
@@ -2334,8 +2335,7 @@ class MainWindow(QMainWindow):
             w = item.widget()
             if w:
                 w.deleteLater()
-        # Depth seg not used in browser mode
-        self._depth_seg_ctrl.hide()
+        self._depth_seg_ctrl.setEnabled(bool(self._active_folder_filter))
 
         crumb_ss = (
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;"
@@ -2603,7 +2603,7 @@ class MainWindow(QMainWindow):
         self._depth_grp.blockSignals(False)
         self._update_pill_label()
         self.folder_pill.show()
-        self._depth_seg_ctrl.show()
+        self._depth_seg_ctrl.setEnabled(True)
         self._breadcrumb_bar.show()
         self._apply_filters()
         self.center_tabs.setCurrentIndex(1)
@@ -2635,7 +2635,7 @@ class MainWindow(QMainWindow):
         self._depth_this_btn.setChecked(True)
         self._depth_grp.blockSignals(False)
         self.folder_pill.hide()
-        self._depth_seg_ctrl.hide()
+        self._depth_seg_ctrl.setEnabled(False)
         if self._view_mode == "flat":
             self._breadcrumb_bar.hide()
         self._apply_filters()
