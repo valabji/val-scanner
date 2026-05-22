@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from .constants import (
     CATEGORY_COLORS,
     DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, SEL_BG, SEL_TEXT,
+    DIVIDER2, DIVIDER3, BG2, BG3,
     BTN_HOVER, BTN_PRESSED, HOVER_BORDER, SCROLLBAR_HOVER,
 )
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX, make_folder_row, _FOLDER_SENTINEL
@@ -150,11 +151,13 @@ class MainWindow(QMainWindow):
             QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
             QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
             QTabWidget::pane {{ border: none; }}
+            QTabBar {{ background: {DARK_BG}; border-bottom: 1px solid {BORDER}; }}
             QTabBar::tab {{
-                background: transparent; color: {SUBTEXT}; padding: 8px 20px;
+                background: transparent; color: {SUBTEXT}; padding: 10px 16px;
                 font-size: 12px; border-bottom: 2px solid transparent; margin-right: 2px;
+                min-height: 18px; letter-spacing: 0.01em;
             }}
-            QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; font-weight: bold; }}
+            QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; font-weight: 600; }}
             QTabBar::tab:hover:!selected {{ color: {TEXT}; }}
             QToolTip {{
                 background: {PANEL_BG}; color: {TEXT}; border: 1px solid {BORDER};
@@ -217,31 +220,38 @@ class MainWindow(QMainWindow):
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
         self.search_edit.setStyleSheet(
-            f"QLineEdit {{ background:{DARK_BG}; color:{TEXT}; border:1px solid {BORDER};"
-            f"border-radius:15px; padding:4px 14px; font-size:12px; }}"
-            f"QLineEdit:focus {{ border-color:{ACCENT}; }}"
+            f"QLineEdit {{ background:{DARK_BG}; color:{TEXT}; border:1px solid {DIVIDER2};"
+            f"border-radius:8px; padding:0 10px; font-size:12px; }}"
+            f"QLineEdit:focus {{ border-color:{ACCENT}; background:{PANEL_BG}; }}"
         )
         self._vf_btn.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
-            f"border-radius:6px;padding:2px 10px;font-size:11px;}}"
-            f"QPushButton:hover{{color:{TEXT};border-color:{ACCENT};}}"
-            f"QPushButton[active=true]{{color:{ACCENT};border-color:{ACCENT};background:{ACCENT:18};}}"
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;"
+            f"padding:0 8px;font-size:11px;}}"
+            f"QPushButton:hover{{color:{TEXT};}}"
+            f"QPushButton[active=true]{{color:{ACCENT};background:{ACCENT:22};border-radius:4px;}}"
         )
         self.folder_pill.setStyleSheet(
-            f"background: {ACCENT:22}; border: 1px solid {ACCENT}; border-radius: 10px;"
+            f"background: {ACCENT:22}; border: 1px solid {ACCENT:6a}; border-radius: 11px;"
         )
         self.folder_pill_lbl.setStyleSheet(
-            f"color: {ACCENT}; font-size: 11px; border: none; background: transparent;"
+            f"color: {ACCENT}; font-size: 10.5px; border: none; background: transparent;"
+            f"font-family: '{mono_font_family()}', monospace;"
         )
         _vbtn_ss = (
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
-            f"border-radius:5px;padding:2px 9px;font-size:12px;}}"
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {DIVIDER2};"
+            f"border-radius:5px;padding:0 9px;font-size:11px;}}"
             f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
-            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{HOVER_BORDER};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{DIVIDER3};}}"
         )
         self._browse_toggle.setStyleSheet(_vbtn_ss)
+        _seg_inner = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:0;"
+            f"padding:0 10px;font-size:11px;}}"
+            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};}}"
+        )
         for _b in self._view_btn_grp.buttons():
-            _b.setStyleSheet(_vbtn_ss)
+            _b.setStyleSheet(_seg_inner)
         for _b in self._density_btn_grp.buttons():
             _b.setStyleSheet(_vbtn_ss)
 
@@ -771,7 +781,10 @@ class MainWindow(QMainWindow):
         pref_settings().setValue("panelProcessVisible", visible)
 
     def _toggle_filterbar(self, visible: bool) -> None:
-        self._filterbar.setVisible(visible)
+        if hasattr(self, "_filterbar_container"):
+            self._filterbar_container.setVisible(visible)
+        else:
+            self._filterbar.setVisible(visible)
         if hasattr(self, "_act_filterbar"):
             self._act_filterbar.setChecked(visible)
         pref_settings().setValue("panelFilterBarVisible", visible)
@@ -860,6 +873,10 @@ class MainWindow(QMainWindow):
         self._set_detail_panel_visible(_ps.value("panelDetailVisible", True, type=bool))
         self._toggle_filterbar(_ps.value("panelFilterBarVisible", True, type=bool))
         self._toggle_statsbar(_ps.value("panelStatsBarVisible", True, type=bool))
+        if _ps.value("dbBarCollapsed", False, type=bool):
+            self._collapse_db_bar()
+        if _ps.value("filterBarCollapsed", False, type=bool):
+            self._collapse_filterbar()
 
         # Auto-connect: open recent (SQLite) or active_url() (may be PG)
         recents = self.recent_dbs.items()
@@ -1034,7 +1051,6 @@ class MainWindow(QMainWindow):
 
         root_lay.addWidget(self._build_toolbar())
         root_lay.addWidget(self._build_queue_strip())
-        root_lay.addWidget(self._build_filterbar())
 
         self.console = ConsolePanel()
         sys.stderr   = _StderrBridge(self.console, sys.stderr)
@@ -1053,13 +1069,55 @@ class MainWindow(QMainWindow):
 
         sb = QStatusBar()
         sb.setFixedHeight(26)
+        sb.setSizeGripEnabled(False)
+        sb.setStyleSheet(
+            f"QStatusBar {{ background: {DARK_BG}; color: {SUBTEXT}; font-size: 11px; }}"
+            f"QStatusBar::item {{ border: none; }}"
+        )
         self.setStatusBar(sb)
         self.status = sb
+
+        # Left: dot + persistent status label (replaces showMessage to keep them visible)
+        left = QWidget()
+        ll = QHBoxLayout(left)
+        ll.setContentsMargins(8, 0, 0, 0)
+        ll.setSpacing(8)
+        self._status_dot = QLabel()
+        self._status_dot.setFixedSize(8, 8)
+        self._status_dot.setStyleSheet(
+            f"background: {GREEN}; border-radius: 4px;"
+        )
+        ll.addWidget(self._status_dot)
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 11px;"
+        )
+        ll.addWidget(self._status_lbl)
+        sb.addWidget(left, 1)
+
         self._task_pill = self._build_task_pill()
         sb.addPermanentWidget(self._task_pill)
+
+        # Mono clock on right
+        self._status_clock = QLabel()
+        self._status_clock.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; padding: 0 12px 0 8px;"
+            f"font-family: '{mono_font_family()}', monospace;"
+        )
+        sb.addPermanentWidget(self._status_clock)
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._tick_clock)
+        self._clock_timer.start(1000)
+        self._tick_clock()
+
         ProcessRegistry.instance().add_listener(self._update_task_pill)
         self._set_status("Open a database or scan a folder to get started.  "
                          "  Ctrl+O = Open DB  ·  Ctrl+Shift+S = Scan")
+
+    def _tick_clock(self) -> None:
+        if hasattr(self, "_status_clock"):
+            from datetime import datetime
+            self._status_clock.setText(datetime.now().strftime("%H:%M:%S"))
 
     def _build_toolbar(self) -> QWidget:
         bar   = QWidget()
@@ -1074,89 +1132,117 @@ class MainWindow(QMainWindow):
         r1.setStyleSheet(f"background: {PANEL_BG};")
         r1.setFixedHeight(52)
         rl = QHBoxLayout(r1)
-        rl.setContentsMargins(16, 0, 16, 0)
-        rl.setSpacing(8)
+        rl.setContentsMargins(14, 0, 14, 0)
+        rl.setSpacing(10)
 
-        logo = QLabel()
-        logo.setPixmap(_icons.app_logo_pixmap(28, radius=6))
-        logo.setFixedSize(28, 28)
-        rl.addWidget(logo)
-        title = QLabel("ValScanner")
-        title.setStyleSheet(f"color: {TEXT}; font-size: 15px; font-weight: bold;")
-        rl.addWidget(title)
+        # Brand mark + name + version tag
+        brand = self._build_brand_mark()
+        rl.addWidget(brand)
 
         sep = QFrame(); sep.setFrameShape(QFrame.VLine)
-        sep.setStyleSheet(f"color: {BORDER};")
+        sep.setFixedHeight(22)
+        sep.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
         rl.addWidget(sep)
 
-        scan_lbl = QLabel("Scan folder:")
-        scan_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        scan_lbl = QLabel("Scan")
+        scan_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; font-weight: 500;"
+            f"letter-spacing: 0.04em; text-transform: uppercase;"
+        )
         rl.addWidget(scan_lbl)
 
         self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("Choose a folder to scan…")
-        self.path_edit.setMinimumWidth(300)
+        self.path_edit.setPlaceholderText("Pick a folder to index…")
+        self.path_edit.setMinimumWidth(260)
+        self.path_edit.setFixedHeight(28)
+        self.path_edit.addAction(_icons.icon("folder", color=str(SUBTEXT)), QLineEdit.LeadingPosition)
         self.path_edit.returnPressed.connect(self._start_scan)
         rl.addWidget(self.path_edit, 1)
 
-        browse_scan_btn = self._btn_secondary("Browse", "Choose folder to scan (Ctrl+Shift+S)", icon="browse")
+        browse_scan_btn = self._btn_secondary("Browse", "Choose folder to scan (Ctrl+Shift+S)")
+        browse_scan_btn.setFixedHeight(28)
         browse_scan_btn.clicked.connect(self._browse_scan)
         rl.addWidget(browse_scan_btn)
 
-        label_lbl = QLabel("Label:")
-        label_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        label_lbl = QLabel("Label")
+        label_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; font-weight: 500;"
+            f"letter-spacing: 0.04em; text-transform: uppercase;"
+        )
         rl.addWidget(label_lbl)
 
         self.label_edit = QLineEdit()
-        self.label_edit.setPlaceholderText("e.g. MacBook SSD, Drive A…")
-        self.label_edit.setFixedWidth(180)
-        self.label_edit.setFixedHeight(30)
+        self.label_edit.setPlaceholderText("Aurora — Q4 Reshoot")
+        self.label_edit.setFixedWidth(170)
+        self.label_edit.setFixedHeight(28)
         self.label_edit.setToolTip("Optional name for this scan")
         rl.addWidget(self.label_edit)
 
-        self.hash_chk = QCheckBox("SHA-256 hashes")
+        self.hash_chk = QCheckBox("SHA-256")
         self.hash_chk.setChecked(False)
         self.hash_chk.setToolTip("Compute file hashes — enables exact duplicate detection")
+        self.hash_chk.setStyleSheet(
+            f"QCheckBox {{ color: {SUBTEXT}; spacing: 6px; font-size: 11px; }}"
+            f"QCheckBox:checked {{ color: {TEXT}; }}"
+            f"QCheckBox::indicator {{"
+            f"  width: 14px; height: 14px; border: 1px solid {DIVIDER3};"
+            f"  border-radius: 3px; background: {DARK_BG};"
+            f"}}"
+            f"QCheckBox::indicator:hover   {{ border-color: {ACCENT}; }}"
+            f"QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}"
+        )
         rl.addWidget(self.hash_chk)
 
+        rl.addStretch(1)
+
+        # DB chip — shown only when Toolbar2 is collapsed
+        self._db_chip = self._build_db_chip()
+        self._db_chip.hide()
+        rl.addWidget(self._db_chip)
+
         self.options_btn = self._btn_secondary("Options", "Configure scan options", icon="options")
-        self.options_btn.setFixedHeight(32)
+        self.options_btn.setFixedHeight(28)
         self.options_btn.clicked.connect(self._open_scan_options)
         rl.addWidget(self.options_btn)
 
         self.scan_btn = self._btn_primary("Scan", "Start scanning (Enter)", icon="scan")
         self.scan_btn.setFixedWidth(110)
+        self.scan_btn.setFixedHeight(28)
         self.scan_btn.clicked.connect(self._start_scan)
         rl.addWidget(self.scan_btn)
         outer.addWidget(r1)
 
         r2 = QWidget()
         self._toolbar_r2 = r2
-        r2.setStyleSheet(f"background: {PANEL_BG};")
-        r2.setFixedHeight(40)
+        r2.setStyleSheet(f"background: {DARK_BG}; border-bottom: 1px solid {BORDER};")
+        r2.setFixedHeight(38)
         rl2 = QHBoxLayout(r2)
-        rl2.setContentsMargins(16, 0, 16, 0)
-        rl2.setSpacing(8)
+        rl2.setContentsMargins(14, 0, 8, 0)
+        rl2.setSpacing(10)
 
         db_icon = self._icon_label("database", 14, color=str(SUBTEXT))
         rl2.addWidget(db_icon)
-        db_lbl = QLabel("Database:")
-        db_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        db_lbl = QLabel("Database")
+        db_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; font-weight: 500;"
+            f"letter-spacing: 0.04em; text-transform: uppercase;"
+        )
         rl2.addWidget(db_lbl)
 
         self.db_edit = QLineEdit("file_index.db")
         self.db_edit.setPlaceholderText("Path to .db file…")
-        self.db_edit.setFixedWidth(220)
-        self.db_edit.setFixedHeight(26)
+        self.db_edit.setMinimumWidth(280)
+        self.db_edit.setFixedHeight(24)
         self.db_edit.setStyleSheet(
-            f"QLineEdit {{ background:{PANEL_BG}; color:{TEXT}; border:1px solid {BORDER};"
-            f"border-radius:5px; padding:3px 8px; font-size:11px; }}"
+            f"QLineEdit {{ background:{DARK_BG}; color:{TEXT}; border:1px solid {DIVIDER2};"
+            f"border-radius:5px; padding:2px 8px; font-size:11px;"
+            f"font-family: '{mono_font_family()}', monospace; }}"
             f"QLineEdit:focus {{ border-color:{ACCENT}; }}"
         )
         rl2.addWidget(self.db_edit)
 
         browse_db_btn = self._btn_ghost("", "Browse for database save location", icon="browse")
-        browse_db_btn.setFixedSize(28, 28)
+        browse_db_btn.setFixedSize(26, 26)
         browse_db_btn.clicked.connect(self._browse_db_save)
         rl2.addWidget(browse_db_btn)
 
@@ -1164,11 +1250,10 @@ class MainWindow(QMainWindow):
         open_db_btn.clicked.connect(self._open_db)
         rl2.addWidget(open_db_btn)
 
-        rl2.addSpacing(12)
         sep2 = QFrame(); sep2.setFrameShape(QFrame.VLine)
-        sep2.setStyleSheet(f"color: {BORDER};")
+        sep2.setFixedHeight(20)
+        sep2.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
         rl2.addWidget(sep2)
-        rl2.addSpacing(4)
 
         self.csv_btn  = self._btn_ghost("CSV",  "Export results to CSV (Ctrl+E)",      icon="export-csv")
         self.json_btn = self._btn_ghost("JSON", "Export results to JSON (Ctrl+Shift+E)", icon="export-json")
@@ -1182,25 +1267,103 @@ class MainWindow(QMainWindow):
         self.db_status_lbl = QLabel("No database loaded")
         self.db_status_lbl.setStyleSheet(
             f"color: {SUBTEXT}; font-size: 10px; background: {PANEL_BG}; "
-            f"border: 1px solid {BORDER}; border-radius: 8px; padding: 1px 10px;"
+            f"border: 1px solid {DIVIDER2}; border-radius: 4px; padding: 2px 10px;"
+            f"font-family: '{mono_font_family()}', monospace;"
         )
-        self.db_status_lbl.setMaximumHeight(22)
+        self.db_status_lbl.setMaximumHeight(24)
         rl2.addWidget(self.db_status_lbl, 0, Qt.AlignVCenter)
+
+        # Chevron-up collapse handle
+        self._db_collapse_btn = QPushButton()
+        self._db_collapse_btn.setIcon(_icons.icon("mdi.chevron-up", color=str(SUBTEXT)))
+        self._db_collapse_btn.setIconSize(QSize(14, 14))
+        self._db_collapse_btn.setFixedSize(24, 24)
+        self._db_collapse_btn.setToolTip("Collapse database bar")
+        self._db_collapse_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;border-radius:4px;}}"
+            f"QPushButton:hover{{background:{BG2};}}"
+        )
+        self._db_collapse_btn.clicked.connect(self._collapse_db_bar)
+        rl2.addWidget(self._db_collapse_btn)
+
         outer.addWidget(r2)
         return bar
 
+    def _build_brand_mark(self) -> QWidget:
+        """Compact brand chip — amber crosshair square + name + version tag."""
+        w = QWidget()
+        wl = QHBoxLayout(w)
+        wl.setContentsMargins(0, 0, 0, 0)
+        wl.setSpacing(10)
+
+        mark = QLabel()
+        mark.setFixedSize(28, 28)
+        mark.setAlignment(Qt.AlignCenter)
+        mark.setPixmap(_icons.pixmap("mdi.crosshairs-gps", 16, color=str(ACCENT)))
+        mark.setStyleSheet(
+            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            f"stop:0 #2a1f0f, stop:1 #1a1308);"
+            f"border: 1px solid #3a2c14; border-radius: 6px;"
+        )
+        wl.addWidget(mark)
+
+        col = QWidget()
+        cl = QVBoxLayout(col)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        name = QLabel("ValScanner")
+        name.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-weight: 700;")
+        ver = QLabel("v2.4 · field")
+        ver.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 9px; letter-spacing: 0.04em;"
+            f"font-family: '{mono_font_family()}', monospace;"
+        )
+        cl.addWidget(name); cl.addWidget(ver)
+        wl.addWidget(col)
+        return w
+
+    def _build_db_chip(self) -> QPushButton:
+        """Compact DB chip shown in Toolbar1 when Toolbar2 is collapsed."""
+        btn = QPushButton("  no database  ")
+        btn.setFixedHeight(28)
+        btn.setIcon(_icons.icon("database", color=str(SUBTEXT)))
+        btn.setIconSize(QSize(13, 13))
+        btn.setToolTip("Expand database bar")
+        btn.setStyleSheet(
+            f"QPushButton{{background:{DARK_BG};color:{TEXT};"
+            f"border:1px solid {DIVIDER2};border-radius:6px;"
+            f"padding:0 10px;font-size:11px;"
+            f"font-family: '{mono_font_family()}', monospace;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; background:{PANEL_BG};}}"
+        )
+        btn.clicked.connect(self._expand_db_bar)
+        return btn
+
+    def _collapse_db_bar(self) -> None:
+        self._toolbar_r2.hide()
+        # Update chip label to current db name
+        name = Path(self._db_path).name if self._db_path else "no database"
+        self._db_chip.setText(f"  {name}  ")
+        self._db_chip.show()
+        pref_settings().setValue("dbBarCollapsed", True)
+
+    def _expand_db_bar(self) -> None:
+        self._db_chip.hide()
+        self._toolbar_r2.show()
+        pref_settings().setValue("dbBarCollapsed", False)
+
     def _build_queue_strip(self) -> QWidget:
         self._queue_strip = QWidget()
-        self._queue_strip.setFixedHeight(30)
+        self._queue_strip.setFixedHeight(26)
         self._queue_strip.setStyleSheet(
             f"background: {DARK_BG}; border-bottom: 1px solid {BORDER};"
         )
         ql = QHBoxLayout(self._queue_strip)
-        ql.setContentsMargins(16, 0, 16, 0)
+        ql.setContentsMargins(14, 0, 14, 0)
         ql.setSpacing(10)
 
         queue_icon = QLabel("◎")
-        queue_icon.setStyleSheet(f"color: {ACCENT}; font-size: 11px;")
+        queue_icon.setStyleSheet(f"color: {ACCENT}; font-size: 10px;")
         ql.addWidget(queue_icon)
 
         self._queue_status_lbl = QLabel()
@@ -1232,21 +1395,36 @@ class MainWindow(QMainWindow):
         self._queue_status_lbl.setText(f"{n} pending:  {preview}")
         self._queue_strip.show()
 
+    # ── Filter bar (Files tab) ───────────────────────────────────────────────
+
+    def _build_filterbar_container(self) -> QWidget:
+        """Outer wrapper that swaps between expanded filterbar and a collapsed strip."""
+        self._filterbar_container = QWidget()
+        cl = QVBoxLayout(self._filterbar_container)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        cl.addWidget(self._build_filterbar())
+        cl.addWidget(self._build_filterbar_strip())
+        self._filterbar_strip.hide()
+        return self._filterbar_container
+
     def _build_filterbar(self) -> QWidget:
         self._filterbar = QWidget()
         self._filterbar.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
-        self._filterbar.setFixedHeight(44)
+        self._filterbar.setMinimumHeight(46)
         fl = QHBoxLayout(self._filterbar)
-        fl.setContentsMargins(12, 0, 12, 0)
+        fl.setContentsMargins(14, 8, 14, 8)
         fl.setSpacing(8)
 
+        # ── Search input ───────────────────────────────────────────────────
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search filename, tag, path…   (press /)")
+        self.search_edit.setPlaceholderText("Filename, tag, EXIF, path…")
         self.search_edit.addAction(_icons.icon("search", color=str(SUBTEXT)), QLineEdit.LeadingPosition)
-        self.search_edit.setMinimumWidth(260)
-        self.search_edit.setFixedHeight(28)
+        self.search_edit.setMinimumWidth(180)
+        self.search_edit.setMaximumWidth(260)
+        self.search_edit.setFixedHeight(30)
         self.search_edit.setClearButtonEnabled(True)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -1254,74 +1432,132 @@ class MainWindow(QMainWindow):
         self._search_timer.timeout.connect(self._apply_filters)
         self.search_edit.textChanged.connect(lambda _t: self._search_timer.start())
         self.search_edit.setStyleSheet(
-            f"QLineEdit {{ background:{DARK_BG}; color:{TEXT}; border:1px solid {BORDER};"
-            f"border-radius:15px; padding:4px 14px; font-size:12px; }}"
-            f"QLineEdit:focus {{ border-color:{ACCENT}; }}"
+            f"QLineEdit {{ background:{DARK_BG}; color:{TEXT}; border:1px solid {DIVIDER2};"
+            f"border-radius:8px; padding:0 10px; font-size:12px; }}"
+            f"QLineEdit:focus {{ border-color:{ACCENT}; background:{PANEL_BG}; }}"
         )
         fl.addWidget(self.search_edit)
 
+        # ── Grouped Filter cluster ─────────────────────────────────────────
+        fb_group = QWidget()
+        fb_group.setStyleSheet(
+            f"QWidget#fbGroup{{background:{DARK_BG};border:1px solid {DIVIDER2};"
+            f"border-radius:7px;}}"
+        )
+        fb_group.setObjectName("fbGroup")
+        fb_group.setFixedHeight(32)
+        fgl = QHBoxLayout(fb_group)
+        fgl.setContentsMargins(8, 0, 4, 0)
+        fgl.setSpacing(4)
+
+        grp_lbl = QLabel("FILTER")
+        grp_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 9px; font-weight: 500;"
+            f"letter-spacing: 0.06em; padding-right: 4px;"
+            f"border-right: 1px solid {DIVIDER2};"
+        )
+        grp_lbl.setFixedHeight(24)
+        grp_lbl.setAlignment(Qt.AlignCenter)
+        fgl.addWidget(grp_lbl)
+
+        _combo_ss = (
+            f"QComboBox{{background:transparent;color:{TEXT};border:0;"
+            f"padding:0 6px;font-size:11px;}}"
+            f"QComboBox:hover{{color:{ACCENT};}}"
+            f"QComboBox::drop-down{{border:0;width:14px;}}"
+            f"QComboBox::down-arrow{{image:none;}}"
+            f"QComboBox QAbstractItemView{{background:{PANEL_BG};"
+            f"color:{TEXT};border:1px solid {DIVIDER2};"
+            f"selection-background-color:{ACCENT}; padding:4px;}}"
+        )
+
         self.scan_combo = QComboBox()
-        self.scan_combo.setFixedHeight(28)
+        self.scan_combo.setStyleSheet(_combo_ss)
+        self.scan_combo.setFixedHeight(24)
         self.scan_combo.addItem("All scans", userData=0)
         self.scan_combo.currentIndexChanged.connect(self._on_scan_filter_changed)
-        self.scan_combo.setFixedWidth(160)
-        fl.addWidget(self.scan_combo)
+        self.scan_combo.setFixedWidth(110)
+        fgl.addWidget(self.scan_combo)
 
         self.cat_combo = QComboBox()
-        self.cat_combo.setFixedHeight(28)
+        self.cat_combo.setStyleSheet(_combo_ss)
+        self.cat_combo.setFixedHeight(24)
         self.cat_combo.addItem("All types")
         for cat in sorted(CATEGORY_COLORS.keys()):
             self.cat_combo.addItem(cat)
         self.cat_combo.currentTextChanged.connect(self._apply_filters)
-        self.cat_combo.setFixedWidth(140)
-        fl.addWidget(self.cat_combo)
+        self.cat_combo.setFixedWidth(95)
+        fgl.addWidget(self.cat_combo)
 
         self.sort_combo = QComboBox()
-        self.sort_combo.setFixedHeight(28)
+        self.sort_combo.setStyleSheet(_combo_ss)
+        self.sort_combo.setFixedHeight(24)
         self.sort_combo.addItems(["Name ↑", "Size ↓", "Modified ↓", "Category"])
         self.sort_combo.currentIndexChanged.connect(self._apply_sort)
-        self.sort_combo.setFixedWidth(120)
-        fl.addWidget(self.sort_combo)
+        self.sort_combo.setFixedWidth(100)
+        fgl.addWidget(self.sort_combo)
 
-        sep_vf = QFrame(); sep_vf.setFrameShape(QFrame.VLine)
-        sep_vf.setStyleSheet(f"color: {BORDER};")
-        sep_vf.setFixedHeight(20)
-        fl.addWidget(sep_vf)
-
-        self._vf_btn = QPushButton("Filters")
+        self._vf_btn = QPushButton()
         self._vf_btn.setIcon(_icons.icon("filters", color=str(SUBTEXT)))
-        self._vf_btn.setIconSize(QSize(14, 14))
-        self._vf_btn.setFixedHeight(28)
-        self._vf_btn.setToolTip("Show / hide view filters (no re-scan needed)")
+        self._vf_btn.setIconSize(QSize(13, 13))
+        self._vf_btn.setFixedSize(26, 24)
+        self._vf_btn.setToolTip("View filters (advanced)")
         self._vf_btn.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
-            f"border-radius:6px;padding:2px 10px;font-size:11px;}}"
-            f"QPushButton:hover{{color:{TEXT};border-color:{ACCENT};}}"
-            f"QPushButton[active=true]{{color:{ACCENT};border-color:{ACCENT};background:{ACCENT:18};}}"
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:4px;}}"
+            f"QPushButton:hover{{color:{TEXT};background:{BG2};}}"
+            f"QPushButton[active=true]{{color:{ACCENT};background:{ACCENT:22};}}"
         )
         self._vf_btn.clicked.connect(self._open_view_filters)
-        fl.addWidget(self._vf_btn)
-
-        group_lbl = QLabel("Group:")
-        group_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
-        fl.addWidget(group_lbl)
+        fgl.addWidget(self._vf_btn)
 
         self._group_combo = QComboBox()
-        self._group_combo.setFixedHeight(28)
-        self._group_combo.addItems(["None", "Category", "Extension", "Folder", "Date"])
-        self._group_combo.setFixedWidth(110)
+        self._group_combo.setStyleSheet(_combo_ss)
+        self._group_combo.setFixedHeight(24)
+        self._group_combo.addItems(["No group", "Category", "Extension", "Folder", "Date"])
+        self._group_combo.setFixedWidth(100)
         self._group_combo.setToolTip("Group files in the Details view")
         self._group_combo.currentIndexChanged.connect(self._on_group_changed)
-        fl.addWidget(self._group_combo)
+        fgl.addWidget(self._group_combo)
 
-        fl.addStretch()
+        fl.addWidget(fb_group)
 
+        # ── Active pills (inline) ──────────────────────────────────────────
+        self.folder_pill = QWidget()
+        self.folder_pill.setStyleSheet(
+            f"background: {ACCENT:22}; border: 1px solid {ACCENT:6a}; border-radius: 11px;"
+        )
+        self.folder_pill.setFixedHeight(22)
+        pill_lay = QHBoxLayout(self.folder_pill)
+        pill_lay.setContentsMargins(9, 0, 4, 0)
+        pill_lay.setSpacing(5)
+        pill_icon = self._icon_label("folder-open", 11, color=str(ACCENT))
+        pill_lay.addWidget(pill_icon)
+        self.folder_pill_lbl = QLabel()
+        self.folder_pill_lbl.setStyleSheet(
+            f"color: {ACCENT}; font-size: 10.5px; border: none; background: transparent;"
+            f"font-family: '{mono_font_family()}', monospace;"
+        )
+        pill_lay.addWidget(self.folder_pill_lbl)
+        dismiss_pill = QPushButton()
+        dismiss_pill.setIcon(_icons.icon("close", color=str(ACCENT)))
+        dismiss_pill.setIconSize(QSize(10, 10))
+        dismiss_pill.setFixedSize(16, 16)
+        dismiss_pill.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; padding: 0; border-radius: 8px; }}"
+            f"QPushButton:hover {{ background: {ACCENT:33}; }}"
+        )
+        dismiss_pill.clicked.connect(self._clear_folder_filter)
+        pill_lay.addWidget(dismiss_pill)
+        self.folder_pill.hide()
+        fl.addWidget(self.folder_pill)
+
+        # ── Inline scan progress (right-aligned, becomes visible during scan)
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
-        self.progress.setFixedSize(160, 4)
+        self.progress.setFixedSize(140, 4)
         self.progress.setTextVisible(False)
         self.progress.setStyleSheet(
-            f"QProgressBar {{ border: none; background: {PANEL_BG}; border-radius: 2px; }}"
+            f"QProgressBar {{ border: none; background: {DARK_BG}; border-radius: 2px; }}"
             f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
         )
         self.progress.hide()
@@ -1331,54 +1567,21 @@ class MainWindow(QMainWindow):
         self.elapsed_lbl.setStyleSheet(
             f"color: {SUBTEXT}; font-size: 10px; font-family: '{mono_font_family()}', monospace;"
         )
-        self.elapsed_lbl.setFixedWidth(60)
+        self.elapsed_lbl.setFixedWidth(54)
         self.elapsed_lbl.hide()
         fl.addWidget(self.elapsed_lbl)
 
-        self.folder_pill = QWidget()
-        self.folder_pill.setStyleSheet(
-            f"background: {ACCENT:22}; border: 1px solid {ACCENT}; border-radius: 10px;"
-        )
-        self.folder_pill.setFixedHeight(24)
-        pill_lay = QHBoxLayout(self.folder_pill)
-        pill_lay.setContentsMargins(8, 0, 4, 0)
-        pill_lay.setSpacing(4)
-        pill_icon = self._icon_label("folder-open", 12, color=str(ACCENT))
-        pill_lay.addWidget(pill_icon)
-        self.folder_pill_lbl = QLabel()
-        self.folder_pill_lbl.setStyleSheet(
-            f"color: {ACCENT}; font-size: 11px; border: none; background: transparent;"
-        )
-        pill_lay.addWidget(self.folder_pill_lbl)
-        dismiss_pill = QPushButton()
-        dismiss_pill.setIcon(_icons.icon("close", color=str(ACCENT)))
-        dismiss_pill.setIconSize(QSize(12, 12))
-        dismiss_pill.setFixedSize(18, 18)
-        dismiss_pill.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; padding: 0; }}"
-            f"QPushButton:hover {{ background: {ACCENT:33}; border-radius: 9px; }}"
-        )
-        dismiss_pill.clicked.connect(self._clear_folder_filter)
-        pill_lay.addWidget(dismiss_pill)
-        self.folder_pill.hide()
-        fl.addWidget(self.folder_pill)
+        fl.addStretch(1)
 
-        self._depth_seg_ctrl = self._build_depth_seg()
-        self._depth_seg_ctrl.setEnabled(False)
-        fl.addWidget(self._depth_seg_ctrl)
-
-        sep_v = QFrame(); sep_v.setFrameShape(QFrame.VLine)
-        sep_v.setStyleSheet(f"color: {BORDER};")
-        sep_v.setFixedHeight(20)
-        fl.addWidget(sep_v)
-
+        # ── Right cluster: Browse toggle | View segment | Clear all | ▲ ────
         _vbtn_ss = (
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
-            f"border-radius:5px;padding:2px 9px;font-size:12px;}}"
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {DIVIDER2};"
+            f"border-radius:5px;padding:0 9px;font-size:11px;}}"
             f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
-            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{HOVER_BORDER};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{DIVIDER3};}}"
         )
 
+        # density buttons live in a hidden group (still accessible via View menu)
         self._density_btn_grp = QButtonGroup(self._filterbar)
         self._density_btn_grp.setExclusive(True)
         for _di, (_dn, _dl, _dt) in enumerate([
@@ -1389,29 +1592,42 @@ class MainWindow(QMainWindow):
             _db = QPushButton(_dl)
             _db.setToolTip(_dt)
             _db.setCheckable(True)
-            _db.setFixedSize(26, 28)
+            _db.setFixedSize(26, 26)
             _db.setStyleSheet(_vbtn_ss)
+            _db.hide()  # accessible via View > Density menu, not in filterbar
             if _dn == _density.get_density():
                 _db.setChecked(True)
             self._density_btn_grp.addButton(_db, _di)
-            fl.addWidget(_db)
         self._density_btn_grp.idClicked.connect(self._on_density_id_clicked)
 
-        sep_v2 = QFrame(); sep_v2.setFrameShape(QFrame.VLine)
-        sep_v2.setStyleSheet(f"color: {BORDER};")
-        sep_v2.setFixedHeight(20)
-        fl.addWidget(sep_v2)
-
-        self._browse_toggle = QPushButton("Browse")
+        self._browse_toggle = QPushButton()
         self._browse_toggle.setIcon(_icons.icon("folder", color=str(SUBTEXT)))
-        self._browse_toggle.setIconSize(QSize(14, 14))
+        self._browse_toggle.setIconSize(QSize(13, 13))
         self._browse_toggle.setToolTip("Browse folders (drill down). Toggle off for flat all-files view.")
         self._browse_toggle.setCheckable(True)
         self._browse_toggle.setChecked(True)
-        self._browse_toggle.setFixedHeight(28)
+        self._browse_toggle.setFixedSize(26, 26)
         self._browse_toggle.setStyleSheet(_vbtn_ss)
         self._browse_toggle.toggled.connect(self._on_browse_toggled)
         fl.addWidget(self._browse_toggle)
+
+        # View segmented control (Details / Grid / List)
+        view_seg = QWidget()
+        view_seg.setStyleSheet(
+            f"QWidget#viewSeg{{border:1px solid {DIVIDER2};border-radius:5px;background:transparent;}}"
+        )
+        view_seg.setObjectName("viewSeg")
+        view_seg.setFixedHeight(26)
+        vsl = QHBoxLayout(view_seg)
+        vsl.setContentsMargins(0, 0, 0, 0)
+        vsl.setSpacing(0)
+
+        _seg_ss_inner = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:0;"
+            f"padding:0 10px;font-size:11px;height:24px;}}"
+            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};}}"
+        )
 
         self._view_btn_grp = QButtonGroup(self._filterbar)
         self._view_btn_grp.setExclusive(True)
@@ -1420,24 +1636,109 @@ class MainWindow(QMainWindow):
             ("Grid",    "Icon / thumbnail grid",    "view-grid"),
             ("List",    "Compact single-line list", "view-list"),
         ]):
-            b = QPushButton(label)
+            b = QPushButton()
             b.setIcon(_icons.icon(icon_name, color=str(SUBTEXT)))
             b.setIconSize(QSize(14, 14))
-            b.setToolTip(tip)
+            b.setToolTip(f"{label} — {tip}")
             b.setCheckable(True)
-            b.setFixedHeight(28)
-            b.setStyleSheet(_vbtn_ss)
+            b.setFixedSize(28, 24)
+            b.setStyleSheet(_seg_ss_inner)
             if i == 0:
                 b.setChecked(True)
+            if i > 0:
+                _div = QFrame(); _div.setFrameShape(QFrame.VLine)
+                _div.setFixedWidth(1)
+                _div.setStyleSheet(f"background:{DIVIDER2};color:{DIVIDER2};")
+                vsl.addWidget(_div)
             self._view_btn_grp.addButton(b, i)
-            fl.addWidget(b)
+            vsl.addWidget(b)
         self._view_btn_grp.idClicked.connect(self._set_view_mode)
+        fl.addWidget(view_seg)
 
-        clear_btn = self._btn_ghost("Clear all", icon="close")
-        clear_btn.setFixedHeight(28)
+        clear_btn = self._btn_ghost("Clear")
+        clear_btn.setFixedHeight(26)
         clear_btn.clicked.connect(self._clear_filters)
         fl.addWidget(clear_btn)
+
+        self._fb_collapse_btn = QPushButton()
+        self._fb_collapse_btn.setIcon(_icons.icon("mdi.chevron-up", color=str(SUBTEXT)))
+        self._fb_collapse_btn.setIconSize(QSize(14, 14))
+        self._fb_collapse_btn.setFixedSize(24, 26)
+        self._fb_collapse_btn.setToolTip("Collapse filter bar")
+        self._fb_collapse_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;border-radius:4px;}}"
+            f"QPushButton:hover{{background:{BG2};}}"
+        )
+        self._fb_collapse_btn.clicked.connect(self._collapse_filterbar)
+        fl.addWidget(self._fb_collapse_btn)
+
+        # depth-seg lives in the crumbs row, built lazily
+        self._depth_seg_ctrl = self._build_depth_seg()
+        self._depth_seg_ctrl.setEnabled(False)
+
         return self._filterbar
+
+    def _build_filterbar_strip(self) -> QWidget:
+        """Thin strip shown when the filter bar is collapsed."""
+        self._filterbar_strip = QWidget()
+        self._filterbar_strip.setStyleSheet(
+            f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        self._filterbar_strip.setFixedHeight(30)
+        sl = QHBoxLayout(self._filterbar_strip)
+        sl.setContentsMargins(14, 0, 14, 0)
+        sl.setSpacing(10)
+
+        funnel = self._icon_label("filters", 12, color=str(SUBTEXT))
+        sl.addWidget(funnel)
+
+        self._fb_strip_summary = QLabel("Filters · 0 active")
+        self._fb_strip_summary.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 11px;"
+        )
+        sl.addWidget(self._fb_strip_summary)
+        sl.addStretch(1)
+
+        expand_btn = QPushButton("Expand filters")
+        expand_btn.setIcon(_icons.icon("mdi.chevron-down", color=str(SUBTEXT)))
+        expand_btn.setIconSize(QSize(12, 12))
+        expand_btn.setFixedHeight(22)
+        expand_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{SUBTEXT};"
+            f"border:1px solid {DIVIDER2};border-radius:4px;padding:0 10px;font-size:11px;}}"
+            f"QPushButton:hover{{color:{ACCENT};border-color:{ACCENT};background:{ACCENT:22};}}"
+        )
+        expand_btn.clicked.connect(self._expand_filterbar)
+        sl.addWidget(expand_btn)
+        return self._filterbar_strip
+
+    def _collapse_filterbar(self) -> None:
+        self._filterbar.hide()
+        self._filterbar_strip.show()
+        self._update_filterbar_summary()
+        pref_settings().setValue("filterBarCollapsed", True)
+
+    def _expand_filterbar(self) -> None:
+        self._filterbar_strip.hide()
+        self._filterbar.show()
+        pref_settings().setValue("filterBarCollapsed", False)
+
+    def _update_filterbar_summary(self) -> None:
+        if not hasattr(self, "_fb_strip_summary"):
+            return
+        n = 0
+        if hasattr(self, "search_edit") and self.search_edit.text().strip():
+            n += 1
+        if hasattr(self, "cat_combo") and self.cat_combo.currentText() != "All types":
+            n += 1
+        if hasattr(self, "scan_combo") and self.scan_combo.currentIndex() != 0:
+            n += 1
+        if hasattr(self, "_group_by") and self._group_by:
+            n += 1
+        n += self._count_active_view_filters()
+        if self._active_folder_filter:
+            n += 1
+        self._fb_strip_summary.setText(f"Filters · {n} active")
 
     def _build_depth_seg(self) -> QWidget:
         """Segmented control for folder-filter depth: This folder / + subfolders."""
@@ -1487,7 +1788,9 @@ class MainWindow(QMainWindow):
         self.folder_panel = FolderPanel()
         self.folder_panel.setMinimumWidth(180)
         self.folder_panel.folder_selected.connect(self._filter_by_folder)
-        self._folder_rail = CollapsiblePanel("Folders", self.folder_panel, border_side="right")
+        self._folder_rail = CollapsiblePanel(
+            "Folders", self.folder_panel, border_side="right", icon_name="folder"
+        )
         self._folder_rail.toggled.connect(self._set_folder_panel_visible)
         self.splitter.addWidget(self._folder_rail)
 
@@ -1503,16 +1806,20 @@ class MainWindow(QMainWindow):
         ftl.setContentsMargins(0, 0, 0, 0)
         ftl.setSpacing(0)
 
+        # Filter bar lives inside the Files tab (per design)
+        ftl.addWidget(self._build_filterbar_container())
+
         # Breadcrumb bar (visible only in browser mode)
         self._breadcrumb_bar = QWidget()
         self._breadcrumb_bar.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
-        self._breadcrumb_bar.setFixedHeight(34)
+        self._breadcrumb_bar.setFixedHeight(36)
         self._breadcrumb_lay = QHBoxLayout(self._breadcrumb_bar)
-        self._breadcrumb_lay.setContentsMargins(12, 0, 12, 0)
+        self._breadcrumb_lay.setContentsMargins(14, 0, 14, 0)
         self._breadcrumb_lay.setSpacing(4)
         self._breadcrumb_lay.addStretch()
+        self._breadcrumb_lay.addWidget(self._depth_seg_ctrl)
         ftl.addWidget(self._breadcrumb_bar)
 
         self._view_stack = QStackedWidget()
@@ -1622,12 +1929,16 @@ class MainWindow(QMainWindow):
         self.detail = DetailPanel()
         self.detail.setStyleSheet(f"background: {PANEL_BG}; border-left: 1px solid {BORDER};")
         self.detail.status_message.connect(lambda m, lvl: self._set_status(m, lvl))
-        self._detail_rail = CollapsiblePanel("Inspector", self.detail, border_side="left")
+        self._detail_rail = CollapsiblePanel(
+            "Inspector", self.detail, border_side="left", icon_name="mdi.eye-outline"
+        )
         self._detail_rail.toggled.connect(self._set_detail_panel_visible)
         self.splitter.addWidget(self._detail_rail)
 
         self._process_panel = ProcessPanel()
-        self._process_rail = CollapsiblePanel("Processes", self._process_panel, border_side="left")
+        self._process_rail = CollapsiblePanel(
+            "Monitor", self._process_panel, border_side="left", icon_name="mdi.pulse"
+        )
         self._process_rail.toggled.connect(self._set_process_dock_visible)
         self.splitter.addWidget(self._process_rail)
 
@@ -1820,40 +2131,47 @@ class MainWindow(QMainWindow):
 
     def _build_statsbar(self) -> QWidget:
         bar = QWidget()
-        bar.setStyleSheet(f"background: {PANEL_BG}; border-top: 1px solid {BORDER};")
+        bar.setStyleSheet(f"background: {PANEL_BG}; border-top: 1px solid {BORDER}; border-bottom: 1px solid {BORDER};")
         bar.setFixedHeight(32)
         bl = QHBoxLayout(bar)
-        bl.setContentsMargins(16, 0, 16, 0)
-        bl.setSpacing(0)
-
-        def _stat(icon_name: str) -> QLabel:
-            l = QLabel("—")
-            l.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; padding: 0 12px 0 4px;")
-            return l
+        bl.setContentsMargins(14, 0, 14, 0)
+        bl.setSpacing(18)
 
         def _stat_pair(icon_name: str) -> tuple[QLabel, QWidget]:
             wrap = QWidget()
             wl   = QHBoxLayout(wrap)
-            wl.setContentsMargins(8, 0, 8, 0)
-            wl.setSpacing(6)
-            ico  = self._icon_label(icon_name, 14, color=str(SUBTEXT))
-            text = _stat(icon_name)
+            wl.setContentsMargins(0, 0, 0, 0)
+            wl.setSpacing(7)
+            ico  = self._icon_label(icon_name, 12, color=str(SUBTEXT))
+            text = QLabel("—")
+            text.setStyleSheet(
+                f"color: {SUBTEXT}; font-size: 11px;"
+            )
             wl.addWidget(ico); wl.addWidget(text)
             return text, wrap
-
-        def vsep() -> QFrame:
-            f = QFrame(); f.setFrameShape(QFrame.VLine)
-            f.setStyleSheet(f"color: {BORDER};")
-            f.setFixedHeight(14)
-            return f
 
         self._stat_files,   files_w   = _stat_pair("folder")
         self._stat_size,    size_w    = _stat_pair("save")
         self._stat_showing, showing_w = _stat_pair("search")
-        bl.addWidget(files_w);   bl.addWidget(vsep())
-        bl.addWidget(size_w);    bl.addWidget(vsep())
+        bl.addWidget(files_w)
+        bl.addWidget(size_w)
         bl.addWidget(showing_w)
         bl.addStretch()
+
+        self._stat_partition = QLabel("partition · —")
+        self._stat_partition.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; "
+            f"font-family: '{mono_font_family()}', monospace;"
+        )
+        bl.addWidget(self._stat_partition)
+
+        self._stat_dbhealth = QLabel("db · disconnected")
+        self._stat_dbhealth.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; "
+            f"font-family: '{mono_font_family()}', monospace;"
+        )
+        bl.addWidget(self._stat_dbhealth)
+
         self._statsbar = bar
         return bar
 
@@ -1861,6 +2179,16 @@ class MainWindow(QMainWindow):
         self._stat_files.setText(f"{total:,} files")
         self._stat_size.setText(human_size(total_size))
         self._stat_showing.setText(f"Showing {showing:,}")
+        if hasattr(self, "_stat_partition"):
+            scan_id = self._active_scan_id
+            self._stat_partition.setText(
+                f"partition · scan #{scan_id}" if scan_id else "partition · all"
+            )
+        if hasattr(self, "_stat_dbhealth"):
+            ok = bool(self._db_url or self._db_path)
+            color = str(GREEN) if ok else str(SUBTEXT)
+            label = "healthy" if ok else "disconnected"
+            self._stat_dbhealth.setText(f"db · <span style='color:{color}'>{label}</span>")
 
     # ── Scan actions ──────────────────────────────────────────────────────────
 
@@ -2473,6 +2801,7 @@ class MainWindow(QMainWindow):
         self._stat_showing.setText(f"Showing {len(filtered):,}")
         if self._active_folder_filter:
             self._update_pill_label(filtered_count=len(filtered))
+        self._update_filterbar_summary()
 
     def _apply_sort(self) -> None:
         idx     = self.sort_combo.currentIndex()
@@ -2864,11 +3193,24 @@ class MainWindow(QMainWindow):
                     timeout: int | None = None) -> None:
         """Single sink for all status messages."""
         from .feedback import TIMEOUTS, color_for
-        msec = timeout if timeout is not None else TIMEOUTS.get(level, 5000)
-        self.status.setStyleSheet(
-            f"QStatusBar QLabel {{ color: {color_for(level)}; }}"
-        )
-        self.status.showMessage(msg, msec)
+        # Update the persistent label (visible alongside dot & clock)
+        if hasattr(self, "_status_lbl"):
+            self._status_lbl.setText(msg)
+            self._status_lbl.setStyleSheet(
+                f"color: {color_for(level)}; font-size: 11px;"
+            )
+            # Color the dot too
+            dot_color = color_for(level) if level != "info" else str(GREEN)
+            if hasattr(self, "_status_dot"):
+                self._status_dot.setStyleSheet(
+                    f"background: {dot_color}; border-radius: 4px;"
+                )
+        else:
+            msec = timeout if timeout is not None else TIMEOUTS.get(level, 5000)
+            self.status.setStyleSheet(
+                f"QStatusBar QLabel {{ color: {color_for(level)}; }}"
+            )
+            self.status.showMessage(msg, msec)
         if not hasattr(self, "console"):
             return
         if level in ("warning", "error", "success"):

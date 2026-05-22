@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QFont, QPainter
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
 )
 
-from .constants import PANEL_BG, BORDER, SUBTEXT, ACCENT
+from .constants import PANEL_BG, BORDER, SUBTEXT, ACCENT, BG2, DIVIDER2
+from . import icons as _icons
 
 RAIL_W = 28
 
@@ -30,33 +31,59 @@ class VerticalLabel(QLabel):
 
 
 class CollapsiblePanel(QWidget):
-    """Wraps a content widget with a 28-px collapsible edge rail."""
+    """Wraps a content widget with a 28-px collapsible edge rail.
+
+    The rail (visible when collapsed) shows three stacked elements top-to-bottom:
+    a chevron pointing into the panel, a small icon, then a vertical label.
+    The whole rail is one big clickable surface that re-expands the panel.
+    """
 
     RAIL_W  = RAIL_W
     toggled = Signal(bool)   # True = expanded
 
     def __init__(self, title: str, content: QWidget,
-                 border_side: str = "right", parent=None):
+                 border_side: str = "right", icon_name: str | None = None,
+                 parent=None):
         super().__init__(parent)
         self._title       = title
         self._content     = content
         self._expanded    = True
         self._border_side = border_side
+        self._icon_name   = icon_name
 
-        # Rail shown when collapsed
-        self._rail = QWidget()
+        # Rail shown when collapsed — entirely click-through to re-expand.
+        self._rail = QPushButton()
         self._rail.setFixedWidth(RAIL_W)
+        self._rail.setFlat(True)
+        self._rail.setCursor(Qt.PointingHandCursor)
+        self._rail.clicked.connect(lambda: self.set_expanded(True))
+
         self._rail_lay = QVBoxLayout(self._rail)
         self._rail_lay.setContentsMargins(0, 4, 0, 4)
         self._rail_lay.setSpacing(0)
 
-        self._toggle_btn = QPushButton("›")
-        self._toggle_btn.setFixedSize(RAIL_W, RAIL_W)
-        self._toggle_btn.setFlat(True)
-        self._toggle_btn.clicked.connect(lambda: self.set_expanded(True))
-        self._rail_lay.addWidget(self._toggle_btn)
+        # Chevron pointing into the panel — direction depends on which side the
+        # rail lives on. border_side="right" → rail is on the LEFT of content
+        # → chevron should point right (›). border_side="left" → rail is on the
+        # RIGHT → chevron points left (‹).
+        chev = "›" if border_side == "right" else "‹"
+        self._chev_lbl = QLabel(chev)
+        self._chev_lbl.setFixedHeight(28)
+        self._chev_lbl.setAlignment(Qt.AlignCenter)
+        self._rail_lay.addWidget(self._chev_lbl)
 
-        self._rail_label = VerticalLabel(title)
+        # Small icon at top
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setFixedHeight(26)
+        self._icon_lbl.setAlignment(Qt.AlignCenter)
+        if icon_name:
+            self._icon_lbl.setPixmap(_icons.pixmap(icon_name, 14, color=str(SUBTEXT)))
+        self._rail_lay.addWidget(self._icon_lbl)
+
+        self._rail_label = VerticalLabel(title.upper())
+        font = self._rail_label.font()
+        font.setLetterSpacing(QFont.AbsoluteSpacing, 1.5)
+        self._rail_label.setFont(font)
         self._rail_lay.addWidget(self._rail_label, 1)
 
         self._rail.hide()
@@ -88,14 +115,22 @@ class CollapsiblePanel(QWidget):
 
     def apply_theme(self) -> None:
         self._rail.setStyleSheet(
-            f"background: {PANEL_BG};"
-            f" border-{self._border_side}: 1px solid {BORDER};"
+            f"QPushButton{{background:{PANEL_BG};color:{SUBTEXT};"
+            f"border:0;border-{self._border_side}:1px solid {BORDER};"
+            f"text-align:center;}}"
+            f"QPushButton:hover{{background:{BG2};color:{ACCENT};}}"
         )
-        self._toggle_btn.setStyleSheet(
-            f"QPushButton{{color:{SUBTEXT};font-size:14px;border:none;"
-            f"background:transparent;padding:0;}}"
-            f"QPushButton:hover{{color:{ACCENT};}}"
+        self._chev_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 14px; font-weight: 500; background: transparent;"
+            f"border-bottom: 1px solid {BORDER};"
         )
+        self._icon_lbl.setStyleSheet(
+            f"background: transparent;"
+            f"border-bottom: 1px solid {BORDER};"
+        )
+        if self._icon_name:
+            self._icon_lbl.setPixmap(_icons.pixmap(self._icon_name, 14, color=str(SUBTEXT)))
         self._rail_label.setStyleSheet(
-            f"color: {SUBTEXT}; font-size: 11px; background: transparent;"
+            f"color: {SUBTEXT}; font-size: 10px; background: transparent;"
+            f"font-family: 'JetBrains Mono', monospace;"
         )
