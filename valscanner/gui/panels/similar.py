@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QMenu, QMessageBox,
 )
 
-from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED
+from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, HOVER_BORDER
 from ..dialogs import AnalysisFiltersDialog
 from .. import icons as _icons
 from ..workers import AnalysisWorker
@@ -25,10 +25,10 @@ from ...core.schema import human_size
 from ...core.similarity import normalize_to_group
 
 LABEL_COLORS: dict[str, str] = {
-    "near-identical":   "#ff7a85",
-    "highly similar":   "#ffd66b",
-    "similar":          "#ffb547",
-    "possibly related": "#6dd58c",
+    "near-identical":   RED,
+    "highly similar":   YELLOW,
+    "similar":          ACCENT,
+    "possibly related": GREEN,
 }
 
 
@@ -82,7 +82,7 @@ class FolderGroupCard(QFrame):
         lay.setContentsMargins(m, 10, m, 10)
         lay.setSpacing(6)
 
-        lc       = LABEL_COLORS.get(r["label"], "#9E9E9E")
+        lc       = LABEL_COLORS.get(r["label"], SUBTEXT)
         children = r.get("children", [])
         members  = r.get("members", []) or []
         n_mem    = len(members)
@@ -630,7 +630,7 @@ class SimilarFoldersPanel(QWidget):
             f"padding:2px 12px;font-size:11px;}}"
             f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};"
             f"border-color:{ACCENT};}}"
-            f"QPushButton:hover:!checked{{color:{TEXT};border-color:#5a5a7a;}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{HOVER_BORDER};}}"
         )
         for s in scans:
             label = s["label"] or Path(s["root"]).name
@@ -812,7 +812,7 @@ class SimilarFoldersPanel(QWidget):
             self.analyze_btn.setStyleSheet(
                 f"QPushButton{{background:{RED};color:white;border:none;"
                 f"border-radius:6px;padding:6px 16px;font-weight:bold;}}"
-                f"QPushButton:hover{{background:#e55;}}"
+                f"QPushButton:hover{{background:{RED};}}"
             )
             try:
                 self.analyze_btn.clicked.disconnect()

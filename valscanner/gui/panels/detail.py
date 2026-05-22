@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from ..layouts import FlowLayout
 
 from ...core.db import repo_for
-from ..constants import CATEGORY_COLORS, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN
+from ..constants import CATEGORY_COLORS, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, BTN_HOVER, BTN_PRESSED
 from .. import icons as _icons
 
 
@@ -69,8 +69,8 @@ class DetailPanel(QWidget):
                 background: {ACCENT}; color: white; border: none;
                 border-radius: 6px; padding: 6px 12px; font-weight: bold;
             }}
-            QPushButton:hover {{ background: #9d8fff; }}
-            QPushButton:pressed {{ background: #6a58d4; }}
+            QPushButton:hover {{ background: {BTN_HOVER}; }}
+            QPushButton:pressed {{ background: {BTN_PRESSED}; }}
         """)
         self.sample_btn.setStyleSheet(f"""
             QPushButton {{
@@ -174,8 +174,8 @@ class DetailPanel(QWidget):
                 background: {ACCENT}; color: white; border: none;
                 border-radius: 6px; padding: 6px 12px; font-weight: bold;
             }}
-            QPushButton:hover {{ background: #9d8fff; }}
-            QPushButton:pressed {{ background: #6a58d4; }}
+            QPushButton:hover {{ background: {BTN_HOVER}; }}
+            QPushButton:pressed {{ background: {BTN_PRESSED}; }}
         """)
         self.open_btn.clicked.connect(self._open_file)
         self.open_btn.hide()
@@ -241,7 +241,7 @@ class DetailPanel(QWidget):
             self.icon_label.setPixmap(_icons.pixmap(f"cat-{cat}", 64, color=cat_color))
 
         self.name_label.setText(row[1])
-        color = CATEGORY_COLORS.get(cat, "#9E9E9E")
+        color = CATEGORY_COLORS.get(cat, str(SUBTEXT))
         self.cat_label.setText(cat)
         self.cat_label.setStyleSheet(
             f"color: {color}; font-size: 11px; border: 1px solid {color};"

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from .constants import (
     CATEGORY_COLORS,
     DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, SEL_BG, SEL_TEXT,
+    BTN_HOVER, BTN_PRESSED, HOVER_BORDER, SCROLLBAR_HOVER,
 )
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX, make_folder_row, _FOLDER_SENTINEL
 from . import icons as _icons
@@ -92,7 +93,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
         from .theme import Theme
-        Theme.instance().on_changed(self._apply_global_stylesheet)
+        Theme.instance().on_changed(self._apply_stylesheet)
 
         self.setAcceptDrops(True)
         self._install_shortcuts()
@@ -111,12 +112,12 @@ class MainWindow(QMainWindow):
                 selection-background-color: {ACCENT};
             }}
             QLineEdit:focus {{ border-color: {ACCENT}; background: {PANEL_BG}; }}
-            QLineEdit:hover {{ border-color: #5a5a7a; }}
+            QLineEdit:hover {{ border-color: {HOVER_BORDER}; }}
             QComboBox {{
                 background: {DARK_BG}; color: {TEXT}; border: 1px solid {BORDER};
                 border-radius: 7px; padding: 5px 10px; font-size: 12px; min-width: 80px;
             }}
-            QComboBox:hover {{ border-color: #5a5a7a; }}
+            QComboBox:hover {{ border-color: {HOVER_BORDER}; }}
             QComboBox:focus {{ border-color: {ACCENT}; }}
             QComboBox::drop-down {{ border: none; width: 20px; }}
             QComboBox::down-arrow {{ image: none; }}
@@ -139,7 +140,7 @@ class MainWindow(QMainWindow):
                 background: {BORDER}; border-radius: 3px; min-height: 20px; min-width: 20px;
             }}
             QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
-                background: #6a6a8a;
+                background: {SCROLLBAR_HOVER};
             }}
             QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
             QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
@@ -164,6 +165,160 @@ class MainWindow(QMainWindow):
             QStatusBar {{ background: {PANEL_BG}; color: {SUBTEXT}; font-size: 11px; }}
             QStatusBar::item {{ border: none; }}
         """)
+
+    def _apply_stylesheet(self) -> None:
+        """Re-apply all themed stylesheets — called on live theme change."""
+        self._apply_global_stylesheet()
+        if not hasattr(self, "table"):
+            return  # called before _build_ui; global stylesheet is enough
+
+        # toolbar
+        self._toolbar.setStyleSheet(
+            f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        self._toolbar_r1.setStyleSheet(f"background: {PANEL_BG};")
+        self._toolbar_r2.setStyleSheet(f"background: {PANEL_BG};")
+        self.db_edit.setStyleSheet(
+            f"QLineEdit {{ background:{PANEL_BG}; color:{TEXT}; border:1px solid {BORDER};"
+            f"border-radius:5px; padding:3px 8px; font-size:11px; }}"
+            f"QLineEdit:focus {{ border-color:{ACCENT}; }}"
+        )
+        self.db_status_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; background: {PANEL_BG}; "
+            f"border: 1px solid {BORDER}; border-radius: 8px; padding: 1px 10px;"
+        )
+
+        # scan strip
+        self._scan_strip.setStyleSheet(f"background: {DARK_BG};")
+        self.progress.setStyleSheet(
+            f"QProgressBar {{ border: none; background: {PANEL_BG}; border-radius: 2px; }}"
+            f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
+        )
+        self.elapsed_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; font-family: monospace;"
+        )
+
+        # queue strip
+        self._queue_strip.setStyleSheet(
+            f"background: {DARK_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        self._queue_status_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        self._clear_queue_btn.setStyleSheet(
+            f"QPushButton{{color:{SUBTEXT};font-size:11px;border:none;padding:0;}}"
+            f"QPushButton:hover{{color:{TEXT};}}"
+        )
+
+        # filter bar
+        self._filterbar.setStyleSheet(
+            f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        self.search_edit.setStyleSheet(
+            f"QLineEdit {{ background:{DARK_BG}; color:{TEXT}; border:1px solid {BORDER};"
+            f"border-radius:15px; padding:4px 14px; font-size:12px; }}"
+            f"QLineEdit:focus {{ border-color:{ACCENT}; }}"
+        )
+        self._vf_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
+            f"border-radius:6px;padding:2px 10px;font-size:11px;}}"
+            f"QPushButton:hover{{color:{TEXT};border-color:{ACCENT};}}"
+            f"QPushButton[active=true]{{color:{ACCENT};border-color:{ACCENT};background:{ACCENT:18};}}"
+        )
+        self.folder_pill.setStyleSheet(
+            f"background: {ACCENT:22}; border: 1px solid {ACCENT}; border-radius: 10px;"
+        )
+        self.folder_pill_lbl.setStyleSheet(
+            f"color: {ACCENT}; font-size: 11px; border: none; background: transparent;"
+        )
+        _vbtn_ss = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
+            f"border-radius:5px;padding:2px 9px;font-size:12px;}}"
+            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{HOVER_BORDER};}}"
+        )
+        self._browse_toggle.setStyleSheet(_vbtn_ss)
+        for _b in self._view_btn_grp.buttons():
+            _b.setStyleSheet(_vbtn_ss)
+
+        # breadcrumb + depth buttons
+        self._breadcrumb_bar.setStyleSheet(
+            f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        _seg = (
+            f"QPushButton{{background:{PANEL_BG};color:{SUBTEXT};border:1px solid {BORDER};"
+            f"padding:2px 9px;font-size:11px;}}"
+            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};}}"
+        )
+        self._depth_this_btn.setStyleSheet(
+            _seg + "QPushButton{border-radius:0;"
+                   "border-top-left-radius:5px;border-bottom-left-radius:5px;}"
+        )
+        self._depth_sub_btn.setStyleSheet(
+            _seg + "QPushButton{border-radius:0;"
+                   "border-top-right-radius:5px;border-bottom-right-radius:5px;border-left:none;}"
+        )
+
+        # views
+        self.table.setStyleSheet(f"""
+            QTableView {{
+                background: {DARK_BG}; color: {TEXT}; border: none;
+                font-size: 12px; selection-background-color: {SEL_BG};
+                selection-color: {SEL_TEXT};
+            }}
+            QTableView::item:selected {{ background: {SEL_BG}; color: {SEL_TEXT}; }}
+            QHeaderView::section {{
+                background: {PANEL_BG}; color: {SUBTEXT}; border: none;
+                border-bottom: 1px solid {BORDER}; padding: 6px 10px;
+                font-size: 11px; font-weight: bold;
+            }}
+        """)
+        self.grid_view.setStyleSheet(
+            f"QListView {{ background:{DARK_BG}; border:none; }}"
+            f"QListView::item:selected {{ background:transparent; }}"
+        )
+        self.list_view.setStyleSheet(
+            f"QListView {{ background:{DARK_BG}; border:none; }}"
+            f"QListView::item:selected {{ background:transparent; }}"
+        )
+        self.detail.setStyleSheet(
+            f"background: {PANEL_BG}; border-left: 1px solid {BORDER};"
+        )
+
+        # task pill
+        _gear_ss = (
+            f"QToolButton{{background:transparent;border:none;}}"
+            f"QToolButton:hover{{background:{PANEL_BG};border-radius:3px;}}"
+        )
+        self._task_gear_btn.setStyleSheet(_gear_ss)
+        self._task_count_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:10px;")
+        self._task_name_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:10px;")
+        self._task_stop_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{RED};border:none;font-size:11px;}}"
+            f"QPushButton:hover{{background:{RED:22};border-radius:3px;}}"
+        )
+
+        # statsbar
+        self._statsbar.setStyleSheet(
+            f"background: {PANEL_BG}; border-top: 1px solid {BORDER};"
+        )
+        for _lbl in (self._stat_files, self._stat_size, self._stat_showing):
+            _lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; padding: 0 12px 0 4px;")
+
+        # scan button — re-style only, never touch signals
+        if getattr(self, "_worker", None) and self._worker.isRunning():
+            self.scan_btn.setStyleSheet(
+                f"QPushButton{{background:{RED};color:white;border:none;"
+                f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
+                f"QPushButton:hover{{background:{RED};}}"
+            )
+        else:
+            self.scan_btn.setStyleSheet(
+                f"QPushButton{{background:{ACCENT};color:white;border:none;"
+                f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
+                f"QPushButton:hover{{background:{BTN_HOVER};}}"
+                f"QPushButton:pressed{{background:{BTN_PRESSED};}}"
+                f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
+            )
 
     # ── Drag & drop ───────────────────────────────────────────────────────────
 
@@ -445,7 +600,7 @@ class MainWindow(QMainWindow):
         if "showConsoleOnStartup" in changed and hasattr(self, "_main_vsplit"):
             self._apply_console_visibility(bool(changed["showConsoleOnStartup"]))
         if "accentColor" in changed or "selectionColor" in changed or "selectionTextColor" in changed:
-            self._apply_global_stylesheet()
+            self._apply_stylesheet()
             self._set_status("Accent colour updated.")
 
     def _apply_console_visibility(self, visible: bool) -> None:
@@ -460,7 +615,7 @@ class MainWindow(QMainWindow):
         ag = QActionGroup(self)
         ag.setExclusive(True)
         current = Theme.instance().current_mode()
-        for label, name in (("System", "system"), ("Light", "light"), ("Dark", "dark")):
+        for label, name in (("System", "system"), ("Light", "light"), ("Dark", "dark"), ("Catppuccin", "catppuccin")):
             act = QAction(label, self, checkable=True)
             act.setChecked(current == name)
             act.triggered.connect(lambda _=False, n=name: Theme.instance().set(n))
@@ -733,8 +888,8 @@ class MainWindow(QMainWindow):
                 background: {ACCENT}; color: white; border: none;
                 border-radius: 7px; padding: 6px 16px; font-weight: 600; font-size: 12px;
             }}
-            QPushButton:hover    {{ background: #ffc96b; }}
-            QPushButton:pressed  {{ background: #e0a035; }}
+            QPushButton:hover    {{ background: {BTN_HOVER}; }}
+            QPushButton:pressed  {{ background: {BTN_PRESSED}; }}
             QPushButton:disabled {{ background: {BORDER}; color: {SUBTEXT}; }}
         """)
         self._apply_icon(b, icon, "#ffffff")
@@ -840,12 +995,14 @@ class MainWindow(QMainWindow):
 
     def _build_toolbar(self) -> QWidget:
         bar   = QWidget()
+        self._toolbar = bar
         bar.setStyleSheet(f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};")
         outer = QVBoxLayout(bar)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
         r1 = QWidget()
+        self._toolbar_r1 = r1
         r1.setStyleSheet(f"background: {PANEL_BG};")
         r1.setFixedHeight(52)
         rl = QHBoxLayout(r1)
@@ -906,6 +1063,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(r1)
 
         r2 = QWidget()
+        self._toolbar_r2 = r2
         r2.setStyleSheet(f"background: {PANEL_BG};")
         r2.setFixedHeight(40)
         rl2 = QHBoxLayout(r2)
@@ -1152,7 +1310,7 @@ class MainWindow(QMainWindow):
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {BORDER};"
             f"border-radius:5px;padding:2px 9px;font-size:12px;}}"
             f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
-            f"QPushButton:hover:!checked{{color:{TEXT};border-color:#5a5a7a;}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{HOVER_BORDER};}}"
         )
 
         self._browse_toggle = QPushButton("Browse")
@@ -1803,7 +1961,7 @@ class MainWindow(QMainWindow):
         self.scan_btn.setStyleSheet(
             f"QPushButton{{background:{RED};color:white;border:none;"
             f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
-            f"QPushButton:hover{{background:#e55;}}"
+            f"QPushButton:hover{{background:{RED};}}"
         )
         try:
             self.scan_btn.clicked.disconnect()
@@ -1818,8 +1976,8 @@ class MainWindow(QMainWindow):
         self.scan_btn.setStyleSheet(
             f"QPushButton{{background:{ACCENT};color:white;border:none;"
             f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
-            f"QPushButton:hover{{background:#ffc96b;}}"
-            f"QPushButton:pressed{{background:#e0a035;}}"
+            f"QPushButton:hover{{background:{BTN_HOVER};}}"
+            f"QPushButton:pressed{{background:{BTN_PRESSED};}}"
             f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
         )
         try:

@@ -90,7 +90,7 @@ class ConsolePanel(QWidget):
         self._output.setReadOnly(True)
         self._output.setStyleSheet(f"""
             QTextEdit {{
-                background: {PANEL_BG if PANEL_BG else '#1e1e2e'};
+                background: {PANEL_BG};
                 color: {TEXT}; border: none;
                 font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
                 font-size: 11px; padding: 4px 8px;

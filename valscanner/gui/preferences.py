@@ -60,9 +60,11 @@ class PreferencesDialog(QDialog):
     settings_changed = Signal(dict)   # emitted on Apply / OK, dict of changed keys
 
     def __init__(self, parent=None):
+        from .theme import Theme
         super().__init__(parent)
         self.setWindowTitle("Preferences")
         self.setMinimumWidth(520)
+        self._original_theme = Theme.instance().current_mode()
         self._before = {k: get(k) for k in SETTINGS_DEFAULTS}
         self._build_ui()
         self._load_values()
@@ -110,13 +112,6 @@ class PreferencesDialog(QDialog):
         self.tabs.addTab(self._build_behavior_tab(),   "Behavior")
         lay.addWidget(self.tabs, 1)
 
-        self.restart_hint = QLabel("")
-        self.restart_hint.setStyleSheet(
-            f"color: #fab387; font-size: 11px; font-style: italic;"
-        )
-        self.restart_hint.hide()
-        lay.addWidget(self.restart_hint)
-
         btns = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults
         )
@@ -136,7 +131,7 @@ class PreferencesDialog(QDialog):
         self.theme_combo = QComboBox()
         for key in THEMES:
             self.theme_combo.addItem(THEME_LABELS.get(key, key), userData=key)
-        self.theme_combo.currentIndexChanged.connect(self._mark_restart_needed)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_live)
         f.addRow("Theme", self.theme_combo)
 
         accent_row = QHBoxLayout()
@@ -200,7 +195,7 @@ class PreferencesDialog(QDialog):
         sel_text_box = QWidget(); sel_text_box.setLayout(sel_text_row)
         f.addRow("Selection text", sel_text_box)
 
-        note = QLabel("Theme, accent, and selection changes take effect after restart.")
+        note = QLabel("Theme applies immediately. Accent and selection take effect after OK.")
         note.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; font-style: italic;")
         f.addRow("", note)
         return w
@@ -214,17 +209,14 @@ class PreferencesDialog(QDialog):
             self.accent_swatch.setStyleSheet(
                 f"background: {hex_}; border: 1px solid {BORDER}; border-radius: 6px;"
             )
-            self._mark_restart_needed()
 
     def _reset_accent(self) -> None:
         self.accent_value.setText("(theme default)")
-        # use theme's default accent for the swatch
         theme_key = self.theme_combo.currentData() or DEFAULT_THEME
         default   = THEMES[theme_key]["ACCENT"]
         self.accent_swatch.setStyleSheet(
             f"background: {default}; border: 1px solid {BORDER}; border-radius: 6px;"
         )
-        self._mark_restart_needed()
 
     def _accent_choice(self) -> str:
         text = self.accent_value.text().strip()
@@ -245,7 +237,6 @@ class PreferencesDialog(QDialog):
             self.sel_swatch.setStyleSheet(
                 f"background: {_hex9_to_rgba(hex_)}; border: 1px solid {BORDER}; border-radius: 6px;"
             )
-            self._mark_restart_needed()
 
     def _reset_sel(self) -> None:
         theme_key    = self.theme_combo.currentData() or DEFAULT_THEME
@@ -254,7 +245,6 @@ class PreferencesDialog(QDialog):
         self.sel_swatch.setStyleSheet(
             f"background: {default_rgba}; border: 1px solid {BORDER}; border-radius: 6px;"
         )
-        self._mark_restart_needed()
 
     def _sel_choice(self) -> str:
         text = self.sel_value.text().strip()
@@ -269,7 +259,6 @@ class PreferencesDialog(QDialog):
             self.sel_text_swatch.setStyleSheet(
                 f"background: {hex_}; border: 1px solid {BORDER}; border-radius: 6px;"
             )
-            self._mark_restart_needed()
 
     def _reset_sel_text(self) -> None:
         theme_key = self.theme_combo.currentData() or DEFAULT_THEME
@@ -278,7 +267,6 @@ class PreferencesDialog(QDialog):
         self.sel_text_swatch.setStyleSheet(
             f"background: {default}; border: 1px solid {BORDER}; border-radius: 6px;"
         )
-        self._mark_restart_needed()
 
     def _sel_text_choice(self) -> str:
         text = self.sel_text_value.text().strip()
@@ -328,10 +316,13 @@ class PreferencesDialog(QDialog):
     # ── Load / save / defaults ────────────────────────────────────────────────
 
     def _load_values(self) -> None:
-        theme = get("theme") or DEFAULT_THEME
+        from .theme import Theme
+        theme = Theme.instance().current_mode()
         idx   = self.theme_combo.findData(theme)
         if idx >= 0:
+            self.theme_combo.blockSignals(True)
             self.theme_combo.setCurrentIndex(idx)
+            self.theme_combo.blockSignals(False)
 
         accent = get("accentColor") or ""
         if accent:
@@ -367,11 +358,30 @@ class PreferencesDialog(QDialog):
         self.chk_reopen.setChecked(bool(get("openLastDbOnStartup")))
         self.chk_console.setChecked(bool(get("showConsoleOnStartup")))
 
-        self.restart_hint.hide()
+    def _on_theme_live(self, _idx: int) -> None:
+        from .theme import Theme
+        key = self.theme_combo.currentData() or DEFAULT_THEME
+        Theme.instance().set(key)
+        # Refresh swatch defaults to match the newly active theme
+        theme_data = THEMES.get(key, THEMES[DEFAULT_THEME])
+        if not self.accent_value.text().strip().startswith("#"):
+            self.accent_swatch.setStyleSheet(
+                f"background: {theme_data['ACCENT']}; border: 1px solid {BORDER}; border-radius: 6px;"
+            )
+        if not self.sel_value.text().strip().startswith("#"):
+            self.sel_swatch.setStyleSheet(
+                f"background: {_hex9_to_rgba(theme_data['ACCENT'] + '55')};"
+                f"border: 1px solid {BORDER}; border-radius: 6px;"
+            )
+        if not self.sel_text_value.text().strip().startswith("#"):
+            self.sel_text_swatch.setStyleSheet(
+                f"background: {theme_data['TEXT']}; border: 1px solid {BORDER}; border-radius: 6px;"
+            )
 
-    def _mark_restart_needed(self) -> None:
-        self.restart_hint.setText("Theme / accent changes take effect after restarting the app.")
-        self.restart_hint.show()
+    def reject(self) -> None:
+        from .theme import Theme
+        Theme.instance().set(self._original_theme)
+        super().reject()
 
     def _restore_defaults(self) -> None:
         s = settings()
@@ -381,7 +391,7 @@ class PreferencesDialog(QDialog):
 
     def _on_accept(self) -> None:
         s = settings()
-        s.setValue("theme",                 self.theme_combo.currentData() or DEFAULT_THEME)
+        # theme is already persisted by Theme.instance().set() via the live combo handler
         accent = self._accent_choice()
         s.setValue("accentColor",           accent)
         sel = self._sel_choice()

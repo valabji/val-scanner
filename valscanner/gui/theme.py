@@ -7,56 +7,93 @@ PALETTE_KEYS = (
     "DARK_BG", "PANEL_BG", "ROW_ALT", "ACCENT",
     "TEXT", "SUBTEXT", "BORDER", "GREEN", "RED", "YELLOW", "SEL_BG", "SEL_TEXT",
     "DIVIDER2", "DIVIDER3", "BG2", "BG3",
+    "BTN_HOVER", "BTN_PRESSED", "HOVER_BORDER", "SCROLLBAR_HOVER", "ORANGE",
 )
 
 THEMES: dict[str, dict[str, str]] = {
     "dark": {
-        "DARK_BG":  "#0c0d10",
-        "PANEL_BG": "#111317",
-        "ROW_ALT":  "#15181d",
-        "ACCENT":   "#ffb547",
-        "TEXT":     "#e8eaed",
-        "SUBTEXT":  "#9aa0aa",
-        "BORDER":   "#1f2329",
-        "GREEN":    "#6dd58c",
-        "RED":      "#ff7a85",
-        "YELLOW":   "#ffd66b",
-        "DIVIDER2": "#272c34",
-        "DIVIDER3": "#343a44",
-        "BG2":      "#15181d",
-        "BG3":      "#1b1f25",
+        "DARK_BG":         "#0c0d10",
+        "PANEL_BG":        "#111317",
+        "ROW_ALT":         "#15181d",
+        "ACCENT":          "#ffb547",
+        "TEXT":            "#e8eaed",
+        "SUBTEXT":         "#9aa0aa",
+        "BORDER":          "#1f2329",
+        "GREEN":           "#6dd58c",
+        "RED":             "#ff7a85",
+        "YELLOW":          "#ffd66b",
+        "DIVIDER2":        "#272c34",
+        "DIVIDER3":        "#343a44",
+        "BG2":             "#15181d",
+        "BG3":             "#1b1f25",
+        "BTN_HOVER":       "#ffc96b",
+        "BTN_PRESSED":     "#e0a035",
+        "HOVER_BORDER":    "#3d4451",
+        "SCROLLBAR_HOVER": "#434a57",
+        "ORANGE":          "#ff9e4a",
     },
     "light": {
-        "DARK_BG":  "#f4f4f6",
-        "PANEL_BG": "#ffffff",
-        "ROW_ALT":  "#f9f9fb",
-        "ACCENT":   "#d4830a",
-        "TEXT":     "#1a1c1f",
-        "SUBTEXT":  "#6b7079",
-        "BORDER":   "#d8dbe0",
-        "GREEN":    "#1e7e34",
-        "RED":      "#c0392b",
-        "YELLOW":   "#b8860b",
-        "DIVIDER2": "#e5e7eb",
-        "DIVIDER3": "#d1d5db",
-        "BG2":      "#f0f1f4",
-        "BG3":      "#e8eaed",
+        "DARK_BG":         "#f4f4f6",
+        "PANEL_BG":        "#ffffff",
+        "ROW_ALT":         "#f9f9fb",
+        "ACCENT":          "#d4830a",
+        "TEXT":            "#1a1c1f",
+        "SUBTEXT":         "#6b7079",
+        "BORDER":          "#d8dbe0",
+        "GREEN":           "#1e7e34",
+        "RED":             "#c0392b",
+        "YELLOW":          "#b8860b",
+        "DIVIDER2":        "#e5e7eb",
+        "DIVIDER3":        "#d1d5db",
+        "BG2":             "#f0f1f4",
+        "BG3":             "#e8eaed",
+        "BTN_HOVER":       "#e89010",
+        "BTN_PRESSED":     "#b86e08",
+        "HOVER_BORDER":    "#adb2ba",
+        "SCROLLBAR_HOVER": "#b8bcc5",
+        "ORANGE":          "#e07028",
     },
     "high_contrast": {
-        "DARK_BG":  "#000000",
-        "PANEL_BG": "#1a1a1a",
-        "ROW_ALT":  "#0d0d0d",
-        "ACCENT":   "#ffb547",
-        "TEXT":     "#ffffff",
-        "SUBTEXT":  "#e0e0e0",
-        "BORDER":   "#888888",
-        "GREEN":    "#00ff66",
-        "RED":      "#ff5252",
-        "YELLOW":   "#ffeb3b",
-        "DIVIDER2": "#444444",
-        "DIVIDER3": "#555555",
-        "BG2":      "#111111",
-        "BG3":      "#1a1a1a",
+        "DARK_BG":         "#000000",
+        "PANEL_BG":        "#1a1a1a",
+        "ROW_ALT":         "#0d0d0d",
+        "ACCENT":          "#ffb547",
+        "TEXT":            "#ffffff",
+        "SUBTEXT":         "#e0e0e0",
+        "BORDER":          "#888888",
+        "GREEN":           "#00ff66",
+        "RED":             "#ff5252",
+        "YELLOW":          "#ffeb3b",
+        "DIVIDER2":        "#444444",
+        "DIVIDER3":        "#555555",
+        "BG2":             "#111111",
+        "BG3":             "#1a1a1a",
+        "BTN_HOVER":       "#ffcc66",
+        "BTN_PRESSED":     "#e0a000",
+        "HOVER_BORDER":    "#aaaaaa",
+        "SCROLLBAR_HOVER": "#bbbbbb",
+        "ORANGE":          "#ff8800",
+    },
+    "catppuccin": {
+        "DARK_BG":         "#1e1e2e",
+        "PANEL_BG":        "#2a2a3e",
+        "ROW_ALT":         "#252535",
+        "ACCENT":          "#7c6af7",
+        "TEXT":            "#cdd6f4",
+        "SUBTEXT":         "#a6adc8",
+        "BORDER":          "#45475a",
+        "GREEN":           "#a6e3a1",
+        "RED":             "#f38ba8",
+        "YELLOW":          "#f9e2af",
+        "DIVIDER2":        "#313244",
+        "DIVIDER3":        "#45475a",
+        "BG2":             "#252535",
+        "BG3":             "#2e3040",
+        "BTN_HOVER":       "#9d8fff",
+        "BTN_PRESSED":     "#6a58d4",
+        "HOVER_BORDER":    "#5a5a7a",
+        "SCROLLBAR_HOVER": "#6a6a8a",
+        "ORANGE":          "#fab387",
     },
 }
 
@@ -65,6 +102,7 @@ THEME_LABELS: dict[str, str] = {
     "light":         "Light",
     "system":        "System",
     "high_contrast": "High Contrast",
+    "catppuccin":    "Catppuccin",
 }
 
 DEFAULT_THEME = "dark"
@@ -113,15 +151,32 @@ class Theme:
     """Runtime theme singleton. Holds the current mode and emits changed signal."""
 
     def __init__(self) -> None:
-        from PySide6.QtCore import QSettings
-        s = QSettings(ORG_NAME, APP_NAME)
-        if s.contains("theme/mode"):
-            choice = s.value("theme/mode") or "dark"
-        else:
-            choice = _initial_mode(s)
-        self._choice: str = choice
-        self._resolved: str = self._resolve(choice)
+        # Don't read QSettings here — QApplication may not exist yet (module imported
+        # before main() creates it). _ensure_loaded() defers the read until first use.
+        self._choice: str = DEFAULT_THEME
+        self._resolved: str = DEFAULT_THEME
         self._callbacks: list = []
+        self._settings_loaded: bool = False
+
+    def _ensure_loaded(self) -> None:
+        """Read persisted theme/mode from QSettings, but only once QApplication exists."""
+        if self._settings_loaded:
+            return
+        try:
+            from PySide6.QtWidgets import QApplication
+            if QApplication.instance() is None:
+                return
+            from PySide6.QtCore import QSettings
+            s = QSettings(ORG_NAME, APP_NAME)
+            if s.contains("theme/mode"):
+                choice = s.value("theme/mode") or DEFAULT_THEME
+            else:
+                choice = _initial_mode(s)
+            self._choice   = choice
+            self._resolved = self._resolve(choice)
+            self._settings_loaded = True
+        except Exception:
+            pass
 
     # ── singleton ──────────────────────────────────────────────────────────
 
@@ -135,18 +190,25 @@ class Theme:
     # ── public API ─────────────────────────────────────────────────────────
 
     def palette(self) -> dict[str, str]:
+        self._ensure_loaded()
         return _build_palette(self._resolved)
 
     def current_mode(self) -> str:
+        self._ensure_loaded()
         return self._choice
 
     def set(self, name: str) -> None:
         from PySide6.QtCore import QSettings
-        self._choice   = name
-        self._resolved = self._resolve(name)
+        self._choice          = name
+        self._resolved        = self._resolve(name)
+        self._settings_loaded = True  # explicit set always wins
         QSettings(ORG_NAME, APP_NAME).setValue("theme/mode", name)
-        for cb in self._callbacks:
-            cb()
+        for cb in list(self._callbacks):
+            try:
+                cb()
+            except Exception:
+                import traceback
+                traceback.print_exc()
 
     def on_changed(self, callback) -> None:
         """Register a zero-argument callable to be called when theme changes."""
@@ -155,7 +217,7 @@ class Theme:
     # ── helpers ────────────────────────────────────────────────────────────
 
     def _resolve(self, choice: str) -> str:
-        if choice in ("dark", "light", "high_contrast"):
+        if choice in ("dark", "light", "high_contrast", "catppuccin"):
             return choice
         # "system" — try Qt 6.5+ colorScheme hint
         try:

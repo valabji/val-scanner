@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QFrame, QGridLayout,
 )
 
-from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER
+from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, BTN_HOVER
 from ..core.metadata import PIL_AVAILABLE, FFMPEG_AVAILABLE
 from . import persistence
 
@@ -97,7 +97,7 @@ class ScanOptionsDialog(QDialog):
             self.thumb_size.setEnabled(False)
             self.thumb_quality.setEnabled(False)
             cap_lbl.setText("  ✗ Pillow not installed  —  pip install Pillow")
-            cap_lbl.setStyleSheet("color:#f38ba8; font-size:11px;")
+            cap_lbl.setStyleSheet(f"color:{RED}; font-size:11px;")
 
         lay.addWidget(thumb_grp)
 
@@ -113,7 +113,7 @@ class ScanOptionsDialog(QDialog):
             f"  ffmpeg {'✓ found' if FFMPEG_AVAILABLE else '✗ not found — samples will be skipped'}"
         )
         ffmpeg_lbl.setStyleSheet(
-            f"color:{'#a6e3a1' if FFMPEG_AVAILABLE else '#f38ba8'};font-size:11px;"
+            f"color:{GREEN if FFMPEG_AVAILABLE else RED};font-size:11px;"
         )
         sl.addWidget(ffmpeg_lbl)
 
@@ -232,7 +232,7 @@ class ScanOptionsDialog(QDialog):
                 background:{ACCENT}; color:white; border:none;
                 border-radius:6px; padding:6px 18px; font-weight:bold; font-size:12px;
             }}
-            QPushButton:hover {{ background:#9d8fff; }}
+            QPushButton:hover {{ background:{BTN_HOVER}; }}
             QPushButton[text="Cancel"] {{
                 background:transparent; color:{TEXT}; border:1px solid {BORDER};
             }}
@@ -741,7 +741,7 @@ class DatabaseSettingsDialog(QDialog):
             "in settings.json if your platform lacks one."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888; font-size: 11px;")
+        hint.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
         outer.addWidget(hint)
         return panel
 
@@ -783,13 +783,13 @@ class DatabaseSettingsDialog(QDialog):
 
     def _on_test_ok(self, _data: dict) -> None:
         self._lbl_status.setText("Connected ✓")
-        self._lbl_status.setStyleSheet("color: #4caf50; font-weight: bold;")
+        self._lbl_status.setStyleSheet(f"color: {GREEN}; font-weight: bold;")
         self._btn_test.setEnabled(True)
         self._btn_test_cancel.setVisible(False)
 
     def _on_test_error(self, msg: str) -> None:
         self._lbl_status.setText(f"Error: {msg[:160]}")
-        self._lbl_status.setStyleSheet("color: #f44336;")
+        self._lbl_status.setStyleSheet(f"color: {RED};")
         self._btn_test.setEnabled(True)
         self._btn_test_cancel.setVisible(False)
 
@@ -811,12 +811,12 @@ class DatabaseSettingsDialog(QDialog):
                 conn.execute(sa_text("SELECT 1"))
             engine.dispose()
             self._lbl_status.setText("Connected ✓")
-            self._lbl_status.setStyleSheet("color: #4caf50; font-weight: bold;")
+            self._lbl_status.setStyleSheet(f"color: {GREEN}; font-weight: bold;")
             return True
         except Exception as exc:
             short = mask_url(str(exc).split("\n")[0])[:160]
             self._lbl_status.setText(f"Error: {short}")
-            self._lbl_status.setStyleSheet("color: #f44336;")
+            self._lbl_status.setStyleSheet(f"color: {RED};")
             return False
 
     def _save(self):

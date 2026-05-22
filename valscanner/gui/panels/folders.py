@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QApplication,
 )
 
-from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, SEL_BG, SEL_TEXT
+from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, ORANGE, SEL_BG, SEL_TEXT
 from ...core.schema import human_size
 from .. import icons as _icons
 
@@ -177,10 +177,10 @@ class FolderPanel(QWidget):
 
     @staticmethod
     def _size_color(ratio: float) -> str:
-        if ratio > 0.5:  return "#f38ba8"
-        if ratio > 0.2:  return "#fab387"
-        if ratio > 0.05: return "#f9e2af"
-        return GREEN
+        if ratio > 0.5:  return str(RED)
+        if ratio > 0.2:  return str(ORANGE)
+        if ratio > 0.05: return str(YELLOW)
+        return str(GREEN)
 
     def _make_row(self, path_str: str, tb: int, fc: int, root_bytes: int,
                   label_override: str = "") -> list:

@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListMo
 from PySide6.QtGui import QColor, QFont, QPixmap, QPainter, QBrush
 
 from ..core.db import repo_for
-from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, SUBTEXT
+from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT
 from . import icons as _icons
 
 COLUMNS = ["Filename", "Category", "Size", "Modified", "Tags", "Path"]
@@ -103,7 +103,7 @@ class FileTableModel(QAbstractTableModel):
                     return QColor(ACCENT)
                 if col in (COL_IDX["Path"], COL_IDX["Tags"]):
                     return QColor(SUBTEXT)
-                return QColor("#dcdcfa")
+                return QColor(str(TEXT))
             if role == Qt.FontRole and col == COL_IDX["Filename"]:
                 f = QFont(); f.setBold(True); return f
             if role == Qt.BackgroundRole:
@@ -129,7 +129,7 @@ class FileTableModel(QAbstractTableModel):
             return _icons.icon(f"cat-{cat}", color=CATEGORY_COLORS.get(cat, str(SUBTEXT)))
         if role == Qt.ForegroundRole:
             if col == COL_IDX["Category"]:
-                return QColor(CATEGORY_COLORS.get(row[2], "#9E9E9E"))
+                return QColor(CATEGORY_COLORS.get(row[2], str(SUBTEXT)))
             if col in (COL_IDX["Path"], COL_IDX["Tags"]):
                 return QColor(SUBTEXT)
         if role == Qt.BackgroundRole:
@@ -173,7 +173,7 @@ class FileTableModel(QAbstractTableModel):
 
 
 def _make_cat_pixmap(category: str, size: int) -> QPixmap:
-    color = QColor(CATEGORY_COLORS.get(category, "#9E9E9E"))
+    color = QColor(CATEGORY_COLORS.get(category, str(SUBTEXT)))
     dim   = max(size, 8)
     px    = QPixmap(dim, dim)
     px.fill(Qt.transparent)
