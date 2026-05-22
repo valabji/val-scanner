@@ -54,6 +54,10 @@ class Keys:
     # ScanOptionsDialog — collapsed/expanded state of Filters group
     SCAN_OPTIONS_FILTERS_EXPANDED = "dialogs/scanOptions/filtersExpanded"
 
+    # Collapsible rail widths (restore splitter slot when re-expanding)
+    FOLDER_RAIL_WIDTH = "panel/folderRailWidth"
+    DETAIL_RAIL_WIDTH = "panel/detailRailWidth"
+
 
 def settings() -> QSettings:
     """Return a QSettings instance bound to the app's org/name."""

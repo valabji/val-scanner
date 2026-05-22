@@ -38,6 +38,7 @@ from .panels.similar import SimilarFoldersPanel
 from .panels.scans import ScansPanel
 from .panels.console import ConsolePanel, _StderrBridge
 from .panels.process import ProcessPanel, ProcessRegistry
+from .collapsible import CollapsiblePanel
 from .recent import RecentDBsModel
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
 from . import persistence
@@ -288,6 +289,10 @@ class MainWindow(QMainWindow):
         self.detail.setStyleSheet(
             f"background: {PANEL_BG}; border-left: 1px solid {BORDER};"
         )
+        if hasattr(self, "_folder_rail"):
+            self._folder_rail.apply_theme()
+        if hasattr(self, "_detail_rail"):
+            self._detail_rail.apply_theme()
 
         # task pill
         _gear_ss = (
@@ -455,12 +460,12 @@ class MainWindow(QMainWindow):
         self._on_view_filters_changed({})
 
     def _toggle_folder_panel(self) -> None:
-        if hasattr(self, "folder_panel"):
-            self._set_folder_panel_visible(not self.folder_panel.isVisible())
+        if hasattr(self, "_folder_rail"):
+            self._set_folder_panel_visible(not self._folder_rail.is_expanded())
 
     def _toggle_detail_panel(self) -> None:
-        if hasattr(self, "detail"):
-            self._set_detail_panel_visible(not self.detail.isVisible())
+        if hasattr(self, "_detail_rail"):
+            self._set_detail_panel_visible(not self._detail_rail.is_expanded())
 
     def _toggle_console(self) -> None:
         if hasattr(self, "_main_vsplit"):
@@ -674,37 +679,45 @@ class MainWindow(QMainWindow):
         # Sync dock visibility with persisted preference on startup
         self._process_dock.setVisible(process_vis)
 
-    _DEFAULT_FOLDER_WIDTH = 220
-    _DEFAULT_DETAIL_WIDTH = 280
+    _DEFAULT_FOLDER_WIDTH = 248
+    _DEFAULT_DETAIL_WIDTH = 320
 
     def _set_folder_panel_visible(self, visible: bool) -> None:
-        if visible:
-            self.folder_panel.setVisible(True)
-            sizes = list(self.splitter.sizes())
-            if sizes[0] == 0:
-                sizes[0] = getattr(self, "_saved_folder_width", self._DEFAULT_FOLDER_WIDTH)
-                self.splitter.setSizes(sizes)
-        else:
-            sizes = list(self.splitter.sizes())
-            if sizes[0] > 0:
-                self._saved_folder_width = sizes[0]
-            self.folder_panel.setVisible(False)
+        if hasattr(self, "_folder_rail"):
+            self._folder_rail.toggled.blockSignals(True)
+            self._folder_rail.set_expanded(visible)
+            self._folder_rail.toggled.blockSignals(False)
+            if visible:
+                sizes = list(self.splitter.sizes())
+                from .collapsible import RAIL_W
+                if sizes[0] <= RAIL_W:
+                    sizes[0] = getattr(self, "_saved_folder_width", self._DEFAULT_FOLDER_WIDTH)
+                    self.splitter.setSizes(sizes)
+            else:
+                sizes = list(self.splitter.sizes())
+                from .collapsible import RAIL_W
+                if sizes[0] > RAIL_W:
+                    self._saved_folder_width = sizes[0]
         if hasattr(self, "_act_folder_panel"):
             self._act_folder_panel.setChecked(visible)
         pref_settings().setValue("panelFolderVisible", visible)
 
     def _set_detail_panel_visible(self, visible: bool) -> None:
-        if visible:
-            self.detail.setVisible(True)
-            sizes = list(self.splitter.sizes())
-            if sizes[2] == 0:
-                sizes[2] = getattr(self, "_saved_detail_width", self._DEFAULT_DETAIL_WIDTH)
-                self.splitter.setSizes(sizes)
-        else:
-            sizes = list(self.splitter.sizes())
-            if sizes[2] > 0:
-                self._saved_detail_width = sizes[2]
-            self.detail.setVisible(False)
+        if hasattr(self, "_detail_rail"):
+            self._detail_rail.toggled.blockSignals(True)
+            self._detail_rail.set_expanded(visible)
+            self._detail_rail.toggled.blockSignals(False)
+            if visible:
+                sizes = list(self.splitter.sizes())
+                from .collapsible import RAIL_W
+                if sizes[2] <= RAIL_W:
+                    sizes[2] = getattr(self, "_saved_detail_width", self._DEFAULT_DETAIL_WIDTH)
+                    self.splitter.setSizes(sizes)
+            else:
+                sizes = list(self.splitter.sizes())
+                from .collapsible import RAIL_W
+                if sizes[2] > RAIL_W:
+                    self._saved_detail_width = sizes[2]
         if hasattr(self, "_act_detail_panel"):
             self._act_detail_panel.setChecked(visible)
         pref_settings().setValue("panelDetailVisible", visible)
@@ -800,6 +813,20 @@ class MainWindow(QMainWindow):
             if hdr_state and hasattr(self, "table"):
                 self.table.horizontalHeader().restoreState(hdr_state)
 
+            # Restore rail widths as saved_* fallbacks used by set_*_panel_visible
+            try:
+                fw = int(s.value(persistence.Keys.FOLDER_RAIL_WIDTH, 0) or 0)
+                if fw > 0:
+                    self._saved_folder_width = fw
+            except (TypeError, ValueError):
+                pass
+            try:
+                dw = int(s.value(persistence.Keys.DETAIL_RAIL_WIDTH, 0) or 0)
+                if dw > 0:
+                    self._saved_detail_width = dw
+            except (TypeError, ValueError):
+                pass
+
         _ps = pref_settings()
         self._set_console_visible(_ps.value("panelConsoleVisible", bool(pref_get("showConsoleOnStartup")), type=bool))
         self._set_folder_panel_visible(_ps.value("panelFolderVisible", True, type=bool))
@@ -838,9 +865,18 @@ class MainWindow(QMainWindow):
                            self.table.horizontalHeader().saveState())
             if hasattr(self, "scans_panel"):
                 self.scans_panel._persist_header()
+            if hasattr(self, "splitter") and hasattr(self, "_folder_rail"):
+                sizes = self.splitter.sizes()
+                from .collapsible import RAIL_W
+                if sizes[0] > RAIL_W:
+                    s.setValue(persistence.Keys.FOLDER_RAIL_WIDTH, sizes[0])
+                if sizes[2] > RAIL_W:
+                    s.setValue(persistence.Keys.DETAIL_RAIL_WIDTH, sizes[2])
         _ps = pref_settings()
-        _ps.setValue("panelFolderVisible",    self.folder_panel.isVisible() if hasattr(self, "folder_panel") else True)
-        _ps.setValue("panelDetailVisible",    self.detail.isVisible()       if hasattr(self, "detail")        else True)
+        _ps.setValue("panelFolderVisible",
+                     self._folder_rail.is_expanded() if hasattr(self, "_folder_rail") else True)
+        _ps.setValue("panelDetailVisible",
+                     self._detail_rail.is_expanded() if hasattr(self, "_detail_rail") else True)
         _ps.setValue("panelConsoleVisible",   (self._main_vsplit.sizes()[1] > 0) if hasattr(self, "_main_vsplit") else False)
         _ps.setValue("panelFilterBarVisible", self._filterbar.isVisible()   if hasattr(self, "_filterbar")   else True)
         _ps.setValue("panelStatsBarVisible",  self._statsbar.isVisible()    if hasattr(self, "_statsbar")    else True)
@@ -1429,7 +1465,9 @@ class MainWindow(QMainWindow):
         self.folder_panel = FolderPanel()
         self.folder_panel.setMinimumWidth(180)
         self.folder_panel.folder_selected.connect(self._filter_by_folder)
-        self.splitter.addWidget(self.folder_panel)
+        self._folder_rail = CollapsiblePanel("Folders", self.folder_panel, border_side="right")
+        self._folder_rail.toggled.connect(self._set_folder_panel_visible)
+        self.splitter.addWidget(self._folder_rail)
 
         self.center_tabs = QTabWidget()
         self.center_tabs.setDocumentMode(True)
@@ -1560,9 +1598,13 @@ class MainWindow(QMainWindow):
         self.detail = DetailPanel()
         self.detail.setStyleSheet(f"background: {PANEL_BG}; border-left: 1px solid {BORDER};")
         self.detail.status_message.connect(lambda m, lvl: self._set_status(m, lvl))
-        self.splitter.addWidget(self.detail)
+        self._detail_rail = CollapsiblePanel("Inspector", self.detail, border_side="left")
+        self._detail_rail.toggled.connect(self._set_detail_panel_visible)
+        self.splitter.addWidget(self._detail_rail)
 
-        self.splitter.setSizes([220, 900, 280])
+        for i in range(3):
+            self.splitter.setCollapsible(i, False)
+        self.splitter.setSizes([248, 900, 320])
         return self.splitter
 
     def _build_welcome(self) -> QWidget:
