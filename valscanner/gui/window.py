@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QTimer, QSettings, QSize, QEvent
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
-    QVBoxLayout, QHBoxLayout,
+    QVBoxLayout, QHBoxLayout, QLayout,
     QLabel, QLineEdit, QPushButton, QCheckBox,
     QComboBox, QProgressBar, QStatusBar,
     QFileDialog, QTableView, QListView,
@@ -1048,6 +1048,12 @@ class MainWindow(QMainWindow):
         root_lay = QVBoxLayout(central)
         root_lay.setContentsMargins(0, 0, 0, 0)
         root_lay.setSpacing(0)
+        # Never let children's min/max size cascade into the window — toggling
+        # collapse states should not resize the main window.
+        root_lay.setSizeConstraint(QLayout.SetNoConstraint)
+        # Allow the window to shrink as small as the user wants; clamp only at
+        # the QMainWindow level.
+        self.setMinimumSize(640, 400)
 
         root_lay.addWidget(self._build_toolbar())
         root_lay.addWidget(self._build_queue_strip())
