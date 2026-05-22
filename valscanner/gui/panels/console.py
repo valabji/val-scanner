@@ -4,6 +4,7 @@ from datetime import datetime
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit
 
 from ..constants import PANEL_BG, BORDER, SUBTEXT, TEXT, GREEN, YELLOW, RED
+from ..fonts import mono_font_family
 from .. import icons as _icons
 
 
@@ -52,7 +53,7 @@ class ConsolePanel(QWidget):
             QTextEdit {{
                 background: {PANEL_BG};
                 color: {TEXT}; border: none;
-                font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+                font-family: '{mono_font_family()}', 'SF Mono', 'Menlo', monospace;
                 font-size: 11px; padding: 4px 8px;
             }}
         """)
@@ -92,7 +93,7 @@ class ConsolePanel(QWidget):
             QTextEdit {{
                 background: {PANEL_BG};
                 color: {TEXT}; border: none;
-                font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+                font-family: '{mono_font_family()}', 'SF Mono', 'Menlo', monospace;
                 font-size: 11px; padding: 4px 8px;
             }}
         """)

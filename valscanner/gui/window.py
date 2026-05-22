@@ -41,6 +41,7 @@ from .panels.process import ProcessPanel, ProcessRegistry
 from .recent import RecentDBsModel
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
 from . import persistence
+from .fonts import load_fonts, ui_font_family, mono_font_family
 from ..core.export import export_csv, export_json
 from ..core.db import list_scans, reset_repos
 from ..core.db_config import reset_engines
@@ -103,7 +104,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{
                 background: {DARK_BG}; color: {TEXT};
-                font-family: 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+                font-family: '{ui_font_family()}', 'SF Pro Display', 'Segoe UI', sans-serif;
             }}
             QSplitter::handle {{ background: {BORDER}; width: 1px; height: 1px; }}
             QLineEdit {{
@@ -195,7 +196,7 @@ class MainWindow(QMainWindow):
             f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
         )
         self.elapsed_lbl.setStyleSheet(
-            f"color: {SUBTEXT}; font-size: 10px; font-family: monospace;"
+            f"color: {SUBTEXT}; font-size: 10px; font-family: '{mono_font_family()}', monospace;"
         )
 
         # queue strip
@@ -1140,7 +1141,7 @@ class MainWindow(QMainWindow):
         sl.addWidget(self.progress, 1)
 
         self.elapsed_lbl = QLabel()
-        self.elapsed_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px; font-family: monospace;")
+        self.elapsed_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px; font-family: '{mono_font_family()}', monospace;")
         self.elapsed_lbl.setFixedWidth(60)
         sl.addWidget(self.elapsed_lbl)
         self._scan_strip.hide()
@@ -2784,6 +2785,7 @@ def main() -> None:
     app.setApplicationName("ValScanner")
     app.setApplicationDisplayName("ValScanner")
     app.setStyle("Fusion")
+    load_fonts()
     icon = _app_icon()
     app.setWindowIcon(icon)
     win = MainWindow()

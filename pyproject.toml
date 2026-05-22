@@ -67,5 +67,5 @@ where = ["."]
 include = ["valscanner*"]
 
 [tool.setuptools.package-data]
-valscanner = ["alembic.ini", "migrations/*", "migrations/versions/*", "assets/*"]
+valscanner = ["alembic.ini", "migrations/*", "migrations/versions/*", "assets/*", "assets/fonts/*.ttf"]
 "valscanner.web" = ["static/**/*"]

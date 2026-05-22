@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QFont, QPen, QBrush
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle
 
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, SEL_BG, SEL_TEXT
+from .fonts import mono_font_family
 from .models import _THUMB_CACHE
 
 
@@ -118,7 +119,7 @@ class FileRowDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(sw, 3, 3)
 
-        fn = QFont(); fn.setPixelSize(12)
+        fn = QFont(mono_font_family()); fn.setPixelSize(12)
         painter.setFont(fn)
         painter.setPen(sel_text if selected else QColor(str(TEXT)))
         avail = int(r.width() * 0.55)
