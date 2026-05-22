@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QMessageBox, QMenu, QDialog,
     QStackedWidget, QButtonGroup,
-    QDockWidget,
 )
 
 from .constants import (
@@ -58,7 +57,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         persistence.migrate()
         self.setWindowTitle("ValScanner")
-        self.resize(1440, 860)
+        self.resize(1440, 880)
         self._db_path                = ""
         self._db_url                 = ""  # authoritative SQLAlchemy URL
         self._connect_worker: ConnectWorker | None = None
@@ -293,6 +292,8 @@ class MainWindow(QMainWindow):
             self._folder_rail.apply_theme()
         if hasattr(self, "_detail_rail"):
             self._detail_rail.apply_theme()
+        if hasattr(self, "_process_rail"):
+            self._process_rail.apply_theme()
 
         # task pill
         _gear_ss = (
@@ -650,7 +651,7 @@ class MainWindow(QMainWindow):
         console_vis = s.value("panelConsoleVisible",   bool(pref_get("showConsoleOnStartup")),  type=bool)
         filter_vis  = s.value("panelFilterBarVisible", True,                                   type=bool)
         stats_vis   = s.value("panelStatsBarVisible",  True,                                   type=bool)
-        process_vis = s.value("panelProcessVisible",   False,                                  type=bool)
+        process_vis = s.value("panelProcessVisible",   True,                                   type=bool)
 
         self._act_folder_panel = QAction("Folder Panel", self, checkable=True, checked=folder_vis)
         self._act_detail_panel = QAction("Inspector", self, checkable=True, checked=detail_vis)
@@ -665,9 +666,6 @@ class MainWindow(QMainWindow):
         self._act_filterbar.triggered.connect(self._toggle_filterbar)
         self._act_statsbar.triggered.connect(self._toggle_statsbar)
         self._act_process_dock.triggered.connect(self._set_process_dock_visible)
-        self._process_dock.visibilityChanged.connect(
-            lambda visible: self._act_process_dock.setChecked(visible)
-        )
 
         vm.addAction(self._act_folder_panel)
         vm.addAction(self._act_detail_panel)
@@ -676,8 +674,10 @@ class MainWindow(QMainWindow):
         vm.addAction(self._act_statsbar)
         vm.addAction(self._act_process_dock)
 
-        # Sync dock visibility with persisted preference on startup
-        self._process_dock.setVisible(process_vis)
+        if hasattr(self, "_process_rail"):
+            self._process_rail.toggled.blockSignals(True)
+            self._process_rail.set_expanded(process_vis)
+            self._process_rail.toggled.blockSignals(False)
 
     _DEFAULT_FOLDER_WIDTH = 248
     _DEFAULT_DETAIL_WIDTH = 320
@@ -738,7 +738,10 @@ class MainWindow(QMainWindow):
         pref_settings().setValue("panelConsoleVisible", visible)
 
     def _set_process_dock_visible(self, visible: bool) -> None:
-        self._process_dock.setVisible(visible)
+        if hasattr(self, "_process_rail"):
+            self._process_rail.toggled.blockSignals(True)
+            self._process_rail.set_expanded(visible)
+            self._process_rail.toggled.blockSignals(False)
         if hasattr(self, "_act_process_dock"):
             self._act_process_dock.setChecked(visible)
         pref_settings().setValue("panelProcessVisible", visible)
@@ -1021,15 +1024,6 @@ class MainWindow(QMainWindow):
         root_lay.addWidget(v_split, 1)
 
         root_lay.addWidget(self._build_statsbar())
-
-        # Process monitor dock — float so it overlays rather than resizing the window
-        self._process_dock = ProcessPanel(self)
-        self._process_dock.setFloating(True)
-        self._process_dock.setMinimumWidth(320)
-        self._process_dock.setMaximumWidth(420)
-        self._process_dock.resize(360, 480)
-        self.addDockWidget(Qt.RightDockWidgetArea, self._process_dock)
-        self._process_dock.setVisible(False)
 
         self._add_panel_toggles()
 
@@ -1602,9 +1596,14 @@ class MainWindow(QMainWindow):
         self._detail_rail.toggled.connect(self._set_detail_panel_visible)
         self.splitter.addWidget(self._detail_rail)
 
-        for i in range(3):
+        self._process_panel = ProcessPanel()
+        self._process_rail = CollapsiblePanel("Processes", self._process_panel, border_side="left")
+        self._process_rail.toggled.connect(self._set_process_dock_visible)
+        self.splitter.addWidget(self._process_rail)
+
+        for i in range(4):
             self.splitter.setCollapsible(i, False)
-        self.splitter.setSizes([248, 900, 320])
+        self.splitter.setSizes([248, 900, 320, 296])
         return self.splitter
 
     def _build_welcome(self) -> QWidget:
@@ -1711,7 +1710,9 @@ class MainWindow(QMainWindow):
             f"QToolButton:hover{{background:{PANEL_BG};border-radius:3px;}}"
         )
         self._task_gear_btn.clicked.connect(
-            lambda: self._set_process_dock_visible(not self._process_dock.isVisible())
+            lambda: self._set_process_dock_visible(
+                not self._process_rail.is_expanded() if hasattr(self, "_process_rail") else True
+            )
         )
         pl.addWidget(self._task_gear_btn)
 
@@ -2021,7 +2022,7 @@ class MainWindow(QMainWindow):
             kill_cb=self._worker.terminate,
         )
         self._worker._pid = pid
-        self._process_dock.show()
+        self._set_process_dock_visible(True)
 
         self._worker.progress.connect(self._on_progress)
         self._worker.progress.connect(
@@ -2196,7 +2197,7 @@ class MainWindow(QMainWindow):
         self._db_load_worker.db_loaded.connect(self._on_db_loaded)
         self._db_load_worker.error.connect(lambda e: self._set_status(f"Error loading database: {e}"))
         self._db_load_worker.start()
-        self._process_dock.show()
+        self._set_process_dock_visible(True)
 
     def _on_db_loaded(self, data: dict) -> None:
         """Callback when database flat-view load completes."""

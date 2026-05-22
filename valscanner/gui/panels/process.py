@@ -1,9 +1,9 @@
 """
-ProcessPanel: dockable process monitor with freeze detection and graceful fallbacks.
+ProcessPanel: process monitor panel with freeze detection and graceful fallbacks.
 
 Components:
 - ProcessRegistry: singleton, zero Qt deps, tracks all background workers
-- ProcessPanel(QDockWidget): floating panel with process cards
+- ProcessPanel(QWidget): splitter-column panel with process cards
 - _ProcessCard: per-process UI with progress, status, cancel/kill buttons, lazy log
 - _Notifier: Qt signal bridge for cross-thread updates from workers
 """
@@ -19,7 +19,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject, QMetaObject, QModelIndex
 from PySide6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
+    QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QProgressBar, QPlainTextEdit,
     QScrollArea, QFrame, QCheckBox,
 )
@@ -186,18 +186,11 @@ class _Notifier(QObject):
         self.changed.emit()
 
 
-class ProcessPanel(QDockWidget):
-    """Dockable process monitor showing status of all registered workers."""
+class ProcessPanel(QWidget):
+    """Process monitor panel showing status of all registered workers."""
 
     def __init__(self, parent=None):
-        super().__init__("Processes", parent)
-        self.setAllowedAreas(Qt.AllDockWidgetAreas)
-        self.setFeatures(
-            QDockWidget.DockWidgetMovable
-            | QDockWidget.DockWidgetFloatable
-            | QDockWidget.DockWidgetClosable
-        )
-        self.setFloating(False)  # Start docked, not floating
+        super().__init__(parent)
         self._cards: dict[str, _ProcessCard] = {}
         self._auto_clear = True
         self._auto_clear_delay_ms = 2_000
@@ -206,12 +199,8 @@ class ProcessPanel(QDockWidget):
         ProcessRegistry.instance().add_listener(self._refresh)
 
     def _build_ui(self) -> None:
-        """Build the dock widget layout."""
-        container = QWidget()
-        container.setStyleSheet(f"background: {DARK_BG};")
-        self.setWidget(container)
-
-        outer = QVBoxLayout(container)
+        self.setStyleSheet(f"background: {DARK_BG};")
+        outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
