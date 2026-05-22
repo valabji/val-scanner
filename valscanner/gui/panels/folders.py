@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, ORANGE, SEL_BG, SEL_TEXT
+from ..widgets.volume_map import VolumeMapWidget
 from ...core.schema import human_size
 from .. import icons as _icons
 
@@ -175,6 +176,10 @@ class FolderPanel(QWidget):
         self._content_stack.addWidget(self.tree)  # page 1: tree
         lay.addWidget(self._content_stack)
 
+        self._volume_map = VolumeMapWidget()
+        self._volume_map.hide()
+        lay.addWidget(self._volume_map)
+
     @staticmethod
     def _size_color(ratio: float) -> str:
         if ratio > 0.5:  return str(RED)
@@ -315,6 +320,12 @@ class FolderPanel(QWidget):
         self.model.endResetModel()
         self._folders_empty_lbl.setText("Scan a folder first to populate this view.")
         self._content_stack.setCurrentIndex(1)
+        cat_bytes = payload.get("category_bytes", {})
+        if cat_bytes:
+            self._volume_map.set_data(cat_bytes)
+            self._volume_map.show()
+        else:
+            self._volume_map.hide()
         self.tree.expandToDepth(1)
         col   = self.tree.header().sortIndicatorSection()
         order = self.tree.header().sortIndicatorOrder()

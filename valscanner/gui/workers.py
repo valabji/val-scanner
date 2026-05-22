@@ -520,15 +520,22 @@ class FolderLoadWorker(QThread):
                             "FROM folders GROUP BY scan_id, path ORDER BY path"
                         )
                     ).fetchall()
+                    cat_rows = conn.execute(
+                        text(
+                            "SELECT category, SUM(size_bytes) FROM files "
+                            "GROUP BY category ORDER BY SUM(size_bytes) DESC"
+                        )
+                    ).fetchall()
 
                 scan_data: dict[int, dict] = {}
                 for r in all_rows:
                     scan_data.setdefault(r[0], {})[r[1]] = (r[2], r[3])
 
                 payload: dict = {
-                    "mode":      "separate",
-                    "scans":     [list(r) for r in scans],
-                    "scan_data": scan_data,
+                    "mode":             "separate",
+                    "scans":            [list(r) for r in scans],
+                    "scan_data":        scan_data,
+                    "category_bytes":   {r[0]: r[1] for r in cat_rows if r[0]},
                 }
             else:
                 with engine.connect() as conn:
@@ -540,6 +547,13 @@ class FolderLoadWorker(QThread):
                             ),
                             {"sid": self.scan_id},
                         ).fetchall()
+                        cat_rows = conn.execute(
+                            text(
+                                "SELECT category, SUM(size_bytes) FROM files "
+                                "WHERE scan_id=:sid GROUP BY category ORDER BY SUM(size_bytes) DESC"
+                            ),
+                            {"sid": self.scan_id},
+                        ).fetchall()
                     else:
                         rows = conn.execute(
                             text(
@@ -547,8 +561,18 @@ class FolderLoadWorker(QThread):
                                 "FROM folders GROUP BY path ORDER BY path"
                             )
                         ).fetchall()
+                        cat_rows = conn.execute(
+                            text(
+                                "SELECT category, SUM(size_bytes) FROM files "
+                                "GROUP BY category ORDER BY SUM(size_bytes) DESC"
+                            )
+                        ).fetchall()
 
-                payload = {"mode": "combined", "rows": [list(r) for r in rows]}
+                payload = {
+                    "mode":           "combined",
+                    "rows":           [list(r) for r in rows],
+                    "category_bytes": {r[0]: r[1] for r in cat_rows if r[0]},
+                }
 
             if version:
                 repo.set_gui_cache(cache_key, version, payload)
