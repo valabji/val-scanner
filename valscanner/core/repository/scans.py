@@ -11,16 +11,29 @@ from .base import RepositoryBase
 class ScansMixin(RepositoryBase):
     def list_scans(self) -> list[dict]:
         from sqlalchemy.exc import OperationalError
-        stmt = select(
-            scans.c.id, scans.c.label, scans.c.root, scans.c.scanned_at,
-            scans.c.file_count, scans.c.total_bytes, scans.c.total_human,
-            scans.c.status,
-        ).order_by(scans.c.id)
-        with self._engine.connect() as conn:
-            try:
+        try:
+            with self._engine.connect() as conn:
+                stmt = select(
+                    scans.c.id, scans.c.label, scans.c.root, scans.c.scanned_at,
+                    scans.c.file_count, scans.c.total_bytes, scans.c.total_human,
+                    scans.c.status,
+                ).order_by(scans.c.id)
                 return [dict(r._mapping) for r in conn.execute(stmt)]
-            except OperationalError:
-                return []
+        except OperationalError:
+            pass
+        # status column absent on pre-migration DB — retry without it
+        try:
+            with self._engine.connect() as conn:
+                stmt = select(
+                    scans.c.id, scans.c.label, scans.c.root, scans.c.scanned_at,
+                    scans.c.file_count, scans.c.total_bytes, scans.c.total_human,
+                ).order_by(scans.c.id)
+                rows = [dict(r._mapping) for r in conn.execute(stmt)]
+                for r in rows:
+                    r["status"] = None
+                return rows
+        except OperationalError:
+            return []
 
     def get_scan(self, scan_id: int) -> dict | None:
         with self._engine.connect() as conn:

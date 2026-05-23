@@ -82,8 +82,12 @@ def scan(
     scan_label = label.strip() or root.name
     root_resolved = root.resolve()
 
+    actually_resumed = False
     if resume and scan_id is None:
-        scan_id = repo.find_interrupted_scan(str(root_resolved))
+        found = repo.find_interrupted_scan(str(root_resolved))
+        if found is not None:
+            scan_id = found
+            actually_resumed = True
 
     if scan_id is None:
         scan_id = repo.create_scan(root=str(root_resolved), label=scan_label, scanned_at=now)
@@ -93,7 +97,7 @@ def scan(
     stats: dict = {
         "scanned": 0, "errors": 0, "skipped": 0,
         "scan_id": scan_id, "total_bytes": 0,
-        "resumed": resume,
+        "resumed": actually_resumed,
     }
     folder_totals: dict = {}
 
@@ -234,7 +238,7 @@ def scan(
 
     # On resume the in-memory folder_totals only covers newly-indexed files;
     # rebuild from DB so every ancestor folder reflects the full picture.
-    if resume:
+    if actually_resumed:
         folder_totals = _rebuild_folder_totals_from_db(repo, scan_id, root_resolved)
 
     indexed_at = ts(time.time())
@@ -255,6 +259,6 @@ def scan(
         final_bytes = stats["total_bytes"]
 
     repo.update_scan_totals(scan_id, final_count, final_bytes, human_size(final_bytes))
-    repo.set_scan_status(scan_id, "resumed" if resume else "complete")
+    repo.set_scan_status(scan_id, "resumed" if actually_resumed else "complete")
     _emit({"done": True, "scan_id": scan_id, "scanned": stats["scanned"]})
     return stats
