@@ -69,7 +69,7 @@ Reach for a covered alternative first:
 ### Package layout
 
 ```
-myscanner/                  ← repo root
+val-scanner/                ← repo root
 ├── pyproject.toml          ← packaging & entry points (valscanner, valscanner-gui)
 ├── valscanner.spec         ← PyInstaller spec
 ├── app_entry.py            ← PyInstaller entry point

@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "valscanner"
 version = "0.1.6"
-description = "Recursive file scanner with metadata, tagging, and duplicate detection"
+description = "A recursive file scanner with rich metadata extraction, full-text search, auto-tagging, thumbnail generation, and similar-folder detection — available as a CLI, a PySide6 desktop GUI, and a browser-based Web UI."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Abdalrahman Valabji", email = "valabji@gmail.com" }]
 requires-python = ">=3.8"
-keywords = ["scanner", "files", "metadata", "duplicates", "sqlite", "gui"]
+keywords = ["scanner", "files", "metadata", "tagging", "thumbnails", "full-text-search", "similar-folders", "sqlite", "postgresql", "pyside6", "gui", "fastapi"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
@@ -32,6 +32,11 @@ dependencies = [
     "keyring>=24.0",
     "alembic>=1.13",
 ]
+
+[project.urls]
+Homepage = "https://github.com/valabji/val-scanner"
+Repository = "https://github.com/valabji/val-scanner"
+"Bug Tracker" = "https://github.com/valabji/val-scanner/issues"
 
 [project.optional-dependencies]
 web = [

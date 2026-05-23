@@ -64,8 +64,8 @@ pipx run --spec valscanner valscanner-gui
 ### macOS / Linux (from source)
 
 ```bash
-git clone <repo-url> valscanner
-cd valscanner
+git clone https://github.com/valabji/val-scanner
+cd val-scanner
 
 # Full install — creates .venv, installs all deps, symlinks launchers to ~/.local/bin
 bash scripts/install.sh
@@ -83,8 +83,8 @@ bash scripts/install.sh --prefix /usr/local
 ### Windows (from source)
 
 ```powershell
-git clone <repo-url> valscanner
-cd valscanner
+git clone https://github.com/valabji/val-scanner
+cd val-scanner
 
 # Full install — creates .venv, writes .cmd launchers to %LOCALAPPDATA%\Programs\ValScanner\bin
 .\scripts\install.ps1
@@ -543,7 +543,7 @@ sqlite3 ~/valscanner.db "SELECT filename, size_bytes, category FROM files ORDER 
 ## Project layout
 
 ```
-myscanner/                  ← repo root
+val-scanner/                ← repo root
 ├── pyproject.toml          ← packaging & entry points
 ├── valscanner.spec         ← PyInstaller spec (native app)
 ├── app_entry.py            ← PyInstaller entry point
