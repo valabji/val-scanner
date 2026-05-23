@@ -110,10 +110,34 @@ class DetailPanel(QWidget):
         pl.addWidget(hint)
         return w
 
+    def add_header_button(self, btn) -> None:
+        self._hdr_lay.addWidget(btn)
+
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
+        hdr = QWidget()
+        hdr.setFixedHeight(36)
+        hdr.setStyleSheet(
+            f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
+        )
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(10, 0, 8, 0)
+        hl.setSpacing(6)
+        title_icon = QLabel()
+        from .. import icons as _ic
+        title_icon.setPixmap(_ic.pixmap("mdi.eye-outline", 14, color=str(SUBTEXT)))
+        hl.addWidget(title_icon)
+        title_lbl = QLabel("Inspector")
+        title_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 11px; font-weight: bold; background: transparent;"
+        )
+        hl.addWidget(title_lbl)
+        hl.addStretch()
+        self._hdr_lay = hl
+        outer.addWidget(hdr)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._build_placeholder())   # page 0: placeholder
@@ -275,6 +299,9 @@ class DetailPanel(QWidget):
         if w and h:
             fields.append(("Dimensions", f"{w} × {h}"))
         return fields
+
+    def clear(self) -> None:
+        self._stack.setCurrentIndex(0)
 
     def show_file(self, row) -> None:
         self._stack.setCurrentIndex(1)

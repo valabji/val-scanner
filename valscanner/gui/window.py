@@ -38,7 +38,7 @@ from .panels.similar import SimilarFoldersPanel
 from .panels.scans import ScansPanel
 from .panels.console import ConsolePanel, _StderrBridge
 from .panels.process import ProcessPanel, ProcessRegistry
-from .collapsible import CollapsiblePanel
+from .collapsible import CollapsiblePanel, RightZone
 from .widgets.hover_peek import HoverPeekCard
 from .recent import RecentDBsModel
 from .preferences import PreferencesDialog, get as pref_get, settings as pref_settings
@@ -66,7 +66,6 @@ class MainWindow(QMainWindow):
         self._worker                 = None
         self._db_load_worker: DbLoadWorker | None = None
         self._all_rows: list         = []
-        self._active_folder_filter   = ""
         self._folder_filter_recursive = False
         self._active_scan_id         = 0
         self._scan_start             = 0.0
@@ -82,7 +81,6 @@ class MainWindow(QMainWindow):
         self._total_row_count        = 0
         self._loaded_offset          = 0
         # Browser mode
-        self._view_mode              = "browser"   # "browser" | "flat"
         self._browser_path           = ""          # current path in browser mode
         self._browser_worker: BrowserLoadWorker | None = None
         self._browser_history: list[str] = []
@@ -243,7 +241,6 @@ class MainWindow(QMainWindow):
             f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
             f"QPushButton:hover:!checked{{color:{TEXT};border-color:{DIVIDER3};}}"
         )
-        self._browse_toggle.setStyleSheet(_vbtn_ss)
         _seg_inner = (
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:0;"
             f"padding:0 10px;font-size:11px;}}"
@@ -301,10 +298,8 @@ class MainWindow(QMainWindow):
         )
         if hasattr(self, "_folder_rail"):
             self._folder_rail.apply_theme()
-        if hasattr(self, "_detail_rail"):
-            self._detail_rail.apply_theme()
-        if hasattr(self, "_process_rail"):
-            self._process_rail.apply_theme()
+        if hasattr(self, "_right_zone"):
+            self._right_zone.apply_theme()
 
         # task pill
         _gear_ss = (
@@ -478,7 +473,7 @@ class MainWindow(QMainWindow):
         return out
 
     def _any_filter_active(self) -> bool:
-        if self._active_folder_filter:
+        if self._browser_path:
             return True
         if hasattr(self, "search_edit") and self.search_edit.text().strip():
             return True
@@ -499,8 +494,8 @@ class MainWindow(QMainWindow):
             self._set_folder_panel_visible(not self._folder_rail.is_expanded())
 
     def _toggle_detail_panel(self) -> None:
-        if hasattr(self, "_detail_rail"):
-            self._set_detail_panel_visible(not self._detail_rail.is_expanded())
+        if hasattr(self, "_right_zone"):
+            self._set_detail_panel_visible(not self._right_zone.is_inspector_visible())
 
     def _toggle_console(self) -> None:
         if hasattr(self, "_main_vsplit"):
@@ -708,13 +703,12 @@ class MainWindow(QMainWindow):
         vm.addAction(self._act_statsbar)
         vm.addAction(self._act_process_dock)
 
-        if hasattr(self, "_process_rail"):
-            self._process_rail.blockSignals(True)
-            self._process_rail.set_expanded(process_vis)
-            self._process_rail.blockSignals(False)
+        if hasattr(self, "_right_zone"):
+            self._right_zone.set_monitor_visible(process_vis)
 
-    _DEFAULT_FOLDER_WIDTH = 248
-    _DEFAULT_DETAIL_WIDTH = 320
+    _DEFAULT_FOLDER_WIDTH  = 248
+    _DEFAULT_DETAIL_WIDTH  = 320
+    _DEFAULT_PROCESS_WIDTH = 296
 
     def _set_folder_panel_visible(self, visible: bool) -> None:
         if hasattr(self, "_folder_rail"):
@@ -737,21 +731,21 @@ class MainWindow(QMainWindow):
         pref_settings().setValue("panelFolderVisible", visible)
 
     def _set_detail_panel_visible(self, visible: bool) -> None:
-        if hasattr(self, "_detail_rail"):
-            self._detail_rail.blockSignals(True)
-            self._detail_rail.set_expanded(visible)
-            self._detail_rail.blockSignals(False)
+        if hasattr(self, "_right_zone"):
+            self._right_zone.set_inspector_visible(visible)
             if visible:
                 sizes = list(self.splitter.sizes())
                 from .collapsible import RAIL_W
                 if sizes[2] <= RAIL_W:
-                    sizes[2] = getattr(self, "_saved_detail_width", self._DEFAULT_DETAIL_WIDTH)
+                    default = self._DEFAULT_DETAIL_WIDTH + self._DEFAULT_PROCESS_WIDTH
+                    sizes[2] = getattr(self, "_saved_rz_w", default)
                     self.splitter.setSizes(sizes)
             else:
-                sizes = list(self.splitter.sizes())
-                from .collapsible import RAIL_W
-                if sizes[2] > RAIL_W:
-                    self._saved_detail_width = sizes[2]
+                if not self._right_zone.is_monitor_visible():
+                    sizes = list(self.splitter.sizes())
+                    from .collapsible import RAIL_W
+                    if sizes[2] > RAIL_W:
+                        self._saved_rz_w = sizes[2]
         if hasattr(self, "_act_detail_panel"):
             self._act_detail_panel.setChecked(visible)
         pref_settings().setValue("panelDetailVisible", visible)
@@ -772,10 +766,21 @@ class MainWindow(QMainWindow):
         pref_settings().setValue("panelConsoleVisible", visible)
 
     def _set_process_dock_visible(self, visible: bool) -> None:
-        if hasattr(self, "_process_rail"):
-            self._process_rail.blockSignals(True)
-            self._process_rail.set_expanded(visible)
-            self._process_rail.blockSignals(False)
+        if hasattr(self, "_right_zone"):
+            self._right_zone.set_monitor_visible(visible)
+            if visible:
+                sizes = list(self.splitter.sizes())
+                from .collapsible import RAIL_W
+                if sizes[2] <= RAIL_W:
+                    default = self._DEFAULT_DETAIL_WIDTH + self._DEFAULT_PROCESS_WIDTH
+                    sizes[2] = getattr(self, "_saved_rz_w", default)
+                    self.splitter.setSizes(sizes)
+            else:
+                if not self._right_zone.is_inspector_visible():
+                    sizes = list(self.splitter.sizes())
+                    from .collapsible import RAIL_W
+                    if sizes[2] > RAIL_W:
+                        self._saved_rz_w = sizes[2]
         if hasattr(self, "_act_process_dock"):
             self._act_process_dock.setChecked(visible)
         pref_settings().setValue("panelProcessVisible", visible)
@@ -829,14 +834,6 @@ class MainWindow(QMainWindow):
             if vstate and hasattr(self, "_main_vsplit"):
                 self._main_vsplit.restoreState(vstate)
 
-            # Restore file-table view mode (browser / flat)
-            saved_mode = s.value(persistence.Keys.FILE_VIEW_MODE, "browser") or "browser"
-            if saved_mode != "browser":
-                self._browse_toggle.blockSignals(True)
-                self._browse_toggle.setChecked(False)
-                self._browse_toggle.blockSignals(False)
-                self._view_mode = "flat"
-
             # Restore Details / Grid / List index
             try:
                 saved_idx = int(s.value(persistence.Keys.FILE_VIEW_INDEX, 0) or 0)
@@ -863,7 +860,7 @@ class MainWindow(QMainWindow):
             try:
                 dw = int(s.value(persistence.Keys.DETAIL_RAIL_WIDTH, 0) or 0)
                 if dw > 0:
-                    self._saved_detail_width = dw
+                    self._saved_rz_w = dw
             except (TypeError, ValueError):
                 pass
 
@@ -871,6 +868,7 @@ class MainWindow(QMainWindow):
         self._set_console_visible(_ps.value("panelConsoleVisible", bool(pref_get("showConsoleOnStartup")), type=bool))
         self._set_folder_panel_visible(_ps.value("panelFolderVisible", True, type=bool))
         self._set_detail_panel_visible(_ps.value("panelDetailVisible", True, type=bool))
+        self._set_process_dock_visible(_ps.value("panelProcessVisible", True, type=bool))
         self._toggle_filterbar(_ps.value("panelFilterBarVisible", True, type=bool))
         self._toggle_statsbar(_ps.value("panelStatsBarVisible", True, type=bool))
         if _ps.value("dbBarCollapsed", False, type=bool):
@@ -902,7 +900,6 @@ class MainWindow(QMainWindow):
                 s.setValue(persistence.Keys.SPLITTER_STATE, self.splitter.saveState())
             if hasattr(self, "_main_vsplit"):
                 s.setValue(persistence.Keys.VSPLITTER_STATE, self._main_vsplit.saveState())
-            s.setValue(persistence.Keys.FILE_VIEW_MODE, self._view_mode)
             s.setValue(persistence.Keys.FILE_VIEW_INDEX, self._current_view_index)
             if hasattr(self, "table"):
                 s.setValue(persistence.Keys.FILE_TABLE_HDR,
@@ -914,13 +911,18 @@ class MainWindow(QMainWindow):
                 from .collapsible import RAIL_W
                 if sizes[0] > RAIL_W:
                     s.setValue(persistence.Keys.FOLDER_RAIL_WIDTH, sizes[0])
+            if hasattr(self, "splitter") and hasattr(self, "_right_zone"):
+                sizes = self.splitter.sizes()
+                from .collapsible import RAIL_W
                 if sizes[2] > RAIL_W:
                     s.setValue(persistence.Keys.DETAIL_RAIL_WIDTH, sizes[2])
         _ps = pref_settings()
         _ps.setValue("panelFolderVisible",
                      self._folder_rail.is_expanded() if hasattr(self, "_folder_rail") else True)
         _ps.setValue("panelDetailVisible",
-                     self._detail_rail.is_expanded() if hasattr(self, "_detail_rail") else True)
+                     self._right_zone.is_inspector_visible() if hasattr(self, "_right_zone") else True)
+        _ps.setValue("panelProcessVisible",
+                     self._right_zone.is_monitor_visible() if hasattr(self, "_right_zone") else True)
         _ps.setValue("panelConsoleVisible",   (self._main_vsplit.sizes()[1] > 0) if hasattr(self, "_main_vsplit") else False)
         _ps.setValue("panelFilterBarVisible", self._filterbar.isVisible()   if hasattr(self, "_filterbar")   else True)
         _ps.setValue("panelStatsBarVisible",  self._statsbar.isVisible()    if hasattr(self, "_statsbar")    else True)
@@ -1606,17 +1608,6 @@ class MainWindow(QMainWindow):
             self._density_btn_grp.addButton(_db, _di)
         self._density_btn_grp.idClicked.connect(self._on_density_id_clicked)
 
-        self._browse_toggle = QPushButton()
-        self._browse_toggle.setIcon(_icons.icon("folder", color=str(SUBTEXT)))
-        self._browse_toggle.setIconSize(QSize(13, 13))
-        self._browse_toggle.setToolTip("Browse folders (drill down). Toggle off for flat all-files view.")
-        self._browse_toggle.setCheckable(True)
-        self._browse_toggle.setChecked(True)
-        self._browse_toggle.setFixedSize(26, 26)
-        self._browse_toggle.setStyleSheet(_vbtn_ss)
-        self._browse_toggle.toggled.connect(self._on_browse_toggled)
-        fl.addWidget(self._browse_toggle)
-
         # View segmented control (Details / Grid / List)
         view_seg = QWidget()
         view_seg.setStyleSheet(
@@ -1680,7 +1671,6 @@ class MainWindow(QMainWindow):
 
         # depth-seg lives in the crumbs row, built lazily
         self._depth_seg_ctrl = self._build_depth_seg()
-        self._depth_seg_ctrl.setEnabled(False)
 
         return self._filterbar
 
@@ -1742,7 +1732,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_group_by") and self._group_by:
             n += 1
         n += self._count_active_view_filters()
-        if self._active_folder_filter:
+        if self._browser_path:
             n += 1
         self._fb_strip_summary.setText(f"Filters · {n} active")
 
@@ -1798,6 +1788,7 @@ class MainWindow(QMainWindow):
             "Folders", self.folder_panel, border_side="right", icon_name="folder"
         )
         self._folder_rail.toggled.connect(self._set_folder_panel_visible)
+        self.folder_panel.add_header_button(self._folder_rail.collapse_button)
         self.splitter.addWidget(self._folder_rail)
 
         self.center_tabs = QTabWidget()
@@ -1935,22 +1926,21 @@ class MainWindow(QMainWindow):
         self.detail = DetailPanel()
         self.detail.setStyleSheet(f"background: {PANEL_BG}; border-left: 1px solid {BORDER};")
         self.detail.status_message.connect(lambda m, lvl: self._set_status(m, lvl))
-        self._detail_rail = CollapsiblePanel(
-            "Inspector", self.detail, border_side="left", icon_name="mdi.eye-outline"
-        )
-        self._detail_rail.toggled.connect(self._set_detail_panel_visible)
-        self.splitter.addWidget(self._detail_rail)
-
         self._process_panel = ProcessPanel()
-        self._process_rail = CollapsiblePanel(
-            "Monitor", self._process_panel, border_side="left", icon_name="mdi.pulse"
-        )
-        self._process_rail.toggled.connect(self._set_process_dock_visible)
-        self.splitter.addWidget(self._process_rail)
 
-        for i in range(4):
+        self._right_zone = RightZone(self.detail, self._process_panel)
+        self._right_zone.inspector_toggled.connect(self._set_detail_panel_visible)
+        self._right_zone.monitor_toggled.connect(self._set_process_dock_visible)
+        self.detail.add_header_button(self._right_zone.inspector_collapse_btn)
+        self._process_panel.add_header_button(self._right_zone.monitor_collapse_btn)
+        self.splitter.addWidget(self._right_zone)
+        self.center_tabs.currentChanged.connect(
+            lambda idx: self.detail.clear() if idx != 1 else None
+        )
+
+        for i in range(3):
             self.splitter.setCollapsible(i, False)
-        self.splitter.setSizes([248, 900, 320, 296])
+        self.splitter.setSizes([248, 900, 616])
         return self.splitter
 
     def _build_welcome(self) -> QWidget:
@@ -2058,7 +2048,7 @@ class MainWindow(QMainWindow):
         )
         self._task_gear_btn.clicked.connect(
             lambda: self._set_process_dock_visible(
-                not self._process_rail.is_expanded() if hasattr(self, "_process_rail") else True
+                not self._right_zone.is_monitor_visible() if hasattr(self, "_right_zone") else True
             )
         )
         pl.addWidget(self._task_gear_btn)
@@ -2542,26 +2532,9 @@ class MainWindow(QMainWindow):
     def _load_from_db(self) -> None:
         if not self._db_path or not Path(self._db_path).exists():
             return
-
-        if self._view_mode == "browser":
-            self._browser_path = ""
-            self._browser_history = []
-            self._load_browser_view()
-        else:
-            self._load_flat_view()
-
-    def _load_flat_view(self) -> None:
-        """Flat list view: load all files paginated."""
-        self._breadcrumb_bar.hide()
-
-        self.center_tabs.setTabText(1, "Files (loading…)")
-        self._stat_showing.setText("Loading…")
-
-        self._db_load_worker = DbLoadWorker(self._db_path, self._active_scan_id)
-        self._db_load_worker.db_loaded.connect(self._on_db_loaded)
-        self._db_load_worker.error.connect(lambda e: self._set_status(f"Error loading database: {e}"))
-        self._db_load_worker.start()
-        self._set_process_dock_visible(True)
+        self._browser_path = ""
+        self._browser_history = []
+        self._load_browser_view()
 
     def _on_db_loaded(self, data: dict) -> None:
         """Callback when database flat-view load completes."""
@@ -2596,7 +2569,8 @@ class MainWindow(QMainWindow):
         self._stat_showing.setText("Loading…")
 
         self._browser_worker = BrowserLoadWorker(
-            self._db_path, self._active_scan_id, self._browser_path
+            self._db_path, self._active_scan_id, self._browser_path,
+            recursive=self._folder_filter_recursive,
         )
         self._browser_worker.contents_ready.connect(self._on_browser_loaded)
         self._browser_worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
@@ -2669,7 +2643,7 @@ class MainWindow(QMainWindow):
             w = item.widget()
             if w:
                 w.deleteLater()
-        self._depth_seg_ctrl.setEnabled(bool(self._active_folder_filter))
+        self._depth_seg_ctrl.setEnabled(True)
 
         crumb_ss = (
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;"
@@ -2704,6 +2678,12 @@ class MainWindow(QMainWindow):
                 btn.clicked.connect(lambda _c=False, p=target_path: self._navigate_to_path(p))
                 self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 2, btn)
 
+        if self._browser_path:
+            self._update_pill_label()
+            self.folder_pill.show()
+        else:
+            self.folder_pill.hide()
+
     def _navigate_to_path(self, path: str) -> None:
         """Jump directly to a path (used by breadcrumb)."""
         if path == self._browser_path:
@@ -2711,33 +2691,20 @@ class MainWindow(QMainWindow):
         self._browser_path = path
         self._load_browser_view()
 
-    def _on_browse_toggled(self, checked: bool) -> None:
-        """Switch between browser and flat view modes."""
-        self._view_mode = "browser" if checked else "flat"
-        self._load_from_db()
-
     def _apply_filters(self) -> None:
-        term        = self.search_edit.text().strip().lower()
-        cat         = self.cat_combo.currentText()
-        folder      = self._active_folder_filter
+        term = self.search_edit.text().strip().lower()
+        cat  = self.cat_combo.currentText()
         if cat == "All types":
             cat = ""
-        folder_norm = str(Path(folder)) if folder else ""
 
         filtered = []
         for r in self._all_rows:
-            # Folder rows are always shown in browser mode (only filtered by search term)
+            # Folder rows: only filter by search term
             if len(r) > 2 and r[2] == _FOLDER_SENTINEL:
                 if term and term not in f"{r[1]} {r[0]}".lower():
                     continue
                 filtered.append(r)
                 continue
-            if folder_norm:
-                if self._folder_filter_recursive:
-                    if not r[0].startswith(folder_norm + "/") and r[0] != folder_norm:
-                        continue
-                elif str(Path(r[0]).parent) != folder_norm:
-                    continue
             if cat and r[2] != cat:
                 continue
             if term and term not in f"{r[1]} {r[2]} {r[6]} {r[7] if len(r) > 7 else ''} {r[0]}".lower():
@@ -2805,7 +2772,7 @@ class MainWindow(QMainWindow):
         self._filtered_rows = filtered
         self._apply_sort()
         self._stat_showing.setText(f"Showing {len(filtered):,}")
-        if self._active_folder_filter:
+        if self._browser_path:
             self._update_pill_label(filtered_count=len(filtered))
         self._update_filterbar_summary()
 
@@ -2925,55 +2892,40 @@ class MainWindow(QMainWindow):
     def _filter_by_folder(self, folder_path: str) -> None:
         if not folder_path:
             return
-        # In browser mode, navigate to the folder instead of filtering
-        if self._view_mode == "browser":
-            self._browser_path = folder_path
-            self._load_browser_view()
-            self.center_tabs.setCurrentIndex(1)
-            return
-        self._active_folder_filter    = folder_path
+        self._browser_path = folder_path
         self._folder_filter_recursive = False
         self._depth_grp.blockSignals(True)
         self._depth_this_btn.setChecked(True)
         self._depth_grp.blockSignals(False)
-        self._update_pill_label()
-        self.folder_pill.show()
-        self._depth_seg_ctrl.setEnabled(True)
-        self._breadcrumb_bar.show()
-        self._apply_filters()
+        self._load_browser_view()
         self.center_tabs.setCurrentIndex(1)
 
     def _on_depth_seg_clicked(self, btn_id: int) -> None:
         self._folder_filter_recursive = (btn_id == 1)
-        self._update_pill_label()
-        self._apply_filters()
+        self._load_browser_view()
 
     def _toggle_folder_depth(self) -> None:
-        if not self._active_folder_filter:
+        if not self._browser_path:
             return
         self._folder_filter_recursive = not self._folder_filter_recursive
         self._depth_grp.blockSignals(True)
         self._depth_grp.button(1 if self._folder_filter_recursive else 0).setChecked(True)
         self._depth_grp.blockSignals(False)
-        self._update_pill_label()
-        self._apply_filters()
+        self._load_browser_view()
 
     def _update_pill_label(self, filtered_count: int | None = None) -> None:
-        short = Path(self._active_folder_filter).name or self._active_folder_filter
+        short = Path(self._browser_path).name if self._browser_path else ""
         suffix = f"  ·  {filtered_count:,}" if filtered_count is not None else ""
         self.folder_pill_lbl.setText(f"{short}{suffix}")
 
     def _clear_folder_filter(self) -> None:
-        self._active_folder_filter    = ""
         self._folder_filter_recursive = False
         self._depth_grp.blockSignals(True)
         self._depth_this_btn.setChecked(True)
         self._depth_grp.blockSignals(False)
         self.folder_pill.hide()
-        self._depth_seg_ctrl.setEnabled(False)
-        if self._view_mode == "flat":
-            self._breadcrumb_bar.hide()
-        self._apply_filters()
+        self._browser_path = ""
+        self._load_browser_view()
 
     def _clear_filters(self) -> None:
         self.search_edit.clear()

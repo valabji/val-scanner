@@ -241,6 +241,7 @@ class ProcessPanel(QWidget):
         clear_btn.clicked.connect(self._clear_done)
         hl.addWidget(clear_btn)
 
+        self._hdr_lay = hl
         outer.addWidget(hdr)
 
         # Scrollable card area
@@ -259,6 +260,9 @@ class ProcessPanel(QWidget):
 
         scroll.setWidget(self._cards_widget)
         outer.addWidget(scroll, 1)
+
+    def add_header_button(self, btn) -> None:
+        self._hdr_lay.addWidget(btn)
 
     def _setup_watchdog(self) -> None:
         """Start the freeze-detection timer."""

@@ -161,6 +161,7 @@ class FolderPanel(QWidget):
         hl.addWidget(self.expand_btn)
         hl.addWidget(self.collapse_btn)
 
+        self._hdr_lay = hl
         lay.addWidget(hdr)
 
         self._content_stack = QStackedWidget()
@@ -179,6 +180,9 @@ class FolderPanel(QWidget):
         self._volume_map = VolumeMapWidget()
         self._volume_map.hide()
         lay.addWidget(self._volume_map)
+
+    def add_header_button(self, btn) -> None:
+        self._hdr_lay.addWidget(btn)
 
     @staticmethod
     def _size_color(ratio: float) -> str:

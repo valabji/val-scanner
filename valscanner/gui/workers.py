@@ -355,11 +355,12 @@ class BrowserLoadWorker(QThread):
     contents_ready = Signal(dict)  # {"folders": [...], "files": [...], "path": str, "scan_id": int}
     error          = Signal(str)
 
-    def __init__(self, db_path: str, scan_id: int | None, path: str):
+    def __init__(self, db_path: str, scan_id: int | None, path: str, recursive: bool = False):
         super().__init__()
         self.db_path    = db_path
         self.scan_id    = scan_id
         self.path       = path
+        self.recursive  = recursive
         self._interrupt = threading.Event()
         self._pid: str  = ""
 
@@ -396,42 +397,65 @@ class BrowserLoadWorker(QThread):
                     files = []
                 else:
                     like_prefix = self.path.rstrip("/") + "/%"
-                    like_deeper = self.path.rstrip("/") + "/%/%"
-                    if sid:
-                        folder_rows = conn.execute(
-                            text(
-                                "SELECT path, file_count, total_bytes, scan_id FROM folders "
-                                "WHERE scan_id=:sid AND path LIKE :pre AND path NOT LIKE :deep "
-                                "ORDER BY path"
-                            ),
-                            {"sid": sid, "pre": like_prefix, "deep": like_deeper},
-                        ).fetchall()
-                        file_rows = conn.execute(
-                            text(
-                                "SELECT path, filename, category, size_bytes, size_human, "
-                                "modified_at, tags, extra_meta "
-                                "FROM files WHERE scan_id=:sid AND path LIKE :pre AND path NOT LIKE :deep "
-                                "ORDER BY filename"
-                            ),
-                            {"sid": sid, "pre": like_prefix, "deep": like_deeper},
-                        ).fetchall()
+                    if self.recursive:
+                        # All files under this path (flat, no folder rows)
+                        if sid:
+                            folder_rows = []
+                            file_rows = conn.execute(
+                                text(
+                                    "SELECT path, filename, category, size_bytes, size_human, "
+                                    "modified_at, tags, extra_meta "
+                                    "FROM files WHERE scan_id=:sid AND path LIKE :pre ORDER BY filename"
+                                ),
+                                {"sid": sid, "pre": like_prefix},
+                            ).fetchall()
+                        else:
+                            folder_rows = []
+                            file_rows = conn.execute(
+                                text(
+                                    "SELECT path, filename, category, size_bytes, size_human, "
+                                    "modified_at, tags, extra_meta "
+                                    "FROM files WHERE path LIKE :pre ORDER BY filename"
+                                ),
+                                {"pre": like_prefix},
+                            ).fetchall()
                     else:
-                        folder_rows = conn.execute(
-                            text(
-                                "SELECT path, file_count, total_bytes, scan_id FROM folders "
-                                "WHERE path LIKE :pre AND path NOT LIKE :deep ORDER BY path"
-                            ),
-                            {"pre": like_prefix, "deep": like_deeper},
-                        ).fetchall()
-                        file_rows = conn.execute(
-                            text(
-                                "SELECT path, filename, category, size_bytes, size_human, "
-                                "modified_at, tags, extra_meta "
-                                "FROM files WHERE path LIKE :pre AND path NOT LIKE :deep "
-                                "ORDER BY filename"
-                            ),
-                            {"pre": like_prefix, "deep": like_deeper},
-                        ).fetchall()
+                        like_deeper = self.path.rstrip("/") + "/%/%"
+                        if sid:
+                            folder_rows = conn.execute(
+                                text(
+                                    "SELECT path, file_count, total_bytes, scan_id FROM folders "
+                                    "WHERE scan_id=:sid AND path LIKE :pre AND path NOT LIKE :deep "
+                                    "ORDER BY path"
+                                ),
+                                {"sid": sid, "pre": like_prefix, "deep": like_deeper},
+                            ).fetchall()
+                            file_rows = conn.execute(
+                                text(
+                                    "SELECT path, filename, category, size_bytes, size_human, "
+                                    "modified_at, tags, extra_meta "
+                                    "FROM files WHERE scan_id=:sid AND path LIKE :pre AND path NOT LIKE :deep "
+                                    "ORDER BY filename"
+                                ),
+                                {"sid": sid, "pre": like_prefix, "deep": like_deeper},
+                            ).fetchall()
+                        else:
+                            folder_rows = conn.execute(
+                                text(
+                                    "SELECT path, file_count, total_bytes, scan_id FROM folders "
+                                    "WHERE path LIKE :pre AND path NOT LIKE :deep ORDER BY path"
+                                ),
+                                {"pre": like_prefix, "deep": like_deeper},
+                            ).fetchall()
+                            file_rows = conn.execute(
+                                text(
+                                    "SELECT path, filename, category, size_bytes, size_human, "
+                                    "modified_at, tags, extra_meta "
+                                    "FROM files WHERE path LIKE :pre AND path NOT LIKE :deep "
+                                    "ORDER BY filename"
+                                ),
+                                {"pre": like_prefix, "deep": like_deeper},
+                            ).fetchall()
                     folders = list(folder_rows)
                     files   = list(file_rows)
 
