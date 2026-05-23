@@ -1780,8 +1780,7 @@ class MainWindow(QMainWindow):
         pref_settings().setValue("filterBarCollapsed", False)
 
     def _on_filter_pill_clicked(self) -> None:
-        self._toggle_filterbar(True)
-        self._expand_filterbar()
+        self._toggle_filterbar(False)
 
     def _update_filter_pill(self) -> None:
         if not hasattr(self, "_filter_pill"):
@@ -1799,7 +1798,10 @@ class MainWindow(QMainWindow):
         if self._browser_path:
             n += 1
         if n > 0:
-            self._filter_pill.setText(f" {n}")
+            if self._filterbar_strip.isVisible():
+                self._filter_pill.setText("")  # Show just icon when strip is visible
+            else:
+                self._filter_pill.setText(f" {n}")  # Show count when bar is hidden
             self._filter_pill.show()
         else:
             self._filter_pill.hide()
