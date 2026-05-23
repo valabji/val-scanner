@@ -276,6 +276,52 @@ Print each file path as it is indexed — useful to verify what is being include
 valscanner /path --verbose
 ```
 
+### Similarity analysis
+
+Find folders that look like near-duplicates — useful before a migration, cleanup, or de-duplication pass.
+
+**After a scan** — analyze only the folders from the scan that just ran:
+
+```bash
+valscanner ~/Projects --analyze
+```
+
+**Standalone** — analyze an existing database without re-scanning:
+
+```bash
+valscanner --analyze --db archive.db
+```
+
+**Tune the analysis** — filter out noise and adjust sensitivity:
+
+```bash
+# Only consider folders with ≥ 10 files; raise the similarity bar to 0.6
+valscanner --analyze --db archive.db --min-files 10 --threshold 0.6
+
+# Exclude build and VCS directories from the comparison
+valscanner --analyze --db archive.db --skip-caches --skip-vcs
+
+# Restrict to a single scan session
+valscanner --analyze --db archive.db --analysis-scan-id 3
+
+# Limit output to the top 50 pairs
+valscanner --analyze --db archive.db --analysis-results 50
+```
+
+Output lists folder pairs sorted by similarity score. Child pairs (sub-folders that are also similar) are indented under their parent:
+
+```
+   Score  Folder A                                       Folder B
+   ─────  ─────────────────────────────────────────────  ─────────────────────────────────────────────
+    0.94  /Volumes/Drive/Photos/2024                     /Volumes/Drive/Backup/Photos/2024
+    0.87  /Volumes/Drive/Projects/acme                   /Volumes/Drive/Archive/acme
+    0.74    ↳ /Volumes/Drive/Projects/acme/src           /Volumes/Drive/Archive/acme/src
+
+   3 pair(s) found.
+```
+
+The `--skip-*` flags apply to the similarity comparison itself — folders containing only skipped files are excluded from the analysis. When used alongside a scan, those same flags also control what gets indexed.
+
 ### Manage scan history
 
 ```bash
@@ -292,7 +338,7 @@ valscanner --delete-scan 3 --db archive.db
 
 | Flag | Default | Description |
 |---|---|---|
-| `path` | — | Root directory to scan (required unless using `--list-scans` or `--delete-scan`) |
+| `path` | — | Root directory to scan (required unless using `--list-scans`, `--delete-scan`, or standalone `--analyze`) |
 | `--db PATH` | `~/valscanner.db` | SQLite file path *or* full SQLAlchemy URL (e.g. `postgresql://user:pw@host/db`) |
 | `--label NAME` | directory name | Human-readable label for this scan session |
 | `--no-hash` | off | Skip SHA-256 hashing (faster; lighter similarity model) |
@@ -331,6 +377,18 @@ valscanner --delete-scan 3 --db archive.db
 | `--skip-binaries` | Binary/compiled files (`.exe`, `.dll`, `.so`, `.pyc`, …) |
 | `--skip-temp` | Temp/backup files (`.tmp`, `.bak`, `.swp`, `.DS_Store`, …) |
 | `--skip-logs` | Log files (`.log`) |
+
+**Similarity analysis**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--analyze` | off | Run folder-similarity analysis (after scan, or standalone with `--db`) |
+| `--min-files N` | `3` | Minimum files a folder must contain to be considered |
+| `--threshold F` | `0.40` | Minimum similarity score to report (0–1) |
+| `--analysis-results N` | `200` | Maximum number of folder pairs reported |
+| `--analysis-scan-id ID` | — | Restrict analysis to one specific scan |
+
+The `--skip-*` flags above also apply to the analysis: folders whose files are all excluded are omitted from the comparison.
 
 ---
 
@@ -544,10 +602,14 @@ valscanner ~/Pictures --no-thumbnails --label photos-2026 --db photos.db
 ### "Find near-duplicate folders before migrating to a NAS"
 
 ```bash
-valscanner /Volumes/OldDrive --label old-drive --db migration.db
+# Scan and immediately run analysis — results print to the terminal
+valscanner /Volumes/OldDrive --label old-drive --db migration.db --analyze
+
+# Or run analysis later against an existing database
+valscanner --analyze --db migration.db --threshold 0.6 --skip-caches
 ```
 
-After the scan, open the **Similar Folders** tab. Cards with a score above 0.8 are strong duplicate candidates. Expand each card to compare the two folder paths and decide which to keep.
+Pairs with a score above 0.8 are strong duplicate candidates. Alternatively, open the **Similar Folders** tab in the GUI — cards are collapsible and show child pairs nested under their ancestor pair.
 
 ### "Audit a project repo before archiving"
 

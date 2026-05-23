@@ -23,6 +23,7 @@ from .core.scanner import scan
 from .core.export import export_csv, export_json
 from .core.db import query_db, print_summary, list_scans, delete_scan
 from .core.transfer import transfer_db
+from .core.similarity import find_similar_folders
 
 
 def _export_stem(db_arg: str | None) -> str:
@@ -38,6 +39,62 @@ def _export_stem(db_arg: str | None) -> str:
         return "scan"
     stem = Path(db_arg).stem
     return stem or "scan"
+
+
+def _run_analysis(url: str, args, scan_id: int | None) -> None:
+    scan_ids = None
+    if args.analysis_scan_id is not None:
+        scan_ids = [args.analysis_scan_id]
+    elif scan_id is not None:
+        scan_ids = [scan_id]
+
+    filters = {
+        "skip_hidden_files": args.skip_hidden_files,
+        "skip_hidden_dirs":  args.skip_hidden_dirs,
+        "skip_system":       args.skip_system,
+        "skip_caches":       args.skip_caches,
+        "skip_vcs":          args.skip_vcs,
+        "skip_binaries":     args.skip_binaries,
+        "skip_temp":         args.skip_temp,
+        "skip_logs":         args.skip_logs,
+    }
+
+    print(f"\n🔍 Running similarity analysis "
+          f"(min-files={args.min_files}, threshold={args.threshold:.2f})…")
+
+    def _progress(done: int, total: int) -> None:
+        if total > 0:
+            pct = int(done / total * 100)
+            print(f"\r   {pct:3d}%  ({done:,}/{total:,} pairs)", end="", flush=True)
+
+    pairs = find_similar_folders(
+        url,
+        min_files=args.min_files,
+        threshold=args.threshold,
+        max_results=args.analysis_results,
+        scan_ids=scan_ids,
+        filters=filters,
+        progress_cb=_progress,
+    )
+    print()  # newline after progress
+
+    if not pairs:
+        print("   No similar folder pairs found.\n")
+        return
+
+    print(f"\n   {'Score':>5}  {'Folder A':<45}  Folder B")
+    print(f"   {'─'*5}  {'─'*45}  {'─'*45}")
+    for pair in pairs:
+        a = pair["folder_a"]
+        b = pair["folder_b"]
+        score = pair["score"]
+        print(f"   {score:>5.2f}  {a:<45}  {b}")
+        for child in pair.get("children", []):
+            ca = child["folder_a"]
+            cb = child["folder_b"]
+            cs = child["score"]
+            print(f"   {cs:>5.2f}    ↳ {ca:<43}  {cb}")
+    print(f"\n   {len(pairs)} pair(s) found.\n")
 
 
 def main() -> None:
@@ -104,6 +161,19 @@ def main() -> None:
     skip.add_argument("--skip-logs",         action="store_true",
                       help="Skip log files (.log)")
 
+    analysis = parser.add_argument_group("similarity analysis")
+    analysis.add_argument("--analyze",          action="store_true",
+                          help="Run folder-similarity analysis after scanning "
+                               "(or standalone with --db, no path required)")
+    analysis.add_argument("--min-files",        type=int, default=3, metavar="N",
+                          help="Minimum files per folder for analysis (default: 3)")
+    analysis.add_argument("--threshold",        type=float, default=0.40, metavar="F",
+                          help="Minimum similarity score 0–1 (default: 0.40)")
+    analysis.add_argument("--analysis-results", type=int, default=200, metavar="N",
+                          help="Maximum number of folder pairs to report (default: 200)")
+    analysis.add_argument("--analysis-scan-id", type=int, default=None, metavar="ID",
+                          help="Restrict analysis to a specific scan ID")
+
     args = parser.parse_args()
 
     if args.open_settings:
@@ -159,9 +229,13 @@ def main() -> None:
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)
 
+    if args.analyze and not args.path:
+        _run_analysis(url, args, scan_id=None)
+        sys.exit(0)
+
     if not args.path:
         parser.error("path is required unless using --list-scans, --delete-scan, "
-                     "--open-settings, --dump-to-sqlite, or --load-from-sqlite")
+                     "--open-settings, --dump-to-sqlite, --load-from-sqlite, or --analyze")
 
     root = Path(args.path).expanduser().resolve()
     if not root.exists():
@@ -226,6 +300,9 @@ def main() -> None:
         export_json(url, f"{db_stem}.json", scan_id=stats["scan_id"])
     if args.query:
         query_db(url, args.query)
+
+    if args.analyze:
+        _run_analysis(url, args, scan_id=stats["scan_id"])
 
     print(f"  💡 Run with --query photos, --list-scans, or open the GUI:\n"
           f"     valscanner-gui\n")
