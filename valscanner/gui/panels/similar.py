@@ -90,6 +90,16 @@ class FolderGroupCard(QFrame):
         hdr = QHBoxLayout()
         hdr.setSpacing(6)
 
+        if not self._is_child:
+            self._collapse_btn = QPushButton("▼")
+            self._collapse_btn.setFixedSize(18, 18)
+            self._collapse_btn.setStyleSheet(
+                f"QPushButton{{background:transparent;color:{SUBTEXT};"
+                f"border:none;font-size:9px;padding:0;}}"
+                f"QPushButton:hover{{color:{TEXT};}}"
+            )
+            hdr.addWidget(self._collapse_btn)
+
         badge = QLabel(f"  ~{r['label']}  ")
         badge.setStyleSheet(
             f"background:{lc}22;color:{lc};border:1px solid {lc}66;"
@@ -138,6 +148,16 @@ class FolderGroupCard(QFrame):
 
         lay.addLayout(hdr)
 
+        # For top-level cards, wrap body in a collapsible container
+        if not self._is_child:
+            self._body = QWidget()
+            body_lay = QVBoxLayout(self._body)
+            body_lay.setContentsMargins(0, 0, 0, 0)
+            body_lay.setSpacing(6)
+            target = body_lay
+        else:
+            target = lay
+
         if not self._is_child:
             bar = QProgressBar()
             bar.setRange(0, 100)
@@ -148,7 +168,7 @@ class FolderGroupCard(QFrame):
                 f"QProgressBar{{background:{DARK_BG};border:none;border-radius:2px;}}"
                 f"QProgressBar::chunk{{background:{lc};border-radius:2px;}}"
             )
-            lay.addWidget(bar)
+            target.addWidget(bar)
 
         parent_members: list = r.get("_parent_members", []) or []
         scan_ids = {m.get("scan_id", 0) for m in members}
@@ -207,7 +227,7 @@ class FolderGroupCard(QFrame):
             fp = abs_path
             ob.clicked.connect(lambda _, p=fp: self.open_folder.emit(p))
             frow.addWidget(ob)
-            lay.addLayout(frow)
+            target.addLayout(frow)
 
         def _metric_chip(icon_name: str, label: str, value_pct: int,
                          text_color: str, border_color: str) -> QWidget:
@@ -248,13 +268,13 @@ class FolderGroupCard(QFrame):
             sh.setStyleSheet(f"color:{GREEN};font-size:10px;")
             sigs.addWidget(sh)
         sigs.addStretch()
-        lay.addLayout(sigs)
+        target.addLayout(sigs)
 
         if children and not self._is_child:
             sep = QFrame()
             sep.setFrameShape(QFrame.HLine)
             sep.setStyleSheet(f"color:{BORDER:44};")
-            lay.addWidget(sep)
+            target.addWidget(sep)
 
             nc       = len(children)
             total_cf = _child_total_files(children)
@@ -268,7 +288,7 @@ class FolderGroupCard(QFrame):
             )
             toggle_row = QHBoxLayout()
             toggle_row.addWidget(self._toggle_btn, 1)
-            lay.addLayout(toggle_row)
+            target.addLayout(toggle_row)
 
             self._children_widget = QWidget()
             self._children_widget.setStyleSheet(
@@ -285,8 +305,17 @@ class FolderGroupCard(QFrame):
                 cl.addWidget(child_card)
 
             self._children_widget.hide()
-            lay.addWidget(self._children_widget)
+            target.addWidget(self._children_widget)
             self._toggle_btn.clicked.connect(self._toggle_children)
+
+        if not self._is_child:
+            lay.addWidget(self._body)
+            self._collapse_btn.clicked.connect(self._toggle_collapse)
+
+    def _toggle_collapse(self) -> None:
+        collapsed = self._body.isVisible()
+        self._body.setVisible(not collapsed)
+        self._collapse_btn.setText("▶" if collapsed else "▼")
 
     def _toggle_children(self) -> None:
         visible = self._children_widget.isVisible()
