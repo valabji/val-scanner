@@ -88,11 +88,11 @@ class FolderGroupCard(QFrame):
         n_mem    = len(members)
 
         hdr = QHBoxLayout()
-        hdr.setSpacing(6)
+        hdr.setSpacing(8)
 
         if not self._is_child:
             self._collapse_btn = QPushButton("▼")
-            self._collapse_btn.setFixedSize(18, 18)
+            self._collapse_btn.setFixedSize(16, 16)
             self._collapse_btn.setStyleSheet(
                 f"QPushButton{{background:transparent;color:{SUBTEXT};"
                 f"border:none;font-size:9px;padding:0;}}"
@@ -100,53 +100,55 @@ class FolderGroupCard(QFrame):
             )
             hdr.addWidget(self._collapse_btn)
 
-        badge = QLabel(f"  ~{r['label']}  ")
-        badge.setStyleSheet(
-            f"background:{lc}22;color:{lc};border:1px solid {lc}66;"
-            f"border-radius:10px;padding:2px 8px;font-size:10px;font-weight:bold;"
+        label_lbl = QLabel(r["label"])
+        label_lbl.setStyleSheet(
+            f"color:{lc};font-size:{'11px' if self._is_child else '12px'};"
+            f"font-weight:bold;background:transparent;"
         )
-        hdr.addWidget(badge)
+        hdr.addWidget(label_lbl)
 
-        score_lbl = QLabel(f"  {int(r['score']*100)}%")
-        score_lbl.setStyleSheet(
-            f"color:{lc};font-size:{'11px' if self._is_child else '13px'};font-weight:bold;"
-        )
-        hdr.addWidget(score_lbl)
-
-        if n_mem > 2:
-            count_badge = QLabel(f"  {n_mem} folders  ")
-            count_badge.setStyleSheet(
-                f"color:{ACCENT};background:{ACCENT:22};border:1px solid {ACCENT:66};"
-                f"border-radius:10px;padding:2px 8px;font-size:10px;font-weight:bold;"
-            )
-            hdr.addWidget(count_badge)
+        meta_lbl = None
+        if not self._is_child:
+            total_bytes = sum(m.get("bytes", 0) for m in members)
+            meta_parts: list[str] = []
+            if n_mem > 2:
+                meta_parts.append(f"{n_mem} folders")
+            meta_parts.append(human_size(total_bytes))
+            meta_lbl = QLabel("  ·  " + "  ·  ".join(meta_parts))
+            meta_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:11px;background:transparent;")
+            hdr.addWidget(meta_lbl)
 
         hdr.addStretch()
 
-        if children and not self._is_child:
-            nc        = len(children)
-            total_cf  = _child_total_files(children)
-            sub_badge = QLabel(
-                f"  ＋{nc} subfolder group{'s' if nc>1 else ''}  ·  {total_cf:,} more files  "
-            )
-            sub_badge.setStyleSheet(
-                f"color:{ACCENT};background:{ACCENT:22};border:1px solid {ACCENT:66};"
-                f"border-radius:10px;padding:2px 8px;font-size:10px;"
-            )
-            hdr.addWidget(sub_badge)
+        score_lbl = QLabel(f"{int(r['score'] * 100)}%")
+        score_lbl.setStyleSheet(
+            f"color:{lc};font-size:{'11px' if self._is_child else '12px'};"
+            f"font-weight:bold;background:transparent;"
+        )
+        hdr.addWidget(score_lbl)
 
         if not self._is_child:
-            dismiss = QPushButton("✓ Dismiss")
-            dismiss.setFixedSize(80, 24)
+            self._hdr_labels = [w for w in [label_lbl, meta_lbl, score_lbl] if w is not None]
+
+        if not self._is_child:
+            from PySide6.QtCore import QSize as _QS
+            dismiss = QPushButton()
+            dismiss.setFixedSize(22, 22)
+            dismiss.setIcon(_icons.icon("close", color=str(SUBTEXT)))
+            dismiss.setIconSize(_QS(12, 12))
             dismiss.setStyleSheet(
-                f"QPushButton{{background:transparent;color:{SUBTEXT};"
-                f"border:1px solid {BORDER};border-radius:6px;font-size:10px;}}"
-                f"QPushButton:hover{{color:{TEXT};border-color:{TEXT};}}"
+                f"QPushButton{{background:transparent;border:none;border-radius:4px;padding:0;}}"
+                f"QPushButton:hover{{background:{BORDER};}}"
             )
             dismiss.clicked.connect(self.hide)
             hdr.addWidget(dismiss)
 
         lay.addLayout(hdr)
+
+        if not self._is_child:
+            self._paths_tooltip = "\n".join(
+                m.get("folder", "") for m in members[:4]
+            ) + (" …" if len(members) > 4 else "")
 
         # For top-level cards, wrap body in a collapsible container
         if not self._is_child:
@@ -316,6 +318,11 @@ class FolderGroupCard(QFrame):
         collapsed = self._body.isVisible()
         self._body.setVisible(not collapsed)
         self._collapse_btn.setText("▶" if collapsed else "▼")
+        tip = self._paths_tooltip if collapsed else ""
+        self.setToolTip(tip)
+        self._collapse_btn.setToolTip(tip)
+        for w in self._hdr_labels:
+            w.setToolTip(tip)
 
     def _toggle_children(self) -> None:
         visible = self._children_widget.isVisible()
