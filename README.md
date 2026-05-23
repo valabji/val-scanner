@@ -1,8 +1,39 @@
 # ValScanner
 
-A recursive file scanner with rich metadata extraction, full-text search, auto-tagging, thumbnail generation, and similar-folder detection — available as a CLI, a PySide6 desktop GUI, and a browser-based Web UI.
+A recursive file scanner with rich metadata extraction, full-text search, auto-tagging, thumbnail generation, and similar-folder detection, available as a CLI, a PySide6 desktop GUI, and a browser-based Web UI.
+
+[![PyPI](https://img.shields.io/pypi/v/valscanner)](https://pypi.org/project/valscanner/)
+[![Python](https://img.shields.io/pypi/pyversions/valscanner)](https://pypi.org/project/valscanner/)
+[![License](https://img.shields.io/github/license/valabji/val-scanner)](LICENSE)
+[![CI](https://github.com/valabji/val-scanner/actions/workflows/web.yml/badge.svg)](https://github.com/valabji/val-scanner/actions)
 
 ---
+
+## Screenshots
+
+### Grid View
+![Grid View](assets/screenshots/grid-view.png)
+*Thumbnail grid: browse image and video files visually*
+
+### List View
+![List View](assets/screenshots/list-view.png)
+*List view: compact overview of the indexed files*
+
+### Details View + Inspector
+![Details View](assets/screenshots/details-view.png)
+*Details view with sortable columns: click any file to see full metadata, tags, and thumbnail in the  inspector panel*
+
+### Similar Folders
+![Similar Folders](assets/screenshots/similar-folders.png)
+*Similar folders panel: pairwise similarity scores help identify near-duplicate directories*
+
+### Similar Folders Filters
+![Similar Folders Filters](assets/screenshots/similar-folders-filters.png)
+*Filter panel for similar-folder analysis: narrow down the next analysis*
+
+### Web UI
+![Web UI](assets/screenshots/web-ui.png)
+*Browser-based Web UI*
 
 ## Features
 
