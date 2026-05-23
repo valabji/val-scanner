@@ -96,6 +96,7 @@ class ScanWorker(QThread):
                 label=self.label,
                 cancel_event=self._cancel_event,
                 on_progress=_on_progress,
+                resume=self.options.pop("resume", False),
                 **self.options,
             )
             repo = repo_for(self.db_path)

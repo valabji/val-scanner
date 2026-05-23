@@ -14,6 +14,7 @@ class ScansMixin(RepositoryBase):
         stmt = select(
             scans.c.id, scans.c.label, scans.c.root, scans.c.scanned_at,
             scans.c.file_count, scans.c.total_bytes, scans.c.total_human,
+            scans.c.status,
         ).order_by(scans.c.id)
         with self._engine.connect() as conn:
             try:
@@ -49,6 +50,28 @@ class ScansMixin(RepositoryBase):
     def update_scan_label(self, scan_id: int, label: str) -> None:
         with self._engine.begin() as conn:
             conn.execute(update(scans).where(scans.c.id == scan_id).values(label=label))
+
+    def set_scan_status(self, scan_id: int, status: str) -> None:
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(update(scans).where(scans.c.id == scan_id).values(status=status))
+        except Exception:
+            pass  # column absent on old DBs not yet migrated
+
+    def find_interrupted_scan(self, root: str) -> int | None:
+        """Return the most recent scan_id for root that never completed, or None."""
+        stmt = (
+            select(scans.c.id)
+            .where((scans.c.root == root) & (scans.c.status == "running"))
+            .order_by(scans.c.id.desc())
+            .limit(1)
+        )
+        try:
+            with self._engine.connect() as conn:
+                row = conn.execute(stmt).fetchone()
+            return row[0] if row else None
+        except Exception:
+            return None  # status column absent on old DB
 
     def delete_scan(self, scan_id: int) -> None:
         with self._engine.begin() as conn:

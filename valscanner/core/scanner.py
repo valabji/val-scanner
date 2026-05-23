@@ -28,6 +28,26 @@ from .schema import human_size, ts
 from .tagging import generate_tags
 
 
+def _rebuild_folder_totals_from_db(repo, scan_id: int, root: Path) -> dict:
+    """Recompute the full folder hierarchy from DB rows for a resumed scan."""
+    totals: dict = {}
+    for row in repo.iter_files_for_export(scan_id):
+        size = row["size_bytes"] or 0
+        folder = Path(row["path"]).parent
+        while True:
+            key = str(folder)
+            entry = totals.setdefault(key, [0, 0])
+            entry[0] += 1
+            entry[1] += size
+            if folder == root:
+                break
+            parent = folder.parent
+            if parent == folder:
+                break
+            folder = parent
+    return totals
+
+
 def scan(
     root: Path,
     db_path: str,
@@ -49,6 +69,7 @@ def scan(
     skip_logs:         bool = False,
     cancel_event=None,
     scan_id: int | None = None,
+    resume: bool = False,
     on_progress: Callable[[dict], None] | None = None,
 ) -> dict:
     # `scan()` is the top-level entry for indexing. CLI/web/GUI callers run
@@ -59,11 +80,21 @@ def scan(
 
     now        = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     scan_label = label.strip() or root.name
+    root_resolved = root.resolve()
+
+    if resume and scan_id is None:
+        scan_id = repo.find_interrupted_scan(str(root_resolved))
 
     if scan_id is None:
-        scan_id = repo.create_scan(root=str(root), label=scan_label, scanned_at=now)
+        scan_id = repo.create_scan(root=str(root_resolved), label=scan_label, scanned_at=now)
 
-    stats: dict = {"scanned": 0, "errors": 0, "skipped": 0, "scan_id": scan_id, "total_bytes": 0}
+    repo.set_scan_status(scan_id, "running")
+
+    stats: dict = {
+        "scanned": 0, "errors": 0, "skipped": 0,
+        "scan_id": scan_id, "total_bytes": 0,
+        "resumed": resume,
+    }
     folder_totals: dict = {}
 
     def _emit(event: dict) -> None:
@@ -184,7 +215,7 @@ def scan(
                         folder_totals[key] = [0, 0]
                     folder_totals[key][0] += 1
                     folder_totals[key][1] += size
-                    if folder == root:
+                    if folder == root_resolved:
                         break
                     parent = folder.parent
                     if parent == folder:
@@ -201,6 +232,11 @@ def scan(
                 if verbose:
                     print(f"  [ERROR] {fpath}: {e}")
 
+    # On resume the in-memory folder_totals only covers newly-indexed files;
+    # rebuild from DB so every ancestor folder reflects the full picture.
+    if resume:
+        folder_totals = _rebuild_folder_totals_from_db(repo, scan_id, root_resolved)
+
     indexed_at = ts(time.time())
     for fpath_str, (fc, tb) in folder_totals.items():
         repo.upsert_folder(
@@ -210,9 +246,15 @@ def scan(
             indexed_at=indexed_at,
         )
 
-    repo.update_scan_totals(
-        scan_id, stats["scanned"], stats["total_bytes"],
-        human_size(stats["total_bytes"]),
-    )
+    root_key = str(root_resolved)
+    if root_key in folder_totals:
+        final_count = folder_totals[root_key][0]
+        final_bytes = folder_totals[root_key][1]
+    else:
+        final_count = stats["scanned"]
+        final_bytes = stats["total_bytes"]
+
+    repo.update_scan_totals(scan_id, final_count, final_bytes, human_size(final_bytes))
+    repo.set_scan_status(scan_id, "resumed" if resume else "complete")
     _emit({"done": True, "scan_id": scan_id, "scanned": stats["scanned"]})
     return stats

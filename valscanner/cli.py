@@ -51,6 +51,8 @@ def main() -> None:
     parser.add_argument("--export-csv",   action="store_true", help="Export results to CSV")
     parser.add_argument("--export-json",  action="store_true", help="Export results to JSON")
     parser.add_argument("--no-hash",      action="store_true", help="Skip SHA-256 hashing")
+    parser.add_argument("--resume",       action="store_true",
+                        help="Resume an interrupted scan of the same path")
     parser.add_argument("--verbose",      action="store_true", help="Print each file as indexed")
     parser.add_argument("--query",        metavar="TERM", help="Query the database after scanning")
     parser.add_argument("--list-scans",   action="store_true", help="List all scans in the database")
@@ -97,7 +99,7 @@ def main() -> None:
 
     t0      = time.time()
     stats   = scan(root, url, compute_hash=not args.no_hash,
-                   verbose=args.verbose, label=args.label)
+                   verbose=args.verbose, label=args.label, resume=args.resume)
     elapsed = time.time() - t0
 
     print(f"\n✅ Done in {elapsed:.1f}s — "

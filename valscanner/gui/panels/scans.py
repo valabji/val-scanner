@@ -195,7 +195,9 @@ class ScansPanel(QWidget):
             return
         for s in scans:
             sid        = QStandardItem(str(s["id"]))
-            label_item = QStandardItem(s["label"] or "—")
+            plain_label = s["label"] or "—"
+            display_label = (plain_label + " (resumed)") if s.get("status") == "resumed" else plain_label
+            label_item = QStandardItem(display_label)
             root_item  = QStandardItem(s["root"])
             date_item  = QStandardItem(s["scanned_at"])
             files_item = QStandardItem(f"{s['file_count']:,}")

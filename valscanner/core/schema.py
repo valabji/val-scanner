@@ -31,6 +31,7 @@ scans = Table(
     Column("file_count", Integer, default=0),
     Column("total_bytes", BigInteger, default=0),
     Column("total_human", Text, default=""),
+    Column("status", Text, default="complete"),
 )
 
 files = Table(
