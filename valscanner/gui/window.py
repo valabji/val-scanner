@@ -1181,7 +1181,7 @@ class MainWindow(QMainWindow):
         rl.addWidget(label_lbl)
 
         self.label_edit = QLineEdit()
-        self.label_edit.setPlaceholderText("Aurora — Q4 Reshoot")
+        self.label_edit.setPlaceholderText("✨ My amazing scan")
         self.label_edit.setFixedWidth(170)
         self.label_edit.setFixedHeight(28)
         self.label_edit.setToolTip("Optional name for this scan")
@@ -2262,6 +2262,11 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "db_edit"):
             self.db_edit.setText(self._db_path)
+
+        # Update chip text if database bar is collapsed
+        if self._db_chip.isVisible():
+            name = Path(self._db_path).name if self._db_path else "no database"
+            self._db_chip.setText(f"  {name}  ")
 
         if self._db_path and Path(self._db_path).exists():
             self.recent_dbs.push(self._db_path)
