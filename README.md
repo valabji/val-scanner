@@ -704,4 +704,4 @@ Updates `pyproject.toml`, `valscanner/__init__.py`, `valscanner.spec`, `build_ap
 
 ## License
 
-MIT — Copyright (c) 2026 Abdalrahman Valabji
+MIT — Copyright (c) 2026 [Abdalrahman Valabji](https://github.com/valabji)
