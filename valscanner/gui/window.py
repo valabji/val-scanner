@@ -801,6 +801,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_act_filterbar"):
             self._act_filterbar.setChecked(visible)
         pref_settings().setValue("panelFilterBarVisible", visible)
+        self._update_filter_pill()
 
     def _toggle_statsbar(self, visible: bool) -> None:
         self._statsbar.setVisible(visible)
@@ -1776,11 +1777,21 @@ class MainWindow(QMainWindow):
     def _expand_filterbar(self) -> None:
         self._filterbar_strip.hide()
         self._filterbar.show()
-        self._filter_pill.hide()
+        self._update_filter_pill()
         pref_settings().setValue("filterBarCollapsed", False)
 
     def _on_filter_pill_clicked(self) -> None:
-        self._toggle_filterbar(False)
+        container_visible = (
+            hasattr(self, "_filterbar_container") and self._filterbar_container.isVisible()
+        )
+        strip_visible = container_visible and self._filterbar_strip.isVisible()
+        if strip_visible:
+            # Collapsed → hide entirely
+            self._toggle_filterbar(False)
+        else:
+            # Hidden → show and expand to full bar
+            self._toggle_filterbar(True)
+            self._expand_filterbar()
 
     def _update_filter_pill(self) -> None:
         if not hasattr(self, "_filter_pill"):
@@ -1797,14 +1808,31 @@ class MainWindow(QMainWindow):
         n += self._count_active_view_filters()
         if self._browser_path:
             n += 1
-        if n > 0:
-            if self._filterbar_strip.isVisible():
-                self._filter_pill.setText("")  # Show just icon when strip is visible
-            else:
-                self._filter_pill.setText(f" {n}")  # Show count when bar is hidden
+
+        if n == 0:
+            self._filter_pill.hide()
+            return
+
+        container_visible = (
+            hasattr(self, "_filterbar_container") and self._filterbar_container.isVisible()
+        )
+        full_bar_visible = container_visible and self._filterbar.isVisible()
+        strip_visible = container_visible and self._filterbar_strip.isVisible()
+        label = "filter" if n == 1 else "filters"
+
+        if full_bar_visible:
+            # Full bar is showing — pill not needed
+            self._filter_pill.hide()
+        elif strip_visible:
+            # Collapsed to strip — icon only, click hides bar
+            self._filter_pill.setText("")
+            self._filter_pill.setToolTip(f"{n} active {label} — click to hide filter bar")
             self._filter_pill.show()
         else:
-            self._filter_pill.hide()
+            # Bar hidden entirely — icon + count, click restores bar
+            self._filter_pill.setText(f" {n}")
+            self._filter_pill.setToolTip(f"{n} active {label} — click to show filter bar")
+            self._filter_pill.show()
 
     def _update_filterbar_summary(self) -> None:
         if not hasattr(self, "_fb_strip_summary"):
