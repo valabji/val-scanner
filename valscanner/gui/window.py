@@ -254,24 +254,30 @@ class MainWindow(QMainWindow):
         for _b in self._density_btn_grp.buttons():
             _b.setStyleSheet(_vbtn_ss)
 
-        # breadcrumb + depth buttons
+        # breadcrumb + filter pill
         self._breadcrumb_bar.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
-        _seg = (
-            f"QPushButton{{background:{PANEL_BG};color:{SUBTEXT};border:1px solid {BORDER};"
-            f"padding:2px 9px;font-size:11px;}}"
-            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
-            f"QPushButton:hover:!checked{{color:{TEXT};}}"
+
+        # filter pill with icon + count
+        self._filter_pill.setStyleSheet(
+            f"QPushButton{{background:{ACCENT:22};color:{ACCENT};border:1px solid {ACCENT:6a};"
+            f"border-radius:11px;padding:1px 9px 1px 6px;font-size:11px;}}"
+            f"QPushButton:hover{{background:{ACCENT:33};}}"
         )
-        self._depth_this_btn.setStyleSheet(
-            _seg + "QPushButton{border-radius:0;"
-                   "border-top-left-radius:5px;border-bottom-left-radius:5px;}"
+        self._filter_pill.setIcon(_icons.icon("mdi.filter", color=str(ACCENT)))
+
+        # depth buttons re-styling on theme change
+        _depth_ss = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:4px;}}"
+            f"QPushButton:hover{{color:{TEXT};background:{BG2};}}"
+            f"QPushButton:checked{{color:{ACCENT};background:{ACCENT:22};}}"
+            f"QPushButton:disabled{{color:{DIVIDER2};}}"
         )
-        self._depth_sub_btn.setStyleSheet(
-            _seg + "QPushButton{border-radius:0;"
-                   "border-top-right-radius:5px;border-bottom-right-radius:5px;border-left:none;}"
-        )
+        self._depth_flat_btn.setStyleSheet(_depth_ss)
+        self._depth_rec_btn.setStyleSheet(_depth_ss)
+        self._depth_flat_btn.setIcon(_icons.icon("mdi.folder", color=str(SUBTEXT)))
+        self._depth_rec_btn.setIcon(_icons.icon("mdi.folder-multiple", color=str(SUBTEXT)))
 
         # views
         self.table.setStyleSheet(f"""
@@ -1418,10 +1424,14 @@ class MainWindow(QMainWindow):
         self._filterbar.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
-        self._filterbar.setMinimumHeight(46)
-        fl = QHBoxLayout(self._filterbar)
-        fl.setContentsMargins(14, 8, 14, 8)
-        fl.setSpacing(8)
+        fl = QVBoxLayout(self._filterbar)
+        fl.setContentsMargins(0, 6, 0, 6)
+        fl.setSpacing(4)
+
+        # ── Row 1: search + depth + group ─────────────────────────────────
+        rl1 = QHBoxLayout()
+        rl1.setContentsMargins(14, 0, 14, 8)
+        rl1.setSpacing(8)
 
         # ── Search input ───────────────────────────────────────────────────
         self.search_edit = QLineEdit()
@@ -1441,7 +1451,131 @@ class MainWindow(QMainWindow):
             f"border-radius:8px; padding:0 10px; font-size:12px; }}"
             f"QLineEdit:focus {{ border-color:{ACCENT}; background:{PANEL_BG}; }}"
         )
-        fl.addWidget(self.search_edit)
+        rl1.addWidget(self.search_edit, 1)
+
+        # ── Active pills (inline) ──────────────────────────────────────────
+        self.folder_pill = QWidget()
+        self.folder_pill.setStyleSheet(
+            f"background: {ACCENT:22}; border: 1px solid {ACCENT:6a}; border-radius: 11px;"
+        )
+        self.folder_pill.setFixedHeight(22)
+        pill_lay = QHBoxLayout(self.folder_pill)
+        pill_lay.setContentsMargins(9, 0, 4, 0)
+        pill_lay.setSpacing(5)
+        pill_icon = self._icon_label("folder-open", 11, color=str(ACCENT))
+        pill_lay.addWidget(pill_icon)
+        self.folder_pill_lbl = QLabel()
+        self.folder_pill_lbl.setStyleSheet(
+            f"color: {ACCENT}; font-size: 10.5px; border: none; background: transparent;"
+            f"font-family: '{mono_font_family()}', monospace;"
+        )
+        pill_lay.addWidget(self.folder_pill_lbl)
+        dismiss_pill = QPushButton()
+        dismiss_pill.setIcon(_icons.icon("close", color=str(ACCENT)))
+        dismiss_pill.setIconSize(QSize(10, 10))
+        dismiss_pill.setFixedSize(16, 16)
+        dismiss_pill.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; padding: 0; border-radius: 8px; }}"
+            f"QPushButton:hover {{ background: {ACCENT:33}; }}"
+        )
+        dismiss_pill.clicked.connect(self._clear_folder_filter)
+        pill_lay.addWidget(dismiss_pill)
+        self.folder_pill.hide()
+        rl1.addWidget(self.folder_pill)
+
+        # ── Inline scan progress ───────────────────────────────────────────
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setFixedSize(140, 4)
+        self.progress.setTextVisible(False)
+        self.progress.setStyleSheet(
+            f"QProgressBar {{ border: none; background: {DARK_BG}; border-radius: 2px; }}"
+            f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
+        )
+        self.progress.hide()
+        rl1.addWidget(self.progress)
+
+        self.elapsed_lbl = QLabel()
+        self.elapsed_lbl.setStyleSheet(
+            f"color: {SUBTEXT}; font-size: 10px; font-family: '{mono_font_family()}', monospace;"
+        )
+        self.elapsed_lbl.setFixedWidth(54)
+        self.elapsed_lbl.hide()
+        rl1.addWidget(self.elapsed_lbl)
+
+        # ── Depth toggle divider ───────────────────────────────────────────
+        depth_divider = QFrame()
+        depth_divider.setFrameShape(QFrame.VLine)
+        depth_divider.setFrameShadow(QFrame.Plain)
+        depth_divider.setStyleSheet(f"color: {DIVIDER2};")
+        depth_divider.setFixedSize(1, 20)
+        rl1.addWidget(depth_divider)
+
+        # ── Depth toggle buttons (folder scope) ────────────────────────────
+        self._depth_flat_btn = QPushButton()
+        self._depth_flat_btn.setIcon(_icons.icon("mdi.folder", color=str(SUBTEXT)))
+        self._depth_flat_btn.setIconSize(QSize(13, 13))
+        self._depth_flat_btn.setFixedSize(26, 24)
+        self._depth_flat_btn.setCheckable(True)
+        self._depth_flat_btn.setChecked(True)
+        self._depth_flat_btn.setEnabled(False)
+        self._depth_flat_btn.setToolTip("This folder only")
+        self._depth_flat_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:4px;}}"
+            f"QPushButton:hover{{color:{TEXT};background:{BG2};}}"
+            f"QPushButton:checked{{color:{ACCENT};background:{ACCENT:22};}}"
+        )
+        rl1.addWidget(self._depth_flat_btn)
+
+        self._depth_rec_btn = QPushButton()
+        self._depth_rec_btn.setIcon(_icons.icon("mdi.folder-multiple", color=str(SUBTEXT)))
+        self._depth_rec_btn.setIconSize(QSize(13, 13))
+        self._depth_rec_btn.setFixedSize(26, 24)
+        self._depth_rec_btn.setCheckable(True)
+        self._depth_rec_btn.setEnabled(False)
+        self._depth_rec_btn.setToolTip("Include subfolders")
+        self._depth_rec_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:4px;}}"
+            f"QPushButton:hover{{color:{TEXT};background:{BG2};}}"
+            f"QPushButton:checked{{color:{ACCENT};background:{ACCENT:22};}}"
+        )
+        rl1.addWidget(self._depth_rec_btn)
+
+        self._depth_grp = QButtonGroup(self._filterbar)
+        self._depth_grp.setExclusive(True)
+        self._depth_grp.addButton(self._depth_flat_btn, 0)
+        self._depth_grp.addButton(self._depth_rec_btn, 1)
+        self._depth_grp.idClicked.connect(self._on_depth_seg_clicked)
+
+        rl1.addStretch(1)
+
+        # ── Group combo ────────────────────────────────────────────────────
+        _combo_ss = (
+            f"QComboBox{{background:transparent;color:{TEXT};border:0;"
+            f"padding:0 6px;font-size:11px;}}"
+            f"QComboBox:hover{{color:{ACCENT};}}"
+            f"QComboBox::drop-down{{border:0;width:14px;}}"
+            f"QComboBox::down-arrow{{image:none;}}"
+            f"QComboBox QAbstractItemView{{background:{PANEL_BG};"
+            f"color:{TEXT};border:1px solid {DIVIDER2};"
+            f"selection-background-color:{ACCENT}; padding:4px;}}"
+        )
+
+        self._group_combo = QComboBox()
+        self._group_combo.setStyleSheet(_combo_ss)
+        self._group_combo.setFixedHeight(24)
+        self._group_combo.addItems(["No group", "Category", "Extension", "Folder", "Date"])
+        self._group_combo.setFixedWidth(100)
+        self._group_combo.setToolTip("Group files in the Details view")
+        self._group_combo.currentIndexChanged.connect(self._on_group_changed)
+        rl1.addWidget(self._group_combo)
+
+        fl.addLayout(rl1)
+
+        # ── Row 2: filters + view + clear + collapse ───────────────────────
+        rl2 = QHBoxLayout()
+        rl2.setContentsMargins(14, 0, 14, 8)
+        rl2.setSpacing(8)
 
         # ── Grouped Filter cluster ─────────────────────────────────────────
         fb_group = QWidget()
@@ -1464,17 +1598,6 @@ class MainWindow(QMainWindow):
         grp_lbl.setFixedHeight(24)
         grp_lbl.setAlignment(Qt.AlignCenter)
         fgl.addWidget(grp_lbl)
-
-        _combo_ss = (
-            f"QComboBox{{background:transparent;color:{TEXT};border:0;"
-            f"padding:0 6px;font-size:11px;}}"
-            f"QComboBox:hover{{color:{ACCENT};}}"
-            f"QComboBox::drop-down{{border:0;width:14px;}}"
-            f"QComboBox::down-arrow{{image:none;}}"
-            f"QComboBox QAbstractItemView{{background:{PANEL_BG};"
-            f"color:{TEXT};border:1px solid {DIVIDER2};"
-            f"selection-background-color:{ACCENT}; padding:4px;}}"
-        )
 
         self.scan_combo = QComboBox()
         self.scan_combo.setStyleSheet(_combo_ss)
@@ -1515,97 +1638,10 @@ class MainWindow(QMainWindow):
         self._vf_btn.clicked.connect(self._open_view_filters)
         fgl.addWidget(self._vf_btn)
 
-        self._group_combo = QComboBox()
-        self._group_combo.setStyleSheet(_combo_ss)
-        self._group_combo.setFixedHeight(24)
-        self._group_combo.addItems(["No group", "Category", "Extension", "Folder", "Date"])
-        self._group_combo.setFixedWidth(100)
-        self._group_combo.setToolTip("Group files in the Details view")
-        self._group_combo.currentIndexChanged.connect(self._on_group_changed)
-        fgl.addWidget(self._group_combo)
+        rl2.addWidget(fb_group)
+        rl2.addStretch(1)
 
-        fl.addWidget(fb_group)
-
-        # ── Active pills (inline) ──────────────────────────────────────────
-        self.folder_pill = QWidget()
-        self.folder_pill.setStyleSheet(
-            f"background: {ACCENT:22}; border: 1px solid {ACCENT:6a}; border-radius: 11px;"
-        )
-        self.folder_pill.setFixedHeight(22)
-        pill_lay = QHBoxLayout(self.folder_pill)
-        pill_lay.setContentsMargins(9, 0, 4, 0)
-        pill_lay.setSpacing(5)
-        pill_icon = self._icon_label("folder-open", 11, color=str(ACCENT))
-        pill_lay.addWidget(pill_icon)
-        self.folder_pill_lbl = QLabel()
-        self.folder_pill_lbl.setStyleSheet(
-            f"color: {ACCENT}; font-size: 10.5px; border: none; background: transparent;"
-            f"font-family: '{mono_font_family()}', monospace;"
-        )
-        pill_lay.addWidget(self.folder_pill_lbl)
-        dismiss_pill = QPushButton()
-        dismiss_pill.setIcon(_icons.icon("close", color=str(ACCENT)))
-        dismiss_pill.setIconSize(QSize(10, 10))
-        dismiss_pill.setFixedSize(16, 16)
-        dismiss_pill.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; padding: 0; border-radius: 8px; }}"
-            f"QPushButton:hover {{ background: {ACCENT:33}; }}"
-        )
-        dismiss_pill.clicked.connect(self._clear_folder_filter)
-        pill_lay.addWidget(dismiss_pill)
-        self.folder_pill.hide()
-        fl.addWidget(self.folder_pill)
-
-        # ── Inline scan progress (right-aligned, becomes visible during scan)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 0)
-        self.progress.setFixedSize(140, 4)
-        self.progress.setTextVisible(False)
-        self.progress.setStyleSheet(
-            f"QProgressBar {{ border: none; background: {DARK_BG}; border-radius: 2px; }}"
-            f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
-        )
-        self.progress.hide()
-        fl.addWidget(self.progress)
-
-        self.elapsed_lbl = QLabel()
-        self.elapsed_lbl.setStyleSheet(
-            f"color: {SUBTEXT}; font-size: 10px; font-family: '{mono_font_family()}', monospace;"
-        )
-        self.elapsed_lbl.setFixedWidth(54)
-        self.elapsed_lbl.hide()
-        fl.addWidget(self.elapsed_lbl)
-
-        fl.addStretch(1)
-
-        # ── Right cluster: Browse toggle | View segment | Clear all | ▲ ────
-        _vbtn_ss = (
-            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {DIVIDER2};"
-            f"border-radius:5px;padding:0 9px;font-size:11px;}}"
-            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
-            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{DIVIDER3};}}"
-        )
-
-        # density buttons live in a hidden group (still accessible via View menu)
-        self._density_btn_grp = QButtonGroup(self._filterbar)
-        self._density_btn_grp.setExclusive(True)
-        for _di, (_dn, _dl, _dt) in enumerate([
-            ("compact", "S", "Compact rows (26 px)"),
-            ("normal",  "M", "Normal rows (32 px)"),
-            ("relaxed", "L", "Relaxed rows (38 px)"),
-        ]):
-            _db = QPushButton(_dl)
-            _db.setToolTip(_dt)
-            _db.setCheckable(True)
-            _db.setFixedSize(26, 26)
-            _db.setStyleSheet(_vbtn_ss)
-            _db.hide()  # accessible via View > Density menu, not in filterbar
-            if _dn == _density.get_density():
-                _db.setChecked(True)
-            self._density_btn_grp.addButton(_db, _di)
-        self._density_btn_grp.idClicked.connect(self._on_density_id_clicked)
-
-        # View segmented control (Details / Grid / List)
+        # ── View segmented control (Details / Grid / List) ──────────────────
         view_seg = QWidget()
         view_seg.setStyleSheet(
             f"QWidget#viewSeg{{border:1px solid {DIVIDER2};border-radius:5px;background:transparent;}}"
@@ -1647,12 +1683,12 @@ class MainWindow(QMainWindow):
             self._view_btn_grp.addButton(b, i)
             vsl.addWidget(b)
         self._view_btn_grp.idClicked.connect(self._set_view_mode)
-        fl.addWidget(view_seg)
+        rl2.addWidget(view_seg)
 
         clear_btn = self._btn_ghost("Clear")
         clear_btn.setFixedHeight(26)
         clear_btn.clicked.connect(self._clear_filters)
-        fl.addWidget(clear_btn)
+        rl2.addWidget(clear_btn)
 
         self._fb_collapse_btn = QPushButton()
         self._fb_collapse_btn.setIcon(_icons.icon("mdi.chevron-up", color=str(SUBTEXT)))
@@ -1664,10 +1700,35 @@ class MainWindow(QMainWindow):
             f"QPushButton:hover{{background:{BG2};}}"
         )
         self._fb_collapse_btn.clicked.connect(self._collapse_filterbar)
-        fl.addWidget(self._fb_collapse_btn)
+        rl2.addWidget(self._fb_collapse_btn)
 
-        # depth-seg lives in the crumbs row, built lazily
-        self._depth_seg_ctrl = self._build_depth_seg()
+        fl.addLayout(rl2)
+
+        # ── Density buttons (hidden group, accessible via View menu) ────────
+        _vbtn_ss = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};border:1px solid {DIVIDER2};"
+            f"border-radius:5px;padding:0 9px;font-size:11px;}}"
+            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
+            f"QPushButton:hover:!checked{{color:{TEXT};border-color:{DIVIDER3};}}"
+        )
+
+        self._density_btn_grp = QButtonGroup(self._filterbar)
+        self._density_btn_grp.setExclusive(True)
+        for _di, (_dn, _dl, _dt) in enumerate([
+            ("compact", "S", "Compact rows (26 px)"),
+            ("normal",  "M", "Normal rows (32 px)"),
+            ("relaxed", "L", "Relaxed rows (38 px)"),
+        ]):
+            _db = QPushButton(_dl)
+            _db.setToolTip(_dt)
+            _db.setCheckable(True)
+            _db.setFixedSize(26, 26)
+            _db.setStyleSheet(_vbtn_ss)
+            _db.hide()  # accessible via View > Density menu, not in filterbar
+            if _dn == _density.get_density():
+                _db.setChecked(True)
+            self._density_btn_grp.addButton(_db, _di)
+        self._density_btn_grp.idClicked.connect(self._on_density_id_clicked)
 
         return self._filterbar
 
@@ -1709,12 +1770,39 @@ class MainWindow(QMainWindow):
         self._filterbar.hide()
         self._filterbar_strip.show()
         self._update_filterbar_summary()
+        self._update_filter_pill()
         pref_settings().setValue("filterBarCollapsed", True)
 
     def _expand_filterbar(self) -> None:
         self._filterbar_strip.hide()
         self._filterbar.show()
+        self._filter_pill.hide()
         pref_settings().setValue("filterBarCollapsed", False)
+
+    def _on_filter_pill_clicked(self) -> None:
+        self._toggle_filterbar(True)
+        self._expand_filterbar()
+
+    def _update_filter_pill(self) -> None:
+        if not hasattr(self, "_filter_pill"):
+            return
+        n = 0
+        if hasattr(self, "search_edit") and self.search_edit.text().strip():
+            n += 1
+        if hasattr(self, "cat_combo") and self.cat_combo.currentText() != "All types":
+            n += 1
+        if hasattr(self, "scan_combo") and self.scan_combo.currentIndex() != 0:
+            n += 1
+        if hasattr(self, "_group_by") and self._group_by:
+            n += 1
+        n += self._count_active_view_filters()
+        if self._browser_path:
+            n += 1
+        if n > 0:
+            self._filter_pill.setText(f" {n}")
+            self._filter_pill.show()
+        else:
+            self._filter_pill.hide()
 
     def _update_filterbar_summary(self) -> None:
         if not hasattr(self, "_fb_strip_summary"):
@@ -1732,47 +1820,7 @@ class MainWindow(QMainWindow):
         if self._browser_path:
             n += 1
         self._fb_strip_summary.setText(f"Filters · {n} active")
-
-    def _build_depth_seg(self) -> QWidget:
-        """Segmented control for folder-filter depth: This folder / + subfolders."""
-        w = QWidget()
-        lay = QHBoxLayout(w)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        seg_ss = (
-            f"QPushButton{{background:{PANEL_BG};color:{SUBTEXT};border:1px solid {BORDER};"
-            f"padding:2px 9px;font-size:11px;}}"
-            f"QPushButton:checked{{background:{ACCENT:22};color:{ACCENT};border-color:{ACCENT};}}"
-            f"QPushButton:hover:!checked{{color:{TEXT};}}"
-        )
-        left_ss  = seg_ss + "QPushButton{border-radius:0;border-top-left-radius:5px;border-bottom-left-radius:5px;}"
-        right_ss = seg_ss + "QPushButton{border-radius:0;border-top-right-radius:5px;border-bottom-right-radius:5px;border-left:none;}"
-
-        self._depth_this_btn = QPushButton("This folder")
-        self._depth_this_btn.setCheckable(True)
-        self._depth_this_btn.setChecked(True)
-        self._depth_this_btn.setFixedHeight(22)
-        self._depth_this_btn.setStyleSheet(left_ss)
-        self._depth_this_btn.setToolTip("Show only direct children of this folder  (Ctrl+R)")
-        self._depth_this_btn.setAccessibleName("Filter: this folder only")
-
-        self._depth_sub_btn = QPushButton("+ subfolders")
-        self._depth_sub_btn.setCheckable(True)
-        self._depth_sub_btn.setFixedHeight(22)
-        self._depth_sub_btn.setStyleSheet(right_ss)
-        self._depth_sub_btn.setToolTip("Show all files in this folder and descendants  (Ctrl+R)")
-        self._depth_sub_btn.setAccessibleName("Filter: include subfolders")
-
-        self._depth_grp = QButtonGroup(w)
-        self._depth_grp.setExclusive(True)
-        self._depth_grp.addButton(self._depth_this_btn, 0)
-        self._depth_grp.addButton(self._depth_sub_btn, 1)
-        self._depth_grp.idClicked.connect(self._on_depth_seg_clicked)
-
-        lay.addWidget(self._depth_this_btn)
-        lay.addWidget(self._depth_sub_btn)
-        return w
+        self._update_filter_pill()
 
     def _build_body(self) -> QSplitter:
         self.splitter = QSplitter(Qt.Horizontal)
@@ -1813,7 +1861,15 @@ class MainWindow(QMainWindow):
         self._breadcrumb_lay.setContentsMargins(14, 0, 14, 0)
         self._breadcrumb_lay.setSpacing(4)
         self._breadcrumb_lay.addStretch()
-        self._breadcrumb_lay.addWidget(self._depth_seg_ctrl)
+
+        # Filter count pill — shown when filter bar is collapsed
+        self._filter_pill = QPushButton()
+        self._filter_pill.setIcon(_icons.icon("mdi.filter", color=str(ACCENT)))
+        self._filter_pill.setIconSize(QSize(11, 11))
+        self._filter_pill.setFixedHeight(22)
+        self._filter_pill.clicked.connect(self._on_filter_pill_clicked)
+        self._filter_pill.hide()
+        self._breadcrumb_lay.addWidget(self._filter_pill)
         ftl.addWidget(self._breadcrumb_bar)
 
         self._view_stack = QStackedWidget()
@@ -2665,7 +2721,8 @@ class MainWindow(QMainWindow):
             w = item.widget()
             if w:
                 w.deleteLater()
-        self._depth_seg_ctrl.setEnabled(True)
+        self._depth_flat_btn.setEnabled(True)
+        self._depth_rec_btn.setEnabled(True)
 
         crumb_ss = (
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:none;"
@@ -2917,7 +2974,7 @@ class MainWindow(QMainWindow):
         self._browser_path = folder_path
         self._folder_filter_recursive = False
         self._depth_grp.blockSignals(True)
-        self._depth_this_btn.setChecked(True)
+        self._depth_grp.button(0).setChecked(True)
         self._depth_grp.blockSignals(False)
         self._load_browser_view()
         self.center_tabs.setCurrentIndex(1)
@@ -2943,10 +3000,12 @@ class MainWindow(QMainWindow):
     def _clear_folder_filter(self) -> None:
         self._folder_filter_recursive = False
         self._depth_grp.blockSignals(True)
-        self._depth_this_btn.setChecked(True)
+        self._depth_grp.button(0).setChecked(True)
         self._depth_grp.blockSignals(False)
         self.folder_pill.hide()
         self._browser_path = ""
+        self._depth_flat_btn.setEnabled(False)
+        self._depth_rec_btn.setEnabled(False)
         self._load_browser_view()
 
     def _clear_filters(self) -> None:
