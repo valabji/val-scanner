@@ -105,7 +105,7 @@ THEME_LABELS: dict[str, str] = {
     "catppuccin":    "Catppuccin",
 }
 
-DEFAULT_THEME = "dark"
+DEFAULT_THEME = "catppuccin"
 
 
 def _hex9_to_rgba(h: str) -> str:
