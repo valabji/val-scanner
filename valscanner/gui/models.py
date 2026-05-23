@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListModel, QRect
-from PySide6.QtGui import QColor, QFont, QPixmap, QPainter, QBrush
+from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListModel
+from PySide6.QtGui import QColor, QFont, QPixmap
 
 from ..core.db import repo_for
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT
@@ -175,38 +175,9 @@ class FileTableModel(QAbstractTableModel):
         self.endResetModel()
 
 
-def _make_cat_pixmap(category: str, size: int) -> QPixmap:
-    color = QColor(CATEGORY_COLORS.get(category, str(SUBTEXT)))
-    dim   = max(size, 8)
-    px    = QPixmap(dim, dim)
-    px.fill(Qt.transparent)
-    p = QPainter(px)
-    p.setRenderHint(QPainter.Antialiasing)
-    p.setBrush(QBrush(color))
-    p.setPen(Qt.NoPen)
-    r = max(2, dim // 5)
-    p.drawRoundedRect(0, 0, dim, dim, r, r)
-    glyph_size = max(12, int(dim * 0.55))
-    glyph = _icons.pixmap(f"cat-{category}", glyph_size, color="#ffffff")
-    if not glyph.isNull():
-        gx = (dim - glyph.width()) // 2
-        gy = (dim - glyph.height()) // 2
-        p.drawPixmap(gx, gy, glyph)
-    else:
-        p.setPen(QColor("white"))
-        f = QFont()
-        f.setPixelSize(max(9, dim // 2))
-        f.setBold(True)
-        p.setFont(f)
-        p.drawText(QRect(0, 0, dim, dim), Qt.AlignCenter, (category or "?")[0].upper())
-    p.end()
-    return px
-
-
 class ThumbnailCache:
     def __init__(self):
-        self._px:     dict[str, QPixmap] = {}
-        self._cat_px: dict[str, QPixmap] = {}
+        self._px:  dict[str, QPixmap] = {}
         self._db_path = ""
 
     def set_db(self, path: str) -> None:
@@ -235,12 +206,8 @@ class ThumbnailCache:
                         return px
             except Exception:
                 pass
-        cat_key = f"{category}@{size}"
-        if cat_key not in self._cat_px:
-            self._cat_px[cat_key] = _make_cat_pixmap(category, size)
-        px = self._cat_px[cat_key]
-        self._px[key] = px
-        return px
+        self._px[key] = QPixmap()
+        return QPixmap()
 
 
 _THUMB_CACHE = ThumbnailCache()

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QStyledItemDelegate, QStyle
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, SEL_BG, SEL_TEXT
 from .fonts import mono_font_family
 from .density import get_row_height
-from .models import _THUMB_CACHE
+from .models import _THUMB_CACHE, _FOLDER_SENTINEL
 from . import icons as _icons
 
 
@@ -28,21 +28,6 @@ def _sel_bg() -> QColor:
 def _sel_text() -> QColor:
     return QColor(str(SEL_TEXT))
 
-
-def _draw_checker(painter, rect: QRect) -> None:
-    """Fill *rect* with a 8px checkerboard placeholder (no thumbnail available)."""
-    sq = 8
-    c1 = QColor(30, 30, 30)
-    c2 = QColor(46, 46, 46)
-    painter.save()
-    painter.setClipRect(rect)
-    cols = rect.width()  // sq + 1
-    rows = rect.height() // sq + 1
-    for row in range(rows):
-        for col in range(cols):
-            c = c1 if (row + col) % 2 == 0 else c2
-            painter.fillRect(rect.x() + col * sq, rect.y() + row * sq, sq, sq, c)
-    painter.restore()
 
 
 class FileCardDelegate(QStyledItemDelegate):
@@ -88,12 +73,20 @@ class FileCardDelegate(QStyledItemDelegate):
             painter.drawPixmap(ox, oy, scaled)
             painter.restore()
         else:
-            _draw_checker(painter, tb_rect)
-            icon_px = _icons.pixmap(f"cat-{category}", 32, color=cat_color)
-            if not icon_px.isNull():
-                ix = tb_rect.x() + (tb_rect.width() - icon_px.width()) // 2
-                iy = tb_rect.y() + (self.THUMB - icon_px.height()) // 2
-                painter.drawPixmap(ix, iy, icon_px)
+            is_folder = (category == _FOLDER_SENTINEL)
+            fill_color = QColor(str(ACCENT) if is_folder else cat_color)
+            fill_color.setAlpha(40)
+            painter.fillRect(tb_rect, fill_color)
+            icon_name = "folder" if is_folder else f"cat-{category}"
+            cat_icon = _icons.icon(icon_name, color=str(TEXT))
+            if not cat_icon.isNull():
+                _SZ = 32
+                painter.save()
+                painter.setClipRect(tb_rect)
+                ix = tb_rect.x() + (tb_rect.width() - _SZ) // 2
+                iy = tb_rect.y() + (self.THUMB - _SZ) // 2
+                cat_icon.paint(painter, QRect(ix, iy, _SZ, _SZ))
+                painter.restore()
 
         # Category corner dot — 8px circle, top-right of card
         painter.setBrush(QBrush(QColor(cat_color)))
@@ -110,14 +103,14 @@ class FileCardDelegate(QStyledItemDelegate):
         painter.setFont(fn)
         painter.setPen(sel_text if selected else QColor(str(TEXT)))
         nm = QRect(r.x() + 6, ty, r.width() - 12, 16)
-        painter.drawText(nm, Qt.AlignLeft | Qt.AlignVCenter,
+        painter.drawText(nm, Qt.AlignHCenter | Qt.AlignVCenter,
                          painter.fontMetrics().elidedText(filename, Qt.ElideRight, nm.width()))
 
         # Size
         fn.setPixelSize(10); painter.setFont(fn)
         painter.setPen(sel_text if selected else QColor(str(SUBTEXT)))
         painter.drawText(QRect(r.x() + 6, ty + 18, r.width() - 12, 13),
-                         Qt.AlignLeft | Qt.AlignVCenter, size_human)
+                         Qt.AlignHCenter | Qt.AlignVCenter, size_human)
 
         painter.restore()
 
