@@ -41,9 +41,9 @@ def _export_stem(db_arg: str | None) -> str:
     return stem or "scan"
 
 
-def _make_scan_progress_cb(verbose: bool, total: int):
+def _make_scan_progress_cb(verbose: bool, total: int, show_progress: bool = True):
     """Return an on_progress callback for scan(), or None if not applicable."""
-    if verbose or not sys.stdout.isatty():
+    if not show_progress or verbose or not sys.stdout.isatty():
         return None
 
     import time as _time
@@ -90,8 +90,11 @@ def _make_scan_progress_cb(verbose: bool, total: int):
     return _cb
 
 
-def _make_analysis_progress_cb():
+def _make_analysis_progress_cb(show_progress: bool = True):
     """Return an on_progress callback for find_similar_folders()."""
+    if not show_progress:
+        return None
+
     import time as _time
     BAR_W  = 25
     start  = _time.time()
@@ -160,9 +163,10 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         max_results=args.analysis_results,
         scan_ids=scan_ids,
         filters=filters,
-        progress_cb=_make_analysis_progress_cb(),
+        progress_cb=_make_analysis_progress_cb(show_progress=not args.no_progress_bar),
     )
-    print("\r" + " " * 79 + "\r", end="", flush=True)  # clear progress bar
+    if not args.no_progress_bar:
+        print("\r" + " " * 79 + "\r", end="", flush=True)  # clear progress bar
 
     if not pairs:
         print("   No similar folder pairs found.\n")
@@ -201,6 +205,7 @@ def main() -> None:
     parser.add_argument("--resume",       action="store_true",
                         help="Resume an interrupted scan of the same path")
     parser.add_argument("--verbose",      action="store_true", help="Print each file as indexed")
+    parser.add_argument("--no-progress-bar", action="store_true", help="Disable progress bar output")
     parser.add_argument("--query",        metavar="TERM", help="Query the database after scanning")
     parser.add_argument("--list-scans",    action="store_true", help="List all scans in the database")
     parser.add_argument("--delete-scan",   type=int, metavar="ID", help="Delete a scan by ID")
@@ -377,7 +382,7 @@ def main() -> None:
         thumb_quality=args.thumb_quality,
         store_samples=store_samples,
         sample_duration=args.sample_duration,
-        on_progress=_make_scan_progress_cb(args.verbose, total_files),
+        on_progress=_make_scan_progress_cb(args.verbose, total_files, show_progress=not args.no_progress_bar),
         **skip_kw,
     )
     elapsed = time.time() - t0
