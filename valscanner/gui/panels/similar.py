@@ -621,9 +621,10 @@ class SimilarFoldersPanel(QWidget):
 
         scans = list_scans(self._db_path) if self._db_path else []
         if not scans:
-            self._part_layout.insertWidget(0, self._no_parts_lbl)
+            self._no_parts_lbl.show()
             return
 
+        self._no_parts_lbl.hide()
         _pill_ss = (
             f"QPushButton{{background:transparent;color:{SUBTEXT};"
             f"border:1px solid {BORDER};border-radius:10px;"
