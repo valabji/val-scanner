@@ -33,6 +33,15 @@ def _settings_file() -> Path:
     return _config_dir() / "settings.json"
 
 
+def settings_path() -> Path:
+    """Return the absolute path to settings.json, creating the file if absent."""
+    sf = _settings_file()
+    if not sf.exists():
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text(json.dumps(_DEFAULTS, indent=2))
+    return sf
+
+
 def _normalize_sqlite_path(raw: str) -> str:
     """Expand ~ and convert to POSIX form so it slots into a sqlite:// URL."""
     if "\\" in raw:
