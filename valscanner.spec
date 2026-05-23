@@ -18,7 +18,7 @@ IS_WIN = sys.platform == "win32"
 
 ASSETS   = Path("assets")
 APP_NAME = "ValScanner"
-VERSION  = "0.1.7"
+VERSION  = "0.1.8"
 BUNDLE_ID = "com.valabji.valscanner"
 
 block_cipher = None
