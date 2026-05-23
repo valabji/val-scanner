@@ -90,6 +90,17 @@ def _make_scan_progress_cb(verbose: bool, total: int, show_progress: bool = True
     return _cb
 
 
+def _make_transfer_progress_cb(show_progress: bool = True):
+    """Return an on_progress callback for transfer_db()."""
+    if not show_progress:
+        return None
+
+    def _cb(msg: str) -> None:
+        print(msg)
+
+    return _cb
+
+
 def _make_analysis_progress_cb(show_progress: bool = True):
     """Return an on_progress callback for find_similar_folders()."""
     if not show_progress:
@@ -300,7 +311,7 @@ def main() -> None:
         dst_url  = f"sqlite:///{dst_path}"
         print(f"\n📦 Exporting  {mask_url(url)}")
         print(f"         →  {dst_path}\n")
-        stats = transfer_db(url, dst_url, on_progress=print,
+        stats = transfer_db(url, dst_url, on_progress=_make_transfer_progress_cb(show_progress=not args.no_progress_bar),
                             include_analysis=args.include_analysis,
                             include_cache=args.include_cache)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
@@ -314,7 +325,7 @@ def main() -> None:
         src_url = f"sqlite:///{src_path}"
         print(f"\n📥 Importing  {src_path}")
         print(f"         →  {mask_url(url)}\n")
-        stats = transfer_db(src_url, url, on_progress=print,
+        stats = transfer_db(src_url, url, on_progress=_make_transfer_progress_cb(show_progress=not args.no_progress_bar),
                             include_analysis=args.include_analysis,
                             include_cache=args.include_cache)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
