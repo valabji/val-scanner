@@ -90,6 +90,48 @@ def _make_scan_progress_cb(verbose: bool, total: int):
     return _cb
 
 
+def _make_analysis_progress_cb():
+    """Return an on_progress callback for find_similar_folders()."""
+    import time as _time
+    BAR_W  = 25
+    start  = _time.time()
+    _last  = [0.0]  # last print time — throttle to 10 Hz
+
+    def _fmt_eta(secs: float) -> str:
+        secs = int(secs)
+        if secs < 60:
+            return f"{secs}s"
+        m, s = divmod(secs, 60)
+        if m < 60:
+            return f"{m}m{s:02d}s"
+        h, m = divmod(m, 60)
+        return f"{h}h{m:02d}m"
+
+    def _cb(done: int, total: int) -> None:
+        now = _time.time()
+        if now - _last[0] < 0.1:
+            return
+        _last[0] = now
+
+        if total <= 0:
+            return
+
+        elapsed = max(now - start, 0.001)
+        rate    = done / elapsed
+
+        pct    = done / total
+        filled = int(BAR_W * pct)
+        bar    = "=" * filled + (">" if filled < BAR_W else "") + " " * (BAR_W - filled - (1 if filled < BAR_W else 0))
+        remaining = total - done
+        eta    = _fmt_eta(remaining / rate) if rate > 0 else "?"
+        line   = (f"\r   [{bar}] {done:>6,}/{total:,}  "
+                  f"{pct*100:4.1f}%  {rate:,.0f} p/s  ETA {eta}")
+
+        print(line[:79], end="", flush=True)
+
+    return _cb
+
+
 def _run_analysis(url: str, args, scan_id: int | None) -> None:
     scan_ids = None
     if args.analysis_scan_id is not None:
@@ -111,11 +153,6 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
     print(f"\n🔍 Running similarity analysis "
           f"(min-files={args.min_files}, threshold={args.threshold:.2f})…")
 
-    def _progress(done: int, total: int) -> None:
-        if total > 0:
-            pct = int(done / total * 100)
-            print(f"\r   {pct:3d}%  ({done:,}/{total:,} pairs)", end="", flush=True)
-
     pairs = find_similar_folders(
         url,
         min_files=args.min_files,
@@ -123,9 +160,9 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         max_results=args.analysis_results,
         scan_ids=scan_ids,
         filters=filters,
-        progress_cb=_progress,
+        progress_cb=_make_analysis_progress_cb(),
     )
-    print()  # newline after progress
+    print("\r" + " " * 79 + "\r", end="", flush=True)  # clear progress bar
 
     if not pairs:
         print("   No similar folder pairs found.\n")
