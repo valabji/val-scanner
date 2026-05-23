@@ -33,6 +33,7 @@ from . import icons as _icons
 from .delegates import FileCardDelegate, FileRowDelegate
 from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, ConnectWorker, PAGE_SIZE
 from .dialogs import ScanOptionsDialog, ViewFiltersDialog, DatabaseSettingsDialog
+from valscanner import __version__
 from .panels.detail import DetailPanel
 from .panels.folders import FolderPanel
 from .panels.similar import SimilarFoldersPanel
@@ -1299,7 +1300,7 @@ class MainWindow(QMainWindow):
         return bar
 
     def _build_brand_mark(self) -> QWidget:
-        """Compact brand chip — amber crosshair square + name + version tag."""
+        """Compact brand chip — app logo + name + version tag."""
         w = QWidget()
         wl = QHBoxLayout(w)
         wl.setContentsMargins(0, 0, 0, 0)
@@ -1308,12 +1309,7 @@ class MainWindow(QMainWindow):
         mark = QLabel()
         mark.setFixedSize(28, 28)
         mark.setAlignment(Qt.AlignCenter)
-        mark.setPixmap(_icons.pixmap("mdi.crosshairs-gps", 16, color=str(ACCENT)))
-        mark.setStyleSheet(
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            f"stop:0 #2a1f0f, stop:1 #1a1308);"
-            f"border: 1px solid #3a2c14; border-radius: 6px;"
-        )
+        mark.setPixmap(_icons.app_logo_pixmap(24, radius=4))
         wl.addWidget(mark)
 
         col = QWidget()
@@ -1322,7 +1318,7 @@ class MainWindow(QMainWindow):
         cl.setSpacing(0)
         name = QLabel("ValScanner")
         name.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-weight: 700;")
-        ver = QLabel("v2.4 · field")
+        ver = QLabel(f"v{__version__}")
         ver.setStyleSheet(
             f"color: {SUBTEXT}; font-size: 9px; letter-spacing: 0.04em;"
             f"font-family: '{mono_font_family()}', monospace;"

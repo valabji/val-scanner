@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QRect
+from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtGui import QColor, QPainter, QFont
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy, QPushButton, QScrollArea
 
-from ..constants import CATEGORY_COLORS, PANEL_BG, BORDER, SUBTEXT
+from ..constants import CATEGORY_COLORS, PANEL_BG, BORDER, SUBTEXT, TEXT
+from .. import icons as _icons
 
 BAR_H    = 40
 LEGEND_H = 36
+MIN_HEIGHT = 80
+MAX_HEIGHT = 300
 
 
 class _StackBar(QWidget):
@@ -47,30 +50,86 @@ class _StackBar(QWidget):
 
 
 class VolumeMapWidget(QWidget):
-    """Stacked-bar volume map: 40px bar + 36px legend, driven by set_data()."""
+    """Resizable, scrollable, collapsible stacked-bar volume map."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(BAR_H + LEGEND_H)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(MIN_HEIGHT)
+        self.setMaximumHeight(MAX_HEIGHT)
         self.setStyleSheet(f"background: {PANEL_BG}; border-top: 1px solid {BORDER};")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
+        # Header with title and collapse button
+        hdr = QWidget()
+        hdr.setFixedHeight(32)
+        hdr.setStyleSheet(f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};")
+        hdr_lay = QHBoxLayout(hdr)
+        hdr_lay.setContentsMargins(8, 0, 8, 0)
+        hdr_lay.setSpacing(6)
+
+        title = QLabel("Volume Distribution")
+        title.setStyleSheet(f"color: {TEXT}; font-size: 10px; font-weight: bold; background: transparent;")
+        hdr_lay.addWidget(title)
+        hdr_lay.addStretch()
+
+        self._collapse_btn = QPushButton()
+        self._collapse_btn.setIcon(_icons.icon("mdi.chevron-down", color=str(TEXT)))
+        self._collapse_btn.setIconSize(QSize(14, 14))
+        self._collapse_btn.setFixedSize(22, 22)
+        self._collapse_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;}}"
+            f"QPushButton:hover{{background:{BORDER};border-radius:4px;}}"
+        )
+        self._collapse_btn.clicked.connect(self._toggle_collapse)
+        hdr_lay.addWidget(self._collapse_btn)
+        lay.addWidget(hdr)
+
+        # Content area
+        self._content = QWidget()
+        content_lay = QVBoxLayout(self._content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(0)
+
         self._bar = _StackBar()
-        lay.addWidget(self._bar)
+        content_lay.addWidget(self._bar)
+
+        # Scrollable legend
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: transparent; }}")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         self._legend_row = QWidget()
-        self._legend_row.setFixedHeight(LEGEND_H)
-        self._legend_lay = QHBoxLayout(self._legend_row)
+        self._legend_lay = QVBoxLayout(self._legend_row)
         self._legend_lay.setContentsMargins(8, 4, 8, 4)
-        self._legend_lay.setSpacing(10)
+        self._legend_lay.setSpacing(4)
         self._legend_lay.addStretch()
-        lay.addWidget(self._legend_row)
+        scroll.setWidget(self._legend_row)
+        content_lay.addWidget(scroll)
+
+        lay.addWidget(self._content)
 
         self._data: dict[str, int] = {}
+        self._collapsed = False
+
+    def _toggle_collapse(self) -> None:
+        """Toggle content visibility."""
+        self._collapsed = not self._collapsed
+        self._content.setVisible(not self._collapsed)
+        icon_name = "mdi.chevron-right" if self._collapsed else "mdi.chevron-down"
+        self._collapse_btn.setIcon(_icons.icon(icon_name, color=str(TEXT)))
+
+        if self._collapsed:
+            self.setMinimumHeight(32)  # Just header
+            self.setMaximumHeight(32)
+        else:
+            self.setMinimumHeight(MIN_HEIGHT)
+            self.setMaximumHeight(MAX_HEIGHT)
 
     def set_data(self, data: dict[str, int]) -> None:
         """Update the widget with {category: size_bytes} mapping."""
@@ -103,7 +162,7 @@ class VolumeMapWidget(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        for cat, nbytes in ranked[:6]:  # max 6 legend entries
+        for cat, nbytes in ranked:  # show all ranked entries (scrollable)
             color = CATEGORY_COLORS.get(cat, "#808080")
             pct   = nbytes * 100 / total
 

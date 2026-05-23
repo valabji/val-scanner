@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QStandardItemModel, QStandardItem, QKeySequenc
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTreeView, QHeaderView, QAbstractItemView, QStackedWidget, QMenu,
-    QApplication,
+    QApplication, QSplitter,
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, ORANGE, SEL_BG, SEL_TEXT
@@ -175,11 +175,18 @@ class FolderPanel(QWidget):
         empty_lay.addWidget(self._folders_empty_lbl)
         self._content_stack.addWidget(empty_w)    # page 0: empty
         self._content_stack.addWidget(self.tree)  # page 1: tree
-        lay.addWidget(self._content_stack)
 
         self._volume_map = VolumeMapWidget()
         self._volume_map.hide()
-        lay.addWidget(self._volume_map)
+
+        # Use splitter for resizable panels
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(self._content_stack)
+        splitter.addWidget(self._volume_map)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([400, 80])
+        lay.addWidget(splitter)
 
     def add_header_button(self, btn) -> None:
         self._hdr_lay.addWidget(btn)
