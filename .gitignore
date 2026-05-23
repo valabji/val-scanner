@@ -29,6 +29,7 @@ venv/
 # Tools
 .ruby-lsp/
 local_plans/
+tmp/
 
 # Web UI
 web-ui/node_modules/

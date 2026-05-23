@@ -9,6 +9,7 @@ Usage:
     valscanner --delete-scan 3 --db my.db
 """
 
+import logging
 import sys
 import time
 import argparse
@@ -38,6 +39,7 @@ def _export_stem(db_arg: str | None) -> str:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(
         description="Scan a directory and build a searchable file database.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+import logging
 import os
 import subprocess
 import sys
@@ -46,7 +47,7 @@ from . import persistence
 from . import density as _density
 from .fonts import load_fonts, ui_font_family, mono_font_family
 from ..core.export import export_csv, export_json
-from ..core.db import list_scans, reset_repos
+from ..core.db import list_scans, repo_for, reset_repos
 from ..core.db_config import reset_engines
 from ..core.schema import human_size
 from ..core.scanner import _SYSTEM_DIRS, _CACHE_DIRS, _VCS_DIRS, _BINARY_EXTS, _TEMP_EXTS, _LOG_EXTS
@@ -2364,9 +2365,29 @@ class MainWindow(QMainWindow):
         self._scan_start = time.time()
         self._elapsed_timer.start(1000)
 
+        scan_options = dict(self._scan_options)
+        try:
+            interrupted = repo_for(db).find_interrupted_scan(str(Path(root).resolve()))
+        except Exception:
+            interrupted = None
+        if interrupted is not None:
+            from PySide6.QtWidgets import QMessageBox
+            mb = QMessageBox(self)
+            mb.setWindowTitle("Interrupted scan found")
+            mb.setText(
+                f"A previous scan of this folder was interrupted (scan #{interrupted}).\n\n"
+                "Resume it — skipping already-indexed files?\n"
+                "Or start fresh with a new scan?"
+            )
+            mb.addButton("Resume", QMessageBox.AcceptRole)
+            fresh_btn = mb.addButton("Start fresh", QMessageBox.RejectRole)
+            mb.exec()
+            if mb.clickedButton() is not fresh_btn:
+                scan_options["resume"] = True
+
         self._worker = ScanWorker(root, db, self.hash_chk.isChecked(),
                                   label=self.label_edit.text().strip(),
-                                  options=self._scan_options)
+                                  options=scan_options)
 
         # Register with process monitor before starting
         reg = ProcessRegistry.instance()
@@ -3188,6 +3209,8 @@ def _app_icon() -> QIcon:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
+                        stream=sys.stderr)
     # On Linux, Qt.ToolTip + FramelessWindowHint segfaults under Wayland.
     # Force XCB only when no explicit platform is set and Wayland is active.
     if sys.platform == "linux" and "QT_QPA_PLATFORM" not in os.environ:

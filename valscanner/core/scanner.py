@@ -1,11 +1,14 @@
 from __future__ import annotations
 import json
+import logging
 import mimetypes
 import os
 import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 from .app_settings import active_url
 from .bootstrap import ensure_schema
@@ -84,15 +87,23 @@ def scan(
 
     actually_resumed = False
     if resume and scan_id is None:
+        _log.info("[resume] Looking for interrupted scan at root: %s", root_resolved)
         found = repo.find_interrupted_scan(str(root_resolved))
+        _log.info("[resume] find_interrupted_scan returned: %s", found)
         if found is not None:
             scan_id = found
             actually_resumed = True
 
     if scan_id is None:
         scan_id = repo.create_scan(root=str(root_resolved), label=scan_label, scanned_at=now)
+        _log.info("[scan] Started NEW scan #%d for root: %s", scan_id, root_resolved)
+    elif actually_resumed:
+        _log.info("[scan] RESUMING existing scan #%d for root: %s", scan_id, root_resolved)
+    else:
+        _log.info("[scan] Continuing scan #%d (explicit scan_id) for root: %s", scan_id, root_resolved)
 
     repo.set_scan_status(scan_id, "running")
+    _log.info("[scan] Set scan #%d status → running", scan_id)
 
     stats: dict = {
         "scanned": 0, "errors": 0, "skipped": 0,
@@ -259,6 +270,9 @@ def scan(
         final_bytes = stats["total_bytes"]
 
     repo.update_scan_totals(scan_id, final_count, final_bytes, human_size(final_bytes))
-    repo.set_scan_status(scan_id, "resumed" if actually_resumed else "complete")
+    final_status = "resumed" if actually_resumed else "complete"
+    repo.set_scan_status(scan_id, final_status)
+    _log.info("[scan] Scan #%d finished — status=%s, files=%d, bytes=%d",
+              scan_id, final_status, final_count, final_bytes)
     _emit({"done": True, "scan_id": scan_id, "scanned": stats["scanned"]})
     return stats

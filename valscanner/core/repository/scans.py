@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from sqlalchemy import delete, insert, select, update
 
 from ..schema import scans
 from .base import RepositoryBase
+
+_log = logging.getLogger(__name__)
 
 
 class ScansMixin(RepositoryBase):
@@ -82,9 +85,12 @@ class ScansMixin(RepositoryBase):
         try:
             with self._engine.connect() as conn:
                 row = conn.execute(stmt).fetchone()
-            return row[0] if row else None
-        except Exception:
-            return None  # status column absent on old DB
+            result = row[0] if row else None
+            _log.info("[find_interrupted_scan] root=%r → scan_id=%s", root, result)
+            return result
+        except Exception as exc:
+            _log.warning("[find_interrupted_scan] query failed (status column absent?): %s", exc)
+            return None
 
     def delete_scan(self, scan_id: int) -> None:
         with self._engine.begin() as conn:
