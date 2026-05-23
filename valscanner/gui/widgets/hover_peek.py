@@ -1,4 +1,5 @@
 from __future__ import annotations
+import sys
 
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QPixmap
@@ -20,10 +21,12 @@ class HoverPeekCard(QFrame):
     """
 
     def __init__(self, parent=None):
-        super().__init__(
-            parent,
-            Qt.ToolTip | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint,
-        )
+        # Qt.ToolTip segfaults on Wayland (Fedora default) — use Qt.Tool instead
+        if sys.platform == "linux":
+            _flags = Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint | Qt.WindowDoesNotAcceptFocus
+        else:
+            _flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
+        super().__init__(parent, _flags)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setFixedWidth(CARD_W)
         self.setStyleSheet(

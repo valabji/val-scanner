@@ -3188,6 +3188,11 @@ def _app_icon() -> QIcon:
 
 
 def main() -> None:
+    # On Linux, Qt.ToolTip + FramelessWindowHint segfaults under Wayland.
+    # Force XCB only when no explicit platform is set and Wayland is active.
+    if sys.platform == "linux" and "QT_QPA_PLATFORM" not in os.environ:
+        if os.environ.get("WAYLAND_DISPLAY"):
+            os.environ["QT_QPA_PLATFORM"] = "xcb"
     app = QApplication(sys.argv)
     app.setOrganizationName("valscanner")
     app.setApplicationName("ValScanner")
