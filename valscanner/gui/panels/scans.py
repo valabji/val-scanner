@@ -83,7 +83,7 @@ class ScansPanel(QWidget):
         self._title.setStyleSheet(f"color:{TEXT};font-weight:bold;font-size:13px;")
         hl.addWidget(self._title)
         hl.addStretch()
-        self._hint = QLabel("Click a scan to filter the Files view")
+        self._hint = QLabel("Double-click a scan to filter the Files view")
         self._hint.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
         hl.addWidget(self._hint)
 
@@ -131,7 +131,7 @@ class ScansPanel(QWidget):
         saved_hdr = persistence.settings().value(persistence.Keys.SCANS_HEADER)
         if saved_hdr is not None:
             self.table.horizontalHeader().restoreState(saved_hdr)
-        self.table.clicked.connect(self._on_click)
+        self.table.doubleClicked.connect(self._on_click)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
