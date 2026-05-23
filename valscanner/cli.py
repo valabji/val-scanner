@@ -19,7 +19,7 @@ from pathlib import Path
 from .core.app_settings import active_url, mask_url, settings_path
 from .core.bootstrap import ensure_schema
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
-from .core.scanner import scan
+from .core.scanner import scan, count_files
 from .core.export import export_csv, export_json
 from .core.db import query_db, print_summary, list_scans, delete_scan
 from .core.transfer import transfer_db
@@ -39,6 +39,55 @@ def _export_stem(db_arg: str | None) -> str:
         return "scan"
     stem = Path(db_arg).stem
     return stem or "scan"
+
+
+def _make_scan_progress_cb(verbose: bool, total: int):
+    """Return an on_progress callback for scan(), or None if not applicable."""
+    if verbose or not sys.stdout.isatty():
+        return None
+
+    import time as _time
+    BAR_W  = 25
+    start  = _time.time()
+    _last  = [0.0]  # last print time — throttle to 10 Hz
+
+    def _fmt_eta(secs: float) -> str:
+        secs = int(secs)
+        if secs < 60:
+            return f"{secs}s"
+        m, s = divmod(secs, 60)
+        if m < 60:
+            return f"{m}m{s:02d}s"
+        h, m = divmod(m, 60)
+        return f"{h}h{m:02d}m"
+
+    def _cb(event: dict) -> None:
+        now = _time.time()
+        if event.get("done"):
+            print("\r" + " " * 79 + "\r", end="", flush=True)
+            return
+        if now - _last[0] < 0.1:
+            return
+        _last[0] = now
+
+        done    = event.get("scanned", 0)
+        elapsed = max(now - start, 0.001)
+        rate    = done / elapsed
+
+        if total > 0:
+            pct    = done / total
+            filled = int(BAR_W * pct)
+            bar    = "=" * filled + (">" if filled < BAR_W else "") + " " * (BAR_W - filled - (1 if filled < BAR_W else 0))
+            remaining = total - done
+            eta    = _fmt_eta(remaining / rate) if rate > 0 else "?"
+            line   = (f"\r  [{bar}] {done:>6,}/{total:,}  "
+                      f"{pct*100:4.1f}%  {rate:,.0f} f/s  ETA {eta}")
+        else:
+            line   = f"\r  {done:>8,} files  {rate:,.0f} f/s"
+
+        print(line[:79], end="", flush=True)
+
+    return _cb
 
 
 def _run_analysis(url: str, args, scan_id: int | None) -> None:
@@ -262,6 +311,23 @@ def main() -> None:
         print("   ⚠  PyPDF2 not installed — PDF metadata skipped")
     print()
 
+    skip_kw = dict(
+        skip_hidden_dirs=args.skip_hidden_dirs,
+        skip_vcs=args.skip_vcs,
+        skip_system=args.skip_system,
+        skip_caches=args.skip_caches,
+        skip_hidden_files=args.skip_hidden_files,
+        skip_binaries=args.skip_binaries,
+        skip_temp=args.skip_temp,
+        skip_logs=args.skip_logs,
+    )
+
+    total_files = 0
+    if not args.verbose and sys.stdout.isatty():
+        print("   Counting files…", end="", flush=True)
+        total_files = count_files(root, **skip_kw)
+        print(f"\r   {total_files:,} files to index\n", flush=True)
+
     t0    = time.time()
     stats = scan(
         root, url,
@@ -274,14 +340,8 @@ def main() -> None:
         thumb_quality=args.thumb_quality,
         store_samples=store_samples,
         sample_duration=args.sample_duration,
-        skip_hidden_dirs=args.skip_hidden_dirs,
-        skip_vcs=args.skip_vcs,
-        skip_system=args.skip_system,
-        skip_caches=args.skip_caches,
-        skip_hidden_files=args.skip_hidden_files,
-        skip_binaries=args.skip_binaries,
-        skip_temp=args.skip_temp,
-        skip_logs=args.skip_logs,
+        on_progress=_make_scan_progress_cb(args.verbose, total_files),
+        **skip_kw,
     )
     elapsed = time.time() - t0
 

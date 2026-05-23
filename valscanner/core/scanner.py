@@ -31,6 +31,49 @@ from .schema import human_size, ts
 from .tagging import generate_tags
 
 
+def count_files(
+    root: Path,
+    skip_hidden_dirs: bool = True,
+    skip_vcs: bool = False,
+    skip_system: bool = False,
+    skip_caches: bool = False,
+    skip_hidden_files: bool = False,
+    skip_binaries: bool = False,
+    skip_temp: bool = False,
+    skip_logs: bool = False,
+) -> int:
+    """Quick pre-count of files that scan() will index (same filters, no I/O per file)."""
+    def _keep_dir(name: str) -> bool:
+        if skip_hidden_dirs and name.startswith("."):
+            return False
+        if skip_vcs and name in _VCS_DIRS:
+            return False
+        if skip_system and name in _SYSTEM_DIRS:
+            return False
+        if skip_caches and name in _CACHE_DIRS:
+            return False
+        return True
+
+    def _keep_file(name: str, ext: str) -> bool:
+        if skip_hidden_files and name.startswith("."):
+            return False
+        if skip_binaries and ext in _BINARY_EXTS:
+            return False
+        if skip_temp and (ext in _TEMP_EXTS or name == ".DS_Store"):
+            return False
+        if skip_logs and ext in _LOG_EXTS:
+            return False
+        return True
+
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if _keep_dir(d)]
+        for fname in filenames:
+            if _keep_file(fname, Path(fname).suffix.lower()):
+                total += 1
+    return total
+
+
 def _rebuild_folder_totals_from_db(repo, scan_id: int, root: Path) -> dict:
     """Recompute the full folder hierarchy from DB rows for a resumed scan."""
     totals: dict = {}
