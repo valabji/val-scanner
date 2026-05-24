@@ -19,10 +19,12 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
 DisableProgramGroupPage=yes
+UsePreviousSetupType=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

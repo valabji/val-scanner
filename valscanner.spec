@@ -48,8 +48,8 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     # Trim heavy stdlib extras that are never used.
-    excludes=["tkinter", "unittest", "email", "html", "http", "xml",
-              "xmlrpc", "doctest", "pdb", "difflib", "calendar",
+    # Keep email, html, http, xml, xmlrpc — PySide6 may need them on Windows.
+    excludes=["tkinter", "unittest", "doctest", "pdb", "difflib", "calendar",
               "matplotlib", "numpy", "scipy", "pandas"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
