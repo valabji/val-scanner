@@ -6,8 +6,8 @@
 AppName=ValScanner
 AppVersion=0.1.11
 AppPublisher=Abdalrahman Valabji
-AppPublisherURL=https://github.com/valabji/valscanner
-AppSupportURL=https://github.com/valabji/valscanner/issues
+AppPublisherURL=https://github.com/valabji/val-scanner
+AppSupportURL=https://github.com/valabji/val-scanner/issues
 DefaultDirName={autopf}\ValScanner
 DefaultGroupName=ValScanner
 AllowNoIcons=yes
