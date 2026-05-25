@@ -4,7 +4,7 @@
 
 [Setup]
 AppName=ValScanner
-AppVersion=0.1.12
+AppVersion=0.1.13
 AppPublisher=Abdalrahman Valabji
 AppPublisherURL=https://github.com/valabji/val-scanner
 AppSupportURL=https://github.com/valabji/val-scanner/issues
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\ValScanner
 DefaultGroupName=ValScanner
 AllowNoIcons=yes
 OutputDir=..\dist
-OutputBaseFilename=ValScanner-0.1.12-setup
+OutputBaseFilename=ValScanner-0.1.13-setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\ValScanner.exe
 Compression=lzma2
