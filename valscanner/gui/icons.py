@@ -99,6 +99,11 @@ NAMES: dict[str, str] = {
     # status dots
     "dot":           "mdi.circle",
     "dot-small":     "mdi.circle-small",
+
+    # process monitor
+    "chevron-down":  "mdi.chevron-down",
+    "dots-horizontal": "mdi.dots-horizontal",
+    "activity":      "mdi.pulse",
 }
 
 

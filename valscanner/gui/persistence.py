@@ -58,6 +58,13 @@ class Keys:
     FOLDER_RAIL_WIDTH = "panel/folderRailWidth"
     DETAIL_RAIL_WIDTH = "panel/detailRailWidth"
 
+    # Process Monitor section expand/collapse state
+    PMON_SECTION_SUMMARY = "pmon/section/summary"
+    PMON_SECTION_METERS  = "pmon/section/meters"
+    PMON_SECTION_WORKERS = "pmon/section/workers"
+    PMON_SECTION_SPARK   = "pmon/section/spark"
+    PMON_AUTO_CLEAR      = "pmon/autoClear"
+
 
 def settings() -> QSettings:
     """Return a QSettings instance bound to the app's org/name."""

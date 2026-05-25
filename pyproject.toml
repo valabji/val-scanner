@@ -31,6 +31,7 @@ dependencies = [
     "platformdirs>=4.0",
     "keyring>=24.0",
     "alembic>=1.13",
+    "psutil>=5.9",
 ]
 
 [project.urls]
