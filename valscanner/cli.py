@@ -27,6 +27,24 @@ from .core.schema import human_size
 from .core.transfer import transfer_db
 from .core.similarity import find_similar_folders
 
+# Optional rich output — graceful fallback to plain print when not installed
+try:
+    from rich.console import Console as _RichConsole
+    from rich.table import Table as _RichTable
+    _console = _RichConsole(highlight=False)
+    _HAS_RICH = True
+except ImportError:
+    _console = None   # type: ignore[assignment]
+    _HAS_RICH = False
+
+
+def _rprint(markup: str, plain: str | None = None) -> None:
+    """Print *markup* via rich if available, else fall back to *plain* (or *markup*)."""
+    if _HAS_RICH:
+        _console.print(markup)
+    else:
+        print(plain if plain is not None else markup)
+
 
 def _export_stem(db_arg: str | None) -> str:
     """Filename stem for --export-csv / --export-json outputs.
@@ -44,8 +62,13 @@ def _export_stem(db_arg: str | None) -> str:
 
 
 def _make_scan_progress_cb(verbose: bool, total: int, show_progress: bool = True):
-    """Return an on_progress callback for scan(), or None if not applicable."""
-    if not show_progress or verbose or not sys.stdout.isatty():
+    """Return an on_progress callback for scan(), or None if not applicable.
+
+    When *verbose* is True the scanner pre-clears the bar line before each
+    file print, so both can coexist on a TTY without garbling output.
+    On a non-TTY there is no bar regardless of verbose.
+    """
+    if not show_progress or not sys.stdout.isatty():
         return None
 
     import time as _time
@@ -189,22 +212,39 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         print("\r" + " " * 79 + "\r", end="", flush=True)  # clear progress bar
 
     if not pairs:
-        print("   No similar folder pairs found.\n")
+        _rprint("   [dim]No similar folder pairs found.[/dim]\n",
+                "   No similar folder pairs found.\n")
         return
 
-    print(f"\n   {'Score':>5}  {'Folder A':<45}  Folder B")
-    print(f"   {'─'*5}  {'─'*45}  {'─'*45}")
-    for pair in pairs:
-        a = pair["folder_a"]
-        b = pair["folder_b"]
-        score = pair["score"]
-        print(f"   {score:>5.2f}  {a:<45}  {b}")
-        for child in pair.get("children", []):
-            ca = child["folder_a"]
-            cb = child["folder_b"]
-            cs = child["score"]
-            print(f"   {cs:>5.2f}    ↳ {ca:<43}  {cb}")
-    print(f"\n   {len(pairs)} pair(s) found.\n")
+    if _HAS_RICH:
+        tbl = _RichTable(show_header=True, header_style="bold", box=None,
+                         padding=(0, 1))
+        tbl.add_column("Score", style="cyan", justify="right", width=6)
+        tbl.add_column("Folder A", no_wrap=False)
+        tbl.add_column("Folder B", no_wrap=False)
+        for pair in pairs:
+            tbl.add_row(f"{pair['score']:.2f}", pair["folder_a"], pair["folder_b"])
+            for child in pair.get("children", []):
+                tbl.add_row(f"{child['score']:.2f}",
+                            f"  ↳ {child['folder_a']}", child["folder_b"])
+        print()
+        _console.print(tbl)
+        _rprint(f"\n   [bold]{len(pairs)}[/bold] pair(s) found.\n",
+                f"\n   {len(pairs)} pair(s) found.\n")
+    else:
+        print(f"\n   {'Score':>5}  {'Folder A':<45}  Folder B")
+        print(f"   {'─'*5}  {'─'*45}  {'─'*45}")
+        for pair in pairs:
+            a = pair["folder_a"]
+            b = pair["folder_b"]
+            score = pair["score"]
+            print(f"   {score:>5.2f}  {a:<45}  {b}")
+            for child in pair.get("children", []):
+                ca = child["folder_a"]
+                cb = child["folder_b"]
+                cs = child["score"]
+                print(f"   {cs:>5.2f}    ↳ {ca:<43}  {cb}")
+        print(f"\n   {len(pairs)} pair(s) found.\n")
 
 
 def main() -> None:
@@ -272,6 +312,16 @@ def main() -> None:
                       help="Skip log files (.log)")
     skip.add_argument("--file-timeout",      type=int, default=120, metavar="SEC",
                       help="Maximum time to wait per file in seconds (default: 120)")
+    skip.add_argument("--exclude",           metavar="GLOB", action="append", default=[],
+                      help="Skip files whose path (relative to root) matches GLOB "
+                           "(repeatable; e.g. --exclude '*.pyc' --exclude '__pycache__/*')")
+
+    perf = parser.add_argument_group("performance")
+    perf.add_argument("--workers",      type=int, default=4, metavar="N",
+                      help="Parallel file-processing threads (default: 4; 1 = sequential)")
+    perf.add_argument("--no-precount",  action="store_true",
+                      help="Skip the pre-scan file count; progress shows a spinner "
+                           "with a running tally instead of a percentage bar")
 
     analysis = parser.add_argument_group("similarity analysis")
     analysis.add_argument("--analyze",          action="store_true",
@@ -379,21 +429,28 @@ def main() -> None:
     store_thumbnails = not args.no_thumbnails
     store_samples    = not args.no_samples
 
-    print(f"\n🔎 Scanning: {root}")
+    _rprint(f"\n[bold]🔎 Scanning:[/bold] {root}", f"\n🔎 Scanning: {root}")
     if args.verbose:
-        print(f"   Database: {mask_url(url)}")
+        _rprint(f"   [dim]Database:[/dim] {mask_url(url)}",
+                f"   Database: {mask_url(url)}")
     if args.label:
-        print(f"   Label:    {args.label}")
+        _rprint(f"   [dim]Label:[/dim]    {args.label}",
+                f"   Label:    {args.label}")
     if store_thumbnails and not PIL_AVAILABLE:
-        print("   ⚠  Pillow not installed — thumbnail generation skipped")
+        _rprint("   [yellow]⚠[/yellow]  Pillow not installed — thumbnail generation skipped",
+                "   ⚠  Pillow not installed — thumbnail generation skipped")
     if store_samples and not FFMPEG_AVAILABLE:
-        print("   ⚠  ffmpeg not found — media sample generation skipped")
+        _rprint("   [yellow]⚠[/yellow]  ffmpeg not found — media sample generation skipped",
+                "   ⚠  ffmpeg not found — media sample generation skipped")
     if not PIL_AVAILABLE:
-        print("   ⚠  Pillow not installed — image EXIF metadata skipped")
+        _rprint("   [yellow]⚠[/yellow]  Pillow not installed — image EXIF metadata skipped",
+                "   ⚠  Pillow not installed — image EXIF metadata skipped")
     if not MUTAGEN_AVAILABLE:
-        print("   ⚠  mutagen not installed — audio metadata skipped")
+        _rprint("   [yellow]⚠[/yellow]  mutagen not installed — audio metadata skipped",
+                "   ⚠  mutagen not installed — audio metadata skipped")
     if not PYPDF_AVAILABLE:
-        print("   ⚠  PyPDF2 not installed — PDF metadata skipped")
+        _rprint("   [yellow]⚠[/yellow]  PyPDF2 not installed — PDF metadata skipped",
+                "   ⚠  PyPDF2 not installed — PDF metadata skipped")
     print()
 
     skip_kw = dict(
@@ -409,12 +466,16 @@ def main() -> None:
 
     total_files = 0
     remaining_files = 0
-    if not args.verbose and sys.stdout.isatty():
+    # Skip the pre-scan count when --no-precount is set OR when --verbose is
+    # active (verbose disables the progress bar anyway, so the count is unused).
+    _do_precount = sys.stdout.isatty() and not args.no_precount and not args.verbose
+    if _do_precount:
         print("   Counting files…", end="", flush=True)
-        total_files = count_files(root, **skip_kw)
+        total_files = count_files(root, **skip_kw,
+                                  exclude_patterns=args.exclude or None)
         remaining_files = total_files
 
-        # If resuming, check how many files are already indexed
+        # If resuming, show how many files are already indexed
         if args.resume:
             repo = repo_for(url)
             interrupted_scan = repo.find_interrupted_scan(str(root))
@@ -422,7 +483,8 @@ def main() -> None:
                 scan_info = repo.get_scan(interrupted_scan)
                 already_indexed = scan_info.get("file_count", 0) if scan_info else 0
                 remaining_files = max(0, total_files - already_indexed)
-                print(f"\r   {total_files:,} total files, {already_indexed:,} already indexed, {remaining_files:,} remaining\n", flush=True)
+                print(f"\r   {total_files:,} total files, {already_indexed:,} already indexed, "
+                      f"{remaining_files:,} remaining\n", flush=True)
             else:
                 print(f"\r   {total_files:,} files to index\n", flush=True)
         else:
@@ -443,6 +505,8 @@ def main() -> None:
             store_samples=store_samples,
             sample_duration=args.sample_duration,
             file_timeout=args.file_timeout,
+            workers=args.workers,
+            exclude_patterns=args.exclude or None,
             on_progress=_make_scan_progress_cb(args.verbose, total_files, show_progress=not args.no_progress_bar),
             **skip_kw,
         )
@@ -468,11 +532,19 @@ def main() -> None:
     timed_out = stats.get("timed_out", 0)
     timed_out_str = f", {timed_out:,} timed out" if timed_out > 0 else ""
 
-    print(f"\n✅ Done in {elapsed:.1f}s — "
-          f"scan #{stats['scan_id']}, "
-          f"{stats['scanned']:,} indexed, "
-          f"{stats['errors']:,} errors, "
-          f"{stats['skipped']:,} skipped{timed_out_str}")
+    _done_plain = (f"\n✅ Done in {elapsed:.1f}s — "
+                   f"scan #{stats['scan_id']}, "
+                   f"{stats['scanned']:,} indexed, "
+                   f"{stats['errors']:,} errors, "
+                   f"{stats['skipped']:,} skipped{timed_out_str}")
+    _rprint(
+        f"\n[bold green]✅ Done[/bold green] in [bold]{elapsed:.1f}s[/bold] — "
+        f"scan [cyan]#{stats['scan_id']}[/cyan], "
+        f"[bold]{stats['scanned']:,}[/bold] indexed, "
+        f"{stats['errors']:,} errors, "
+        f"{stats['skipped']:,} skipped{timed_out_str}",
+        _done_plain,
+    )
 
     print_summary(url)
 
