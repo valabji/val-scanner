@@ -11,7 +11,9 @@ from valscanner.core.schema import metadata
 
 config = context.config
 
-if config.config_file_name:
+# Only configure logging from alembic's ini file if we haven't already configured logging
+# This preserves any custom logging setup from the CLI
+if config.config_file_name and not __import__('logging').root.handlers:
     fileConfig(config.config_file_name)
 
 # Resolution order: explicit -x url, $DATABASE_URL, active_url() from settings
