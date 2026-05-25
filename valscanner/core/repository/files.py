@@ -19,6 +19,14 @@ class FilesMixin(RepositoryBase):
         except IntegrityError as exc:
             raise DuplicateRecordError(str(exc)) from exc
 
+    def file_exists(self, scan_id: int, file_path: str) -> bool:
+        """Check if a file already exists in a scan by path."""
+        stmt = select(files.c.id).where(
+            (files.c.scan_id == scan_id) & (files.c.path == file_path)
+        ).limit(1)
+        with self._engine.connect() as conn:
+            return conn.execute(stmt).fetchone() is not None
+
     def get_file(self, file_id: int) -> dict | None:
         with self._engine.connect() as conn:
             row = conn.execute(select(files).where(files.c.id == file_id)).fetchone()

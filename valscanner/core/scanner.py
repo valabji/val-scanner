@@ -277,6 +277,18 @@ def scan(
                 stats["skipped"] += 1
                 continue
             fpath = Path(dirpath) / fname
+            fpath_resolved = fpath.resolve()
+
+            # Skip processing if file already exists in this scan (resume optimization)
+            if repo.file_exists(scan_id, str(fpath_resolved)):
+                _log.debug("[skip] File already indexed: %s", fpath_resolved)
+                stats["skipped"] += 1
+                _skip_emit_counter += 1
+                if _skip_emit_counter >= 10:
+                    _emit({"scanned": stats["scanned"], "skipped": stats["skipped"], "path": str(fpath_resolved)})
+                    _skip_emit_counter = 0
+                continue
+
             try:
                 if executor:
                     future = executor.submit(_process_file, fpath, fname, now)
@@ -299,7 +311,7 @@ def scan(
                     file_id = repo.insert_file(row)
                     _log.debug("[db] File inserted with ID: %d", file_id)
                 except DuplicateRecordError:
-                    _log.debug("[db] File already exists in database: %s", fpath)
+                    _log.debug("[db] File already exists in database (race condition): %s", fpath)
                     stats["skipped"] += 1
                     _skip_emit_counter += 1
                     if _skip_emit_counter >= 10:
