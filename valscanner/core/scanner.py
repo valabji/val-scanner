@@ -154,6 +154,7 @@ def scan(
         "resumed": actually_resumed,
     }
     folder_totals: dict = {}
+    _skip_emit_counter = 0  # Only emit progress every N skipped files to reduce callback frequency
 
     def _emit(event: dict) -> None:
         if on_progress is not None:
@@ -246,6 +247,11 @@ def scan(
                     file_id = repo.insert_file(row)
                 except DuplicateRecordError:
                     stats["skipped"] += 1
+                    _skip_emit_counter += 1
+                    # Emit progress every 10 skipped files to show activity without excessive callbacks
+                    if _skip_emit_counter >= 10:
+                        _emit({"scanned": stats["scanned"], "skipped": stats["skipped"], "path": str(fpath)})
+                        _skip_emit_counter = 0
                     continue
 
                 if store_thumbnails:
@@ -283,7 +289,7 @@ def scan(
                 if verbose:
                     print(f"  [{category:14s}] {fpath}")
 
-                _emit({"scanned": stats["scanned"], "path": str(fpath)})
+                _emit({"scanned": stats["scanned"], "skipped": stats["skipped"], "path": str(fpath)})
 
             except (PermissionError, FileNotFoundError, OSError) as e:
                 stats["errors"] += 1

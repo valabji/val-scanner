@@ -21,7 +21,8 @@ from .core.bootstrap import ensure_schema
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
 from .core.scanner import scan, count_files
 from .core.export import export_csv, export_json
-from .core.db import query_db, print_summary, list_scans, delete_scan
+from .core.db import query_db, print_summary, list_scans, delete_scan, repo_for
+from .core.schema import human_size
 from .core.transfer import transfer_db
 from .core.similarity import find_similar_folders
 
@@ -70,7 +71,9 @@ def _make_scan_progress_cb(verbose: bool, total: int, show_progress: bool = True
             return
         _last[0] = now
 
-        done    = event.get("scanned", 0)
+        scanned = event.get("scanned", 0)
+        skipped = event.get("skipped", 0)
+        done    = scanned + skipped  # Total files processed (new + duplicates)
         elapsed = max(now - start, 0.001)
         rate    = done / elapsed
 
@@ -80,8 +83,13 @@ def _make_scan_progress_cb(verbose: bool, total: int, show_progress: bool = True
             bar    = "=" * filled + (">" if filled < BAR_W else "") + " " * (BAR_W - filled - (1 if filled < BAR_W else 0))
             remaining = total - done
             eta    = _fmt_eta(remaining / rate) if rate > 0 else "?"
-            line   = (f"\r  [{bar}] {done:>6,}/{total:,}  "
-                      f"{pct*100:4.1f}%  {rate:,.0f} f/s  ETA {eta}")
+
+            # Show distinction between skipped (already indexed) and newly scanned files
+            if skipped > 0:
+                line   = (f"\r  [{bar}] {pct*100:5.1f}%  {scanned:>4,}↻{skipped//1000}k  {rate:,.0f}/s  {eta}")
+            else:
+                line   = (f"\r  [{bar}] {done:>6,}/{total:,}  "
+                          f"{pct*100:4.1f}%  {rate:,.0f} f/s  ETA {eta}")
         else:
             line   = f"\r  {done:>8,} files  {rate:,.0f} f/s"
 
@@ -376,26 +384,60 @@ def main() -> None:
     )
 
     total_files = 0
+    remaining_files = 0
     if not args.verbose and sys.stdout.isatty():
         print("   Counting files…", end="", flush=True)
         total_files = count_files(root, **skip_kw)
-        print(f"\r   {total_files:,} files to index\n", flush=True)
+        remaining_files = total_files
 
-    t0    = time.time()
-    stats = scan(
-        root, url,
-        compute_hash=not args.no_hash,
-        verbose=args.verbose,
-        label=args.label,
-        resume=args.resume,
-        store_thumbnails=store_thumbnails,
-        thumb_size=args.thumb_size,
-        thumb_quality=args.thumb_quality,
-        store_samples=store_samples,
-        sample_duration=args.sample_duration,
-        on_progress=_make_scan_progress_cb(args.verbose, total_files, show_progress=not args.no_progress_bar),
-        **skip_kw,
-    )
+        # If resuming, check how many files are already indexed
+        if args.resume:
+            repo = repo_for(url)
+            interrupted_scan = repo.find_interrupted_scan(str(root))
+            if interrupted_scan:
+                scan_info = repo.get_scan(interrupted_scan)
+                already_indexed = scan_info.get("file_count", 0) if scan_info else 0
+                remaining_files = max(0, total_files - already_indexed)
+                print(f"\r   {total_files:,} total files, {already_indexed:,} already indexed, {remaining_files:,} remaining\n", flush=True)
+            else:
+                print(f"\r   {total_files:,} files to index\n", flush=True)
+        else:
+            print(f"\r   {total_files:,} files to index\n", flush=True)
+
+    t0 = time.time()
+    t_pre_scan = time.time()
+    try:
+        stats = scan(
+            root, url,
+            compute_hash=not args.no_hash,
+            verbose=args.verbose,
+            label=args.label,
+            resume=args.resume,
+            store_thumbnails=store_thumbnails,
+            thumb_size=args.thumb_size,
+            thumb_quality=args.thumb_quality,
+            store_samples=store_samples,
+            sample_duration=args.sample_duration,
+            on_progress=_make_scan_progress_cb(args.verbose, total_files, show_progress=not args.no_progress_bar),
+            **skip_kw,
+        )
+    except KeyboardInterrupt:
+        elapsed = time.time() - t0
+        # Find the running scan and update its totals before exiting
+        repo = repo_for(url)
+        running_scan_id = repo.find_interrupted_scan(str(root))
+        if running_scan_id:
+            # Count files already indexed for this scan
+            files = repo.iter_files_for_export(scan_id=running_scan_id)
+            file_count = sum(1 for _ in files)
+            # Recalculate totals from database
+            scan_files = repo.list_files(scan_id=running_scan_id, page_size=10000)
+            total_bytes = sum(f.get("size_bytes", 0) for f in scan_files)
+            repo.update_scan_totals(running_scan_id, file_count, total_bytes, human_size(total_bytes))
+        print(f"\n⏸️  Scan interrupted after {elapsed:.1f}s")
+        print(f"   Run with --resume to continue from where it stopped.\n")
+        sys.exit(0)
+
     elapsed = time.time() - t0
 
     print(f"\n✅ Done in {elapsed:.1f}s — "
