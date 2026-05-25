@@ -4,7 +4,7 @@
 
 [Setup]
 AppName=ValScanner
-AppVersion=0.1.11
+AppVersion=0.1.12
 AppPublisher=Abdalrahman Valabji
 AppPublisherURL=https://github.com/valabji/val-scanner
 AppSupportURL=https://github.com/valabji/val-scanner/issues
@@ -12,14 +12,14 @@ DefaultDirName={autopf}\ValScanner
 DefaultGroupName=ValScanner
 AllowNoIcons=yes
 OutputDir=..\dist
-OutputBaseFilename=ValScanner-0.1.11-setup
+OutputBaseFilename=ValScanner-0.1.12-setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\ValScanner.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=lowered,elevated
+PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
