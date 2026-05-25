@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .core.app_settings import active_url, mask_url, settings_path
 from .core.bootstrap import ensure_schema
+from .core.logging_config import setup_logging
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
 from .core.scanner import scan, count_files
 from .core.export import export_csv, export_json
@@ -207,7 +208,6 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(
         description="Scan a directory and build a searchable file database.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -270,6 +270,8 @@ def main() -> None:
                       help="Skip temp/backup files (.tmp, .bak, .swp, .DS_Store, …)")
     skip.add_argument("--skip-logs",         action="store_true",
                       help="Skip log files (.log)")
+    skip.add_argument("--file-timeout",      type=int, default=120, metavar="SEC",
+                      help="Maximum time to wait per file in seconds (default: 120)")
 
     analysis = parser.add_argument_group("similarity analysis")
     analysis.add_argument("--analyze",          action="store_true",
@@ -284,7 +286,29 @@ def main() -> None:
     analysis.add_argument("--analysis-scan-id", type=int, default=None, metavar="ID",
                           help="Restrict analysis to a specific scan ID")
 
+    logging_group = parser.add_argument_group("logging")
+    logging_group.add_argument("--log-file",    metavar="PATH", default=None,
+                               help="Write logs to file (default: no file logging)")
+    logging_group.add_argument("--log-level",   metavar="LEVEL", default="INFO",
+                               choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                               help="Log level (default: INFO)")
+    logging_group.add_argument("--log-max-size", type=int, default=10485760, metavar="BYTES",
+                               help="Max log file size before rotation in bytes (default: 10485760 = 10MB)")
+    logging_group.add_argument("--log-backup-count", type=int, default=5, metavar="N",
+                               help="Number of backup log files to keep (default: 5)")
+    logging_group.add_argument("--log-no-console", action="store_true",
+                               help="Disable console output, log to file only")
+
     args = parser.parse_args()
+
+    # Configure logging early
+    setup_logging(
+        log_file=args.log_file,
+        log_level=args.log_level,
+        log_max_size=args.log_max_size,
+        log_backup_count=args.log_backup_count,
+        log_no_console=args.log_no_console,
+    )
 
     if args.open_settings:
         sf = settings_path()
@@ -418,6 +442,7 @@ def main() -> None:
             thumb_quality=args.thumb_quality,
             store_samples=store_samples,
             sample_duration=args.sample_duration,
+            file_timeout=args.file_timeout,
             on_progress=_make_scan_progress_cb(args.verbose, total_files, show_progress=not args.no_progress_bar),
             **skip_kw,
         )
@@ -440,11 +465,14 @@ def main() -> None:
 
     elapsed = time.time() - t0
 
+    timed_out = stats.get("timed_out", 0)
+    timed_out_str = f", {timed_out:,} timed out" if timed_out > 0 else ""
+
     print(f"\n✅ Done in {elapsed:.1f}s — "
           f"scan #{stats['scan_id']}, "
           f"{stats['scanned']:,} indexed, "
           f"{stats['errors']:,} errors, "
-          f"{stats['skipped']:,} skipped")
+          f"{stats['skipped']:,} skipped{timed_out_str}")
 
     print_summary(url)
 
