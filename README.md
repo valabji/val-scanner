@@ -40,7 +40,7 @@ A recursive file scanner with rich metadata extraction, full-text search, auto-t
 - **Three front-ends, one database** — CLI for scripting, Qt desktop GUI for everyday browsing, FastAPI + React Web UI for remote / cross-machine viewing
 - **Recursive scan** — indexes every file under a root directory through a backend-agnostic database layer
 - **Multiple database backends** — SQLite (default, zero-config) or local PostgreSQL (optional, better for very large indexes and concurrent access); switch between them through the GUI's Database Settings dialog with no env vars or config-file editing
-- **Rich metadata** — image EXIF, audio tags, PDF page count (optional deps: Pillow, mutagen, PyPDF2)
+- **Rich metadata** — image EXIF, audio tags, PDF page count (optional deps: Pillow, mutagen, pypdf)
 - **Thumbnails** — JPEG blobs stored in-database; shown in GUI grid view (requires Pillow or ffmpeg)
 - **Media samples** — short low-quality audio/video clips stored in-database (requires ffmpeg)
 - **Auto-tagging** — rule-based tags from path keywords, filename, size bucket, and extension
@@ -65,7 +65,7 @@ A recursive file scanner with rich metadata extraction, full-text search, auto-t
 | platformdirs | ≥ 4.0 | locating the per-user settings directory |
 | Pillow *(optional)* | any | image EXIF + thumbnails |
 | mutagen *(optional)* | any | audio metadata (artist, album, duration, …) |
-| PyPDF2 *(optional)* | any | PDF page count |
+| pypdf *(optional)* | any | PDF page count |
 | ffmpeg *(optional)* | any | video thumbnails + media samples |
 | psycopg2-binary *(optional)* | ≥ 2.9 | PostgreSQL driver — only needed if you choose the PostgreSQL backend |
 | FastAPI + uvicorn *(optional)* | recent | Web UI HTTP server (`pip install ".[web]"`) |

@@ -165,7 +165,7 @@ When uncertain about cadence, ship smaller, more often.
 ## Key design notes
 
 - `*.db`, `*.csv`, and `*.json` are gitignored — output files are never committed
-- Optional libraries (Pillow, mutagen, PyPDF2) are detected at import time via `try/except`; the scanner runs without them, just without rich metadata
+- Optional libraries (Pillow, mutagen, pypdf) are detected at import time via `try/except`; the scanner runs without them, just without rich metadata
 - Hidden directories (names starting with `.`) are pruned from `os.walk` in `scan()`; hidden *files* are indexed but tagged `hidden-file`/`dotfile`
 - The similarity algorithm weights differ depending on whether any SHA-256 hashes exist in the DB (`has_hashes` flag)
 - Run the GUI directly with `python -m valscanner.gui.window` or the installed `valscanner-gui` entry point

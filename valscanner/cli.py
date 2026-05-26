@@ -449,8 +449,8 @@ def main() -> None:
         _rprint("   [yellow]⚠[/yellow]  mutagen not installed — audio metadata skipped",
                 "   ⚠  mutagen not installed — audio metadata skipped")
     if not PYPDF_AVAILABLE:
-        _rprint("   [yellow]⚠[/yellow]  PyPDF2 not installed — PDF metadata skipped",
-                "   ⚠  PyPDF2 not installed — PDF metadata skipped")
+        _rprint("   [yellow]⚠[/yellow]  pypdf not installed — PDF metadata skipped",
+                "   ⚠  pypdf not installed — PDF metadata skipped")
     print()
 
     skip_kw = dict(

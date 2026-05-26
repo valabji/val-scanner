@@ -1,6 +1,6 @@
 """Tests for valscanner.core.metadata — extractors, hashing, and thumbnailing.
 
-We exercise the real PIL/mutagen/PyPDF2 paths when available, and the safe
+We exercise the real PIL/mutagen/pypdf paths when available, and the safe
 graceful-degradation paths when libraries are absent or ffmpeg is missing.
 The optional-feature flags themselves are sanity-checked as bools.
 """

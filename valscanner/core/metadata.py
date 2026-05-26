@@ -19,7 +19,7 @@ except ImportError:
     MUTAGEN_AVAILABLE = False
 
 try:
-    import PyPDF2
+    import pypdf
     PYPDF_AVAILABLE = True
 except ImportError:
     PYPDF_AVAILABLE = False
@@ -85,7 +85,7 @@ def extract_pdf_metadata(path: Path) -> dict:
         return {}
     try:
         with open(path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
+            reader = pypdf.PdfReader(f)
             meta = {"pdf_pages": len(reader.pages)}
             info = reader.metadata
             if info:

@@ -58,7 +58,7 @@ dev-gui = [
 rich = [
     "Pillow",
     "mutagen",
-    "PyPDF2",
+    "pypdf",
 ]
 
 [project.scripts]
