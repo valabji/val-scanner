@@ -105,8 +105,10 @@ val-scanner/                ← repo root
 
 ### Core layer (valscanner/core/)
 
-- **schema.py** — SQLite DDL for `scans`, `files`, `folders`, `thumbnails`, `media_samples`, and the FTS5 virtual table + triggers
-- **scanner.py** — `scan(root, db_path, …)` walks a directory tree, writes every file as a row into SQLite, accumulates folder totals
+- **schema.py** — SQLAlchemy table definitions (`scans`, `files`, `folders`, `thumbnails`, `media_samples`, `gui_cache`, `analysis_runs`) plus dialect-specific FTS bootstrap: `apply_sqlite_fts()` builds the FTS5 virtual table + triggers on SQLite; `apply_postgres_fts()` builds the `tsvector` column + GIN index on PostgreSQL. Both are no-ops on the other dialect.
+- **db_config.py** — engine factory + per-URL cache; sets SQLite pragmas (`foreign_keys`, WAL, busy_timeout) on connect, uses `pool_pre_ping` for PostgreSQL
+- **app_settings.py** — `active_url()` resolves the SQLAlchemy URL from (1) explicit override, (2) `DATABASE_URL` env var, (3) settings file (`db_backend`, `sqlite_path`, or `pg_*` fields with password from keyring), (4) built-in default `sqlite:///~/valscanner.db`
+- **scanner.py** — `scan(root, db_path, …)` walks a directory tree, writes every file as a row, accumulates folder totals; `db_path` may be a filesystem path or a full SQLAlchemy URL
 - **similarity.py** — pairwise folder comparison using a weighted blend of filename Jaccard, extension cosine, size ratio, and SHA-256 Jaccard; returns a hierarchy (sub-pairs nested under ancestor pairs)
 - **metadata.py** — optional-library feature detection at import time; extractors silently return `{}` if their library is absent
 - **tagging.py** — rule-based tag generation from path parts, filename keywords, size, and extension
@@ -122,13 +124,22 @@ val-scanner/                ← repo root
 
 ## Database schema
 
-Five tables in every `.db` file:
+The schema is backend-agnostic (SQLAlchemy Core) and supported on both **SQLite** (default — single `.db` file) and **PostgreSQL** (selected via `db_backend=postgresql` in settings or `DATABASE_URL`). Alembic owns migrations (`alembic_version` table is present on both backends).
+
+Tables:
 - `scans` — one row per scan session; tracks label, root, file count, total size
 - `files` — one row per file; `extra_meta` is a JSON blob of rich metadata
 - `folders` — cumulative byte/file counts for every ancestor directory up to the scan root
 - `thumbnails` — JPEG blobs keyed by `file_id`
 - `media_samples` — low-quality audio/video clips keyed by `file_id`
-- `files_fts` — FTS5 virtual table mirroring `files`; populated by `AFTER INSERT` / `AFTER DELETE` triggers
+- `gui_cache` — key/value JSON store for cached GUI state (versioned by `version` column)
+- `analysis_runs` — history of similarity-analysis runs (filters, threshold, results) for the Similar Folders panel
+
+Full-text search is set up per dialect by `apply_fts()`:
+- **SQLite**: `files_fts` FTS5 virtual table mirroring `files`, populated by `AFTER INSERT` / `AFTER DELETE` triggers
+- **PostgreSQL**: `files.fts` `tsvector` column with a GIN index, maintained by trigger
+
+Reclaiming space on PostgreSQL: `DELETE` leaves dead tuples behind — run `VACUUM FULL <table>` (rewrites table, returns space to OS) or `TRUNCATE` to wipe and reset, since plain `VACUUM` only marks the space reusable.
 
 ## Git workflow rules
 
