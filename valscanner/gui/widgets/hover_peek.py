@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QPixmap
@@ -144,7 +145,7 @@ class HoverPeekCard(QFrame):
             self._thumb_lbl.setPixmap(fallback)
 
         # Text fields
-        self._name_lbl.setText(name or path.split("/")[-1] or path)
+        self._name_lbl.setText(name or Path(path).name or path)
         color = CATEGORY_COLORS.get(cat, str(SUBTEXT))
         self._cat_lbl.setText(cat)
         self._cat_lbl.setStyleSheet(

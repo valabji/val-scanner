@@ -471,9 +471,15 @@ class DetailPanel(QWidget):
                 "Re-scan to refresh.",
                 detail=str(p))
             return
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", str(p)])
-        elif sys.platform == "win32":
-            os.startfile(str(p))
-        else:
-            subprocess.Popen(["xdg-open", str(p)])
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(p)])
+            elif sys.platform == "win32":
+                os.startfile(str(p))
+            else:
+                subprocess.Popen(["xdg-open", str(p)])
+        except (OSError, FileNotFoundError) as exc:
+            from ..feedback import notify_error
+            notify_error(self, "Could not open file",
+                "The system reported an error when opening this file.",
+                detail=str(exc))

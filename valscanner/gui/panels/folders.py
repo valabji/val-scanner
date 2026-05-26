@@ -388,12 +388,18 @@ class FolderPanel(QWidget):
         if act == apply_act:
             self.folder_selected.emit(path)
         elif act == reveal_act:
-            if sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            elif sys.platform == "win32":
-                subprocess.Popen(["explorer", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
+            try:
+                if sys.platform == "darwin":
+                    subprocess.Popen(["open", path])
+                elif sys.platform == "win32":
+                    subprocess.Popen(["explorer", path])
+                else:
+                    subprocess.Popen(["xdg-open", path])
+            except (OSError, FileNotFoundError) as exc:
+                from ..feedback import notify_error
+                notify_error(self, "Could not reveal folder",
+                    "The system reported an error when revealing this folder.",
+                    detail=str(exc))
         elif act == copy_act:
             QApplication.clipboard().setText(path)
         elif act == expand_act:

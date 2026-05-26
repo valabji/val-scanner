@@ -60,7 +60,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         persistence.migrate()
         self.setWindowTitle("ValScanner")
-        self.resize(1440, 880)
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else None
+        if avail is not None:
+            self.resize(min(1440, int(avail.width() * 0.92)),
+                        min(880, int(avail.height() * 0.92)))
+        else:
+            self.resize(1440, 880)
         self._db_path                = ""
         self._db_url                 = ""  # authoritative SQLAlchemy URL
         self._connect_worker: ConnectWorker | None = None
@@ -520,12 +526,15 @@ class MainWindow(QMainWindow):
 
     def _open_path(self, path: str) -> None:
         """Open a file path in the OS default application."""
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", path])
-        elif sys.platform == "win32":
-            subprocess.Popen(["start", "", path], shell=True)
-        else:
-            subprocess.Popen(["xdg-open", path])
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            elif sys.platform == "win32":
+                os.startfile(path)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except (OSError, FileNotFoundError) as e:
+            self._set_status(f"Could not open: {e}", level="error")
 
     def _open_active_file(self) -> None:
         row = self._active_row()
@@ -3157,12 +3166,15 @@ class MainWindow(QMainWindow):
             self._set_status(f"Copied: {rows[0][1]}")
 
     def _reveal(self, path: str) -> None:
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", path])
-        elif sys.platform == "win32":
-            subprocess.Popen(["explorer", path])
-        else:
-            subprocess.Popen(["xdg-open", path])
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            elif sys.platform == "win32":
+                subprocess.Popen(["explorer", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except (OSError, FileNotFoundError) as e:
+            self._set_status(f"Could not reveal: {e}", level="error")
 
     def _on_table_scroll(self, value: int) -> None:
         """Lazy load handler: trigger when scrolling near the end."""

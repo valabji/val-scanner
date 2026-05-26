@@ -472,7 +472,7 @@ class _PMSection(QWidget):
         hl.setContentsMargins(12, 0, 12, 0)
         hl.setSpacing(6)
         self._chev = QLabel()
-        self._chev.setFixedSize(11, 11)
+        self._chev.setFixedSize(12, 12)
         hl.addWidget(self._chev)
         self._ttl_lbl = QLabel(self._title.upper())
         self._ttl_lbl.setStyleSheet(
@@ -536,11 +536,11 @@ class _PMSection(QWidget):
         # available on QLabel; just swap icon for the collapsed state.
         try:
             if self._open:
-                pm = _icons.pixmap("chevron-down", 11, color=str(SUBTEXT))
+                pm = _icons.pixmap("chevron-down", 12, color=str(SUBTEXT))
             else:
                 # Use a fresh qtawesome icon for chevron-right
                 import qtawesome as qta
-                pm = qta.icon("mdi.chevron-right", color=str(SUBTEXT)).pixmap(QSize(11, 11))
+                pm = qta.icon("mdi.chevron-right", color=str(SUBTEXT)).pixmap(QSize(12, 12))
         except Exception:
             pm = None
         if pm is not None:
@@ -701,7 +701,7 @@ class _PMWorker(QFrame):
         sw.setContentsMargins(0, 0, 0, 0)
         sw.setSpacing(5)
         self._state_dot = QLabel()
-        self._state_dot.setFixedSize(5, 5)
+        self._state_dot.setFixedSize(7, 7)
         self._state_lbl = QLabel("RUNNING")
         self._state_lbl.setStyleSheet(
             f"color: {SUBTEXT}; font-size: 9px; font-weight: 600; letter-spacing: 1px;"

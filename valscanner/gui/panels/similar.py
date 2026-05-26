@@ -1051,9 +1051,15 @@ class SimilarFoldersPanel(QWidget):
     def _open_folder(self, path: str) -> None:
         p      = Path(path)
         target = str(p) if p.is_dir() else str(p.parent)
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", target])
-        elif sys.platform == "win32":
-            subprocess.Popen(["explorer", target])
-        else:
-            subprocess.Popen(["xdg-open", target])
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", target])
+            elif sys.platform == "win32":
+                subprocess.Popen(["explorer", target])
+            else:
+                subprocess.Popen(["xdg-open", target])
+        except (OSError, FileNotFoundError) as exc:
+            from ..feedback import notify_error
+            notify_error(self, "Could not open folder",
+                "The system reported an error when opening this folder.",
+                detail=str(exc))
