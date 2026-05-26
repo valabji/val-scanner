@@ -43,16 +43,34 @@ def app_populated(populated_db: str):
     return create_app(populated_db)
 
 
+def _drain_active_scans() -> None:
+    from valscanner.web.scan_registry import REGISTRY
+
+    active_id = REGISTRY.active_id()
+    if active_id is None:
+        return
+    state = REGISTRY.get(active_id)
+    if state is None:
+        return
+    state.cancel_event.set()
+    if state.thread is not None:
+        state.thread.join(timeout=10)
+
+
 @pytest.fixture
 def client(app):
     from fastapi.testclient import TestClient
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
+    _drain_active_scans()
 
 
 @pytest.fixture
 def client_populated(app_populated):
     from fastapi.testclient import TestClient
-    return TestClient(app_populated)
+    with TestClient(app_populated) as c:
+        yield c
+    _drain_active_scans()
 
 
 @pytest.fixture

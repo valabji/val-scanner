@@ -43,3 +43,15 @@ def test_scan_conflict(client, fixture_tree):
     b = client.post("/api/scan", json={"root": str(fixture_tree), "no_hash": True})
     assert b.status_code == 409
     assert b.json()["error"] == "scan_in_progress"
+
+    # Wait for the first scan to fully finish so its worker thread doesn't
+    # outlive the test and log into a closed pytest-captured stream.
+    scan_id = a.json()["scan_id"]
+    with client.stream("GET", f"/api/scan/{scan_id}/stream") as resp:
+        for line in resp.iter_lines():
+            if line and line.startswith("data:") and (
+                '"done": true' in line or '"done":true' in line
+                or '"error"' in line or '"cancelled": true' in line
+            ):
+                break
+    time.sleep(0.1)
