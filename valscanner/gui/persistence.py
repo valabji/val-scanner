@@ -7,6 +7,8 @@ migration function below.
 Version history
   0 → 1  Renamed flat geometry/splitter keys into window/* namespace;
           added fileTable/* and similar/* sections.
+  1 → 2  Cleared persisted file-table header state after Hash column was
+          inserted and column order changed.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from PySide6.QtCore import QSettings
 
 from .theme import ORG_NAME, APP_NAME
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Keys:

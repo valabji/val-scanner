@@ -37,3 +37,9 @@ web-ui/node_modules/
 # Built web app (populated by scripts/build_web.sh)
 valscanner/web/static/*
 !valscanner/web/static/.gitkeep
+
+# Coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

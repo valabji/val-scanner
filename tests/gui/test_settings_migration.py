@@ -16,7 +16,7 @@ def _fresh_settings():
 
 
 def test_migrate_v0_to_v1_renames_keys(qapp):
-    from valscanner.gui.persistence import settings, Keys, migrate
+    from valscanner.gui.persistence import SCHEMA_VERSION, settings, Keys, migrate
 
     s = settings()
     s.setValue("windowGeometry", b"fake_geo")
@@ -33,11 +33,11 @@ def test_migrate_v0_to_v1_renames_keys(qapp):
     assert s2.value("windowGeometry")     is None
     assert s2.value("splitterState")      is None
     assert s2.value("vsplitterState")     is None
-    assert int(s2.value(Keys.SCHEMA_VER, 0)) == 1
+    assert int(s2.value(Keys.SCHEMA_VER, 0)) == SCHEMA_VERSION
 
 
 def test_migrate_idempotent(qapp):
-    from valscanner.gui.persistence import settings, Keys, migrate
+    from valscanner.gui.persistence import SCHEMA_VERSION, settings, Keys, migrate
 
     s = settings()
     s.setValue("windowGeometry", b"geo_data")
@@ -48,17 +48,33 @@ def test_migrate_idempotent(qapp):
 
     s2 = settings()
     assert s2.value(Keys.WINDOW_GEOMETRY) == b"geo_data"
-    assert int(s2.value(Keys.SCHEMA_VER, 0)) == 1
+    assert int(s2.value(Keys.SCHEMA_VER, 0)) == SCHEMA_VERSION
 
 
 def test_migrate_skips_absent_old_keys(qapp):
-    from valscanner.gui.persistence import settings, Keys, migrate
+    from valscanner.gui.persistence import SCHEMA_VERSION, settings, Keys, migrate
 
     migrate()
 
     s = settings()
-    assert int(s.value(Keys.SCHEMA_VER, 0)) == 1
+    assert int(s.value(Keys.SCHEMA_VER, 0)) == SCHEMA_VERSION
     assert s.value(Keys.WINDOW_GEOMETRY) is None
+
+
+def test_migrate_v1_to_v2_clears_file_table_header(qapp):
+    """v1→v2 wipes the persisted file-table header state (column order changed)."""
+    from valscanner.gui.persistence import SCHEMA_VERSION, settings, Keys, migrate
+
+    s = settings()
+    s.setValue(Keys.FILE_TABLE_HDR, b"old_header_bytes")
+    s.setValue(Keys.SCHEMA_VER, 1)
+    s.sync()
+
+    migrate()
+
+    s2 = settings()
+    assert s2.value(Keys.FILE_TABLE_HDR) is None
+    assert int(s2.value(Keys.SCHEMA_VER, 0)) == SCHEMA_VERSION
 
 
 def test_get_set_json_roundtrip(qapp):

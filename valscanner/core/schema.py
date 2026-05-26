@@ -184,10 +184,10 @@ _PG_FTS_STMTS = [
     CREATE OR REPLACE FUNCTION files_fts_update() RETURNS trigger AS $$
     BEGIN
         NEW.fts :=
-            setweight(to_tsvector('english', coalesce(NEW.filename, '')), 'A') ||
-            setweight(to_tsvector('english', coalesce(NEW.category, '')), 'B') ||
-            setweight(to_tsvector('english', coalesce(NEW.tags, '')),     'B') ||
-            setweight(to_tsvector('english', coalesce(NEW.path, '')),     'C');
+            setweight(to_tsvector('english', translate(coalesce(NEW.filename, ''), '.', ' ')), 'A') ||
+            setweight(to_tsvector('english', coalesce(NEW.category, '')),                       'B') ||
+            setweight(to_tsvector('english', coalesce(NEW.tags, '')),                           'B') ||
+            setweight(to_tsvector('english', translate(coalesce(NEW.path, ''), './', '  ')),    'C');
         RETURN NEW;
     END
     $$ LANGUAGE plpgsql
