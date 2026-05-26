@@ -1154,11 +1154,10 @@ class ProcessPanel(QWidget):
     def _refresh_workers(self) -> None:
         reg = ProcessRegistry.instance()
         entries = reg.entries()
-        # Track which pids are alive
-        live_pids = {e.pid for e in entries}
+        by_pid = {e.pid: e for e in entries}
         # Remove tiles for dead pids
         for pid in list(self._workers.keys()):
-            if pid not in live_pids:
+            if pid not in by_pid:
                 w = self._workers.pop(pid)
                 if pid in self._worker_order:
                     self._worker_order.remove(pid)
@@ -1177,7 +1176,7 @@ class ProcessPanel(QWidget):
 
         # Update tiles
         for idx, pid in enumerate(self._worker_order, start=1):
-            entry = next((e for e in entries if e.pid == pid), None)
+            entry = by_pid.get(pid)
             if entry is None:
                 continue
             self._workers[pid].update_from(entry, worker_index=idx)

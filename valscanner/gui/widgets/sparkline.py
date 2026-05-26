@@ -30,17 +30,21 @@ class Sparkline(QWidget):
         super().__init__(parent)
         self._capacity = capacity
         self._samples: Deque[float] = deque(maxlen=capacity)
+        self._cache_key: tuple | None = None
+        self._cache_paths: tuple[QPainterPath, QPainterPath] | None = None
         self.setFixedHeight(40)
         self.setMinimumWidth(60)
 
     def add_sample(self, value: float) -> None:
         """Append a sample (must be >= 0). Triggers repaint."""
         self._samples.append(max(0.0, float(value)))
+        self._cache_key = None
         self.update()
 
     def clear(self) -> None:
         """Drop all samples."""
         self._samples.clear()
+        self._cache_key = None
         self.update()
 
     def sample_count(self) -> int:
@@ -57,26 +61,28 @@ class Sparkline(QWidget):
             # Nothing meaningful to draw yet
             return
 
-        peak = max(self._samples) or 1.0
         pad = 4
-        usable_h = h - pad * 2
-
-        # Build the line path
-        path = QPainterPath()
-        for i, v in enumerate(self._samples):
-            t = i / (n - 1)
-            x = t * w
-            y = h - pad - (v / peak) * usable_h
-            if i == 0:
-                path.moveTo(QPointF(x, y))
-            else:
-                path.lineTo(QPointF(x, y))
-
-        # Build area path (line + close to baseline)
-        area = QPainterPath(path)
-        area.lineTo(QPointF(w, h))
-        area.lineTo(QPointF(0, h))
-        area.closeSubpath()
+        key = (w, h, n, tuple(self._samples))
+        if self._cache_key == key and self._cache_paths is not None:
+            path, area = self._cache_paths
+        else:
+            peak = max(self._samples) or 1.0
+            usable_h = h - pad * 2
+            path = QPainterPath()
+            for i, v in enumerate(self._samples):
+                t = i / (n - 1)
+                x = t * w
+                y = h - pad - (v / peak) * usable_h
+                if i == 0:
+                    path.moveTo(QPointF(x, y))
+                else:
+                    path.lineTo(QPointF(x, y))
+            area = QPainterPath(path)
+            area.lineTo(QPointF(w, h))
+            area.lineTo(QPointF(0, h))
+            area.closeSubpath()
+            self._cache_key = key
+            self._cache_paths = (path, area)
 
         # Gradient fill
         acc = QColor(str(ACCENT))

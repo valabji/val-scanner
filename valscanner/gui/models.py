@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import OrderedDict
+
 from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListModel, QObject, Signal
 from PySide6.QtGui import QColor, QFont, QPixmap, QImage
 
@@ -208,10 +210,18 @@ class ThumbnailCache:
     "not yet requested"; presence in ``_inflight`` means "queued, waiting."
     """
 
+    _PX_MAX = 1024
+
     def __init__(self):
-        # Values: QPixmap (resolved — possibly null/empty). Missing key = not requested.
-        self._px: dict[str, QPixmap] = {}
+        # LRU. Values: QPixmap (resolved — possibly null/empty). Missing key = not requested.
+        self._px: OrderedDict[str, QPixmap] = OrderedDict()
         self._inflight: set[str] = set()
+
+    def _put(self, key: str, px: QPixmap) -> None:
+        self._px[key] = px
+        self._px.move_to_end(key)
+        while len(self._px) > self._PX_MAX:
+            self._px.popitem(last=False)
         self._db_path = ""
         self._bridge: _ThumbBridge | None = None
         self._worker = None  # ThumbnailLoadWorker (lazy)
@@ -252,16 +262,17 @@ class ThumbnailCache:
         """
         key = f"{path}@{size}"
         if key in self._px:
+            self._px.move_to_end(key)
             return self._px[key]
         if not self._db_path or category not in ("photo", "image", "video"):
             # Mark as resolved-empty so we don't try again.
-            self._px[key] = QPixmap()
+            self._put(key, QPixmap())
             return self._px[key]
         if key in self._inflight:
             return QPixmap()
         self._ensure_worker()
         if self._worker is None:
-            self._px[key] = QPixmap()
+            self._put(key, QPixmap())
             return self._px[key]
         self._inflight.add(key)
         self._worker.enqueue(path, size)
@@ -271,7 +282,7 @@ class ThumbnailCache:
         """Slot on the GUI thread — store result and forward to subscribers."""
         key = f"{path}@{size}"
         self._inflight.discard(key)
-        self._px[key] = px
+        self._put(key, px)
 
     def shutdown(self) -> None:
         """Stop the background worker — call from MainWindow.closeEvent."""

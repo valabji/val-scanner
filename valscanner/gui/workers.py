@@ -78,20 +78,28 @@ class ScanWorker(QThread):
                     self._pid, f"Estimated files: {estimated_total:,}"
                 )
 
+            last_emit_t = 0.0
+            last_emit_n = -50
+
             def _on_progress(ev: dict) -> None:
+                nonlocal last_emit_t, last_emit_n
                 if "path" not in ev:
                     return
+                n = ev.get("scanned", 0)
+                now = time.monotonic()
+                if (n - last_emit_n) < 50 and (now - last_emit_t) < 0.1:
+                    return
+                last_emit_n = n
+                last_emit_t = now
                 self.progress.emit(ev)
                 if self._pid:
-                    n = ev.get("scanned", 0)
-                    if n % 50 == 0:
-                        from .panels.process import ProcessRegistry
-                        reg = ProcessRegistry.instance()
-                        reg.set_progress_detailed(self._pid, n, estimated_total)
-                        reg.push_log(
-                            self._pid,
-                            f"Scanned {n:,} / {estimated_total:,} — {Path(ev['path']).parent.name}",
-                        )
+                    from .panels.process import ProcessRegistry
+                    reg = ProcessRegistry.instance()
+                    reg.set_progress_detailed(self._pid, n, estimated_total)
+                    reg.push_log(
+                        self._pid,
+                        f"Scanned {n:,} / {estimated_total:,} — {Path(ev['path']).parent.name}",
+                    )
 
             stats = scan(
                 self.root, self.db_path, self.compute_hash,
