@@ -216,15 +216,15 @@ class ThumbnailCache:
         # LRU. Values: QPixmap (resolved — possibly null/empty). Missing key = not requested.
         self._px: OrderedDict[str, QPixmap] = OrderedDict()
         self._inflight: set[str] = set()
+        self._db_path = ""
+        self._bridge: _ThumbBridge | None = None
+        self._worker = None  # ThumbnailLoadWorker (lazy)
 
     def _put(self, key: str, px: QPixmap) -> None:
         self._px[key] = px
         self._px.move_to_end(key)
         while len(self._px) > self._PX_MAX:
             self._px.popitem(last=False)
-        self._db_path = ""
-        self._bridge: _ThumbBridge | None = None
-        self._worker = None  # ThumbnailLoadWorker (lazy)
 
     @property
     def bridge(self) -> _ThumbBridge:
