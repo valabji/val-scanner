@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy import text
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QLabel, QPushButton,
     QTextEdit, QHBoxLayout, QMessageBox, QStackedWidget,
@@ -45,6 +45,7 @@ class DetailPanel(QWidget):
         self.setMinimumWidth(260)
         self._db_path = ""
         self._current_path: str | None = None
+        self._detail_workers: list = []  # hold refs so workers aren't GC'd mid-run
         self._build_ui()
         from ..theme import Theme
         Theme.instance().on_changed(self._apply_stylesheet)
@@ -308,29 +309,9 @@ class DetailPanel(QWidget):
         self._current_path = row[0]
         cat = row[2]
 
-        thumb_loaded = False
-        if self._db_path and cat in ("photo", "image", "video"):
-            try:
-                engine = repo_for(self._db_path).engine
-                with engine.connect() as conn:
-                    res = conn.execute(
-                        text("SELECT t.data FROM thumbnails t"
-                             " JOIN files f ON f.id = t.file_id WHERE f.path=:p"),
-                        {"p": row[0]},
-                    ).fetchone()
-                if res:
-                    data = bytes(res[0])
-                    px = QPixmap()
-                    if px.loadFromData(data):
-                        self.icon_label.setPixmap(
-                            px.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        )
-                        thumb_loaded = True
-            except Exception:
-                pass
-        if not thumb_loaded:
-            cat_color = CATEGORY_COLORS.get(cat, str(SUBTEXT))
-            self.icon_label.setPixmap(_icons.pixmap(f"cat-{cat}", 64, color=cat_color))
+        # Show category placeholder immediately; real thumb arrives async.
+        cat_color = CATEGORY_COLORS.get(cat, str(SUBTEXT))
+        self.icon_label.setPixmap(_icons.pixmap(f"cat-{cat}", 64, color=cat_color))
 
         self.name_label.setText(row[1])
         color = CATEGORY_COLORS.get(cat, str(SUBTEXT))
@@ -399,21 +380,43 @@ class DetailPanel(QWidget):
             self._exif_section.hide()
 
         self.open_btn.show()
-
         self.sample_btn.hide()
-        if self._db_path and cat in ("audio", "video"):
-            try:
-                engine = repo_for(self._db_path).engine
-                with engine.connect() as conn:
-                    has = conn.execute(
-                        text("SELECT 1 FROM media_samples ms"
-                             " JOIN files f ON f.id = ms.file_id WHERE f.path=:p"),
-                        {"p": row[0]},
-                    ).fetchone()
-                if has:
-                    self.sample_btn.show()
-            except Exception:
-                pass
+
+        # Kick off async DB read for thumbnail blob + sample existence.
+        want_thumb = cat in ("photo", "image", "video")
+        want_sample = cat in ("audio", "video")
+        if self._db_path and (want_thumb or want_sample):
+            from ..workers import DetailLoadWorker
+            for prev in list(self._detail_workers):
+                try:
+                    prev.stop()
+                except Exception:
+                    pass
+            w = DetailLoadWorker(self._db_path, row[0], want_thumb, want_sample)
+            w.loaded.connect(self._on_detail_loaded)
+            w.error.connect(lambda _e: None)
+            w.finished.connect(lambda w=w: self._reap_detail_worker(w))
+            self._detail_workers.append(w)
+            w.start()
+
+    def _reap_detail_worker(self, w) -> None:
+        try:
+            self._detail_workers.remove(w)
+        except ValueError:
+            pass
+
+    def _on_detail_loaded(self, path: str, img: QImage, has_sample: bool) -> None:
+        # Drop stale results (user moved on to another file).
+        if path != self._current_path:
+            return
+        if img is not None and not img.isNull():
+            px = QPixmap.fromImage(img)
+            if not px.isNull():
+                self.icon_label.setPixmap(
+                    px.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+        if has_sample:
+            self.sample_btn.show()
 
     def _play_sample(self) -> None:
         if not self._current_path or not self._db_path:

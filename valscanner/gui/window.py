@@ -31,7 +31,7 @@ from .constants import (
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX, make_folder_row, _FOLDER_SENTINEL
 from . import icons as _icons
 from .delegates import FileCardDelegate, FileRowDelegate
-from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, ConnectWorker, PAGE_SIZE
+from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, ConnectWorker, FilterWorker, PAGE_SIZE
 from .dialogs import ScanOptionsDialog, ViewFiltersDialog, DatabaseSettingsDialog
 from valscanner import __version__
 from .panels.detail import DetailPanel
@@ -51,7 +51,6 @@ from ..core.export import export_csv, export_json
 from ..core.db import list_scans, repo_for, reset_repos
 from ..core.db_config import reset_engines
 from ..core.schema import human_size
-from ..core.scanner import _SYSTEM_DIRS, _CACHE_DIRS, _VCS_DIRS, _BINARY_EXTS, _TEMP_EXTS, _LOG_EXTS
 from ..core import app_settings as _app_settings
 from ..core.app_settings import active_url, mask_url
 
@@ -79,6 +78,11 @@ class MainWindow(QMainWindow):
         self._group_by: str          = ""
         self._view_filters_dlg: ViewFiltersDialog | None = None
         self._filtered_rows: list    = []
+        # Async filter pipeline: generation counter drops stale results;
+        # parts cache memoizes Path(path).parts per row.
+        self._filter_gen: int        = 0
+        self._filter_workers: list   = []   # hold refs so workers aren't GC'd mid-run
+        self._path_parts_cache: dict = {}
         self._lazy_worker: LazyLoadWorker | None = None
         self._total_row_count        = 0
         self._loaded_offset          = 0
@@ -935,6 +939,10 @@ class MainWindow(QMainWindow):
         _ps.setValue("panelConsoleVisible",   (self._main_vsplit.sizes()[1] > 0) if hasattr(self, "_main_vsplit") else False)
         _ps.setValue("panelFilterBarVisible", self._filterbar.isVisible()   if hasattr(self, "_filterbar")   else True)
         _ps.setValue("panelStatsBarVisible",  self._statsbar.isVisible()    if hasattr(self, "_statsbar")    else True)
+        try:
+            _THUMB_CACHE.shutdown()
+        except Exception:
+            pass
         super().closeEvent(ev)
 
     def _refresh_recents_strip(self) -> None:
@@ -2651,6 +2659,7 @@ class MainWindow(QMainWindow):
         rows = data["rows"]
 
         self._all_rows = rows
+        self._path_parts_cache = {}
         self._total_row_count = total
         self._loaded_offset = PAGE_SIZE
 
@@ -2709,6 +2718,7 @@ class MainWindow(QMainWindow):
             total_bytes += fr[3] or 0
 
         self._all_rows = rows
+        self._path_parts_cache = {}
         self._total_row_count = len(rows)
         self._loaded_offset = len(rows)  # no lazy paging needed in browser mode
 
@@ -2801,83 +2811,49 @@ class MainWindow(QMainWindow):
         self._load_browser_view()
 
     def _apply_filters(self) -> None:
+        """Run the filter sweep on a worker thread; results land in _on_filter_done."""
         term = self.search_edit.text().strip().lower()
         cat  = self.cat_combo.currentText()
         if cat == "All types":
             cat = ""
 
-        filtered = []
-        for r in self._all_rows:
-            # Folder rows: only filter by search term
-            if len(r) > 2 and r[2] == _FOLDER_SENTINEL:
-                if term and term not in f"{r[1]} {r[0]}".lower():
-                    continue
-                filtered.append(r)
-                continue
-            if cat and r[2] != cat:
-                continue
-            if term and term not in f"{r[1]} {r[2]} {r[6]} {r[7] if len(r) > 7 else ''} {r[0]}".lower():
-                continue
-            filtered.append(r)
+        # Bump generation so any in-flight worker's result is discarded.
+        self._filter_gen += 1
+        gen = self._filter_gen
 
-        # View filters (post-scan, no re-scan required)
-        vf = self._view_filters
-        if vf:
-            hidden_cats     = vf.get("hidden_categories", set())
-            min_bytes       = vf.get("min_bytes", 0)
-            max_bytes       = vf.get("max_bytes", 0)
-            exts            = vf.get("extensions", set())
-            hide_hidden_dirs  = vf.get("hide_hidden_dirs",  False)
-            hide_vcs          = vf.get("hide_vcs",          False)
-            hide_system       = vf.get("hide_system",       False)
-            hide_caches       = vf.get("hide_caches",       False)
-            hide_hidden_files = vf.get("hide_hidden_files", False)
-            hide_binaries     = vf.get("hide_binaries",     False)
-            hide_temp         = vf.get("hide_temp",         False)
-            hide_logs         = vf.get("hide_logs",         False)
+        # Stop any currently-running filter workers; they'll finish quickly
+        # and be reaped via finished -> _reap_filter_worker.
+        for w0 in list(self._filter_workers):
+            try:
+                w0.stop()
+            except Exception:
+                pass
 
-            any_path_filter = (hide_hidden_dirs or hide_vcs or hide_system or hide_caches)
-            any_active = (hidden_cats or min_bytes or max_bytes or exts
-                          or any_path_filter
-                          or hide_hidden_files or hide_binaries or hide_temp or hide_logs)
+        w = FilterWorker(
+            generation=gen,
+            rows=list(self._all_rows),
+            term=term,
+            cat=cat,
+            view_filters=self._view_filters or {},
+            parts_cache=self._path_parts_cache,
+        )
+        w.done.connect(self._on_filter_done)
+        w.error.connect(lambda e: self._set_status(f"Filter error: {e}"))
+        w.finished.connect(lambda w=w: self._reap_filter_worker(w))
+        self._filter_workers.append(w)
+        w.start()
 
-            if any_active:
-                vf_out = []
-                for r in filtered:
-                    path, filename, _cat, size_b = r[0], r[1], r[2], r[3]
-                    ext = Path(filename).suffix.lower()
+    def _reap_filter_worker(self, w) -> None:
+        try:
+            self._filter_workers.remove(w)
+        except ValueError:
+            pass
 
-                    if _cat in hidden_cats:
-                        continue
-                    if min_bytes and size_b < min_bytes:
-                        continue
-                    if max_bytes and size_b > max_bytes:
-                        continue
-                    if exts and ext.lstrip(".") not in exts:
-                        continue
-                    if hide_hidden_files and filename.startswith("."):
-                        continue
-                    if hide_binaries and ext in _BINARY_EXTS:
-                        continue
-                    if hide_temp and ext in _TEMP_EXTS:
-                        continue
-                    if hide_logs and ext in _LOG_EXTS:
-                        continue
-
-                    if any_path_filter:
-                        parts = set(Path(path).parts)
-                        if hide_hidden_dirs and any(p.startswith(".") for p in parts):
-                            continue
-                        if hide_vcs and parts & _VCS_DIRS:
-                            continue
-                        if hide_system and parts & _SYSTEM_DIRS:
-                            continue
-                        if hide_caches and parts & _CACHE_DIRS:
-                            continue
-
-                    vf_out.append(r)
-                filtered = vf_out
-
+    def _on_filter_done(self, gen: int, filtered: list, new_parts: dict) -> None:
+        if gen != self._filter_gen:
+            return  # stale result; a newer filter is already running
+        if new_parts:
+            self._path_parts_cache.update(new_parts)
         self._filtered_rows = filtered
         self._apply_sort()
         self._stat_showing.setText(f"Showing {len(filtered):,}")

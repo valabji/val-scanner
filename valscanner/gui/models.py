@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import text
+from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListModel, QObject, Signal
+from PySide6.QtGui import QColor, QFont, QPixmap, QImage
 
-from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListModel
-from PySide6.QtGui import QColor, QFont, QPixmap
-
-from ..core.db import repo_for
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT
 from . import icons as _icons
 
@@ -175,39 +172,115 @@ class FileTableModel(QAbstractTableModel):
         self.endResetModel()
 
 
+class _ThumbBridge(QObject):
+    """GUI-thread QObject that receives QImage results from the worker and
+    forwards them as ready QPixmaps. Created lazily after QApplication exists.
+    """
+    ready = Signal(str, QPixmap, int)  # path, pixmap, size
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def on_worker_ready(self, path: str, img: QImage, size: int) -> None:
+        # Runs on the GUI thread (queued connection from worker).
+        if img is None or img.isNull():
+            # Emit empty pixmap so callers can stop polling.
+            self.ready.emit(path, QPixmap(), size)
+            return
+        px = QPixmap.fromImage(img)
+        if not px.isNull():
+            px = px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.ready.emit(path, px, size)
+
+
 class ThumbnailCache:
+    """Async thumbnail cache.
+
+    ``get()`` returns immediately:
+      - the cached pixmap (or empty if known-absent),
+      - or an empty QPixmap while a request is queued.
+
+    Listeners connect ``bridge.ready`` to be notified when a pixmap arrives.
+    The cache owns a single ``ThumbnailLoadWorker`` (started lazily after
+    QApplication exists) and a ``_ThumbBridge`` for cross-thread delivery.
+
+    Cache values: a QPixmap (possibly null) means resolved; absence means
+    "not yet requested"; presence in ``_inflight`` means "queued, waiting."
+    """
+
     def __init__(self):
-        self._px:  dict[str, QPixmap] = {}
+        # Values: QPixmap (resolved — possibly null/empty). Missing key = not requested.
+        self._px: dict[str, QPixmap] = {}
+        self._inflight: set[str] = set()
         self._db_path = ""
+        self._bridge: _ThumbBridge | None = None
+        self._worker = None  # ThumbnailLoadWorker (lazy)
+
+    @property
+    def bridge(self) -> _ThumbBridge:
+        """Lazy GUI-thread signal hub. Safe to call only after QApplication."""
+        if self._bridge is None:
+            self._bridge = _ThumbBridge()
+            self._bridge.ready.connect(self._on_ready)
+        return self._bridge
+
+    def _ensure_worker(self) -> None:
+        if self._worker is not None or not self._db_path:
+            return
+        # Imported lazily to avoid circular import (workers -> models).
+        from .workers import ThumbnailLoadWorker
+        # Touch the bridge first so we have a GUI-thread receiver before the
+        # worker can emit; connect with queued delivery (auto).
+        b = self.bridge
+        self._worker = ThumbnailLoadWorker(self._db_path)
+        self._worker.thumb_ready.connect(b.on_worker_ready)
+        self._worker.start()
 
     def set_db(self, path: str) -> None:
         self._db_path = path
         self._px.clear()
+        self._inflight.clear()
+        if self._worker is not None:
+            self._worker.set_db(path)
+        else:
+            self._ensure_worker()
 
     def get(self, path: str, category: str, size: int = 96) -> QPixmap:
+        """Return cached pixmap immediately; queue a fetch if not yet known.
+
+        Always non-blocking; never touches the database from the calling thread.
+        """
         key = f"{path}@{size}"
         if key in self._px:
             return self._px[key]
-        if self._db_path and category in ("photo", "image", "video"):
+        if not self._db_path or category not in ("photo", "image", "video"):
+            # Mark as resolved-empty so we don't try again.
+            self._px[key] = QPixmap()
+            return self._px[key]
+        if key in self._inflight:
+            return QPixmap()
+        self._ensure_worker()
+        if self._worker is None:
+            self._px[key] = QPixmap()
+            return self._px[key]
+        self._inflight.add(key)
+        self._worker.enqueue(path, size)
+        return QPixmap()
+
+    def _on_ready(self, path: str, px: QPixmap, size: int) -> None:
+        """Slot on the GUI thread — store result and forward to subscribers."""
+        key = f"{path}@{size}"
+        self._inflight.discard(key)
+        self._px[key] = px
+
+    def shutdown(self) -> None:
+        """Stop the background worker — call from MainWindow.closeEvent."""
+        if self._worker is not None:
             try:
-                engine = repo_for(self._db_path).engine
-                with engine.connect() as conn:
-                    row = conn.execute(
-                        text("SELECT t.data FROM thumbnails t"
-                             " JOIN files f ON f.id = t.file_id WHERE f.path=:p"),
-                        {"p": path},
-                    ).fetchone()
-                if row:
-                    data = bytes(row[0])
-                    px = QPixmap()
-                    if px.loadFromData(data):
-                        px = px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        self._px[key] = px
-                        return px
+                self._worker.stop()
             except Exception:
                 pass
-        self._px[key] = QPixmap()
-        return QPixmap()
+            self._worker = None
 
 
 _THUMB_CACHE = ThumbnailCache()
@@ -217,10 +290,20 @@ class FileIconModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._rows: list[tuple] = []
+        self._path_to_rows: dict[str, list[int]] = {}
+        # Subscribe to async thumbnail arrivals so the grid view repaints.
+        try:
+            _THUMB_CACHE.bridge.ready.connect(self._on_thumb_ready)
+        except Exception:
+            pass
 
     def load(self, rows):
         self.beginResetModel()
         self._rows = list(rows)
+        self._path_to_rows = {}
+        for i, r in enumerate(self._rows):
+            if r and r[0]:
+                self._path_to_rows.setdefault(r[0], []).append(i)
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
@@ -245,3 +328,12 @@ class FileIconModel(QAbstractListModel):
                 return f"{row[1]}\n{row[4]}  ·  {row[6]}\n{row[0]}"
             return f"{row[1]}\n{row[4]}  ·  {row[2]}\n{row[0]}"
         return None
+
+    def _on_thumb_ready(self, path: str, _px: QPixmap, _size: int) -> None:
+        # Re-emit dataChanged for any row showing this path so the delegate repaints.
+        rows = self._path_to_rows.get(path)
+        if not rows:
+            return
+        for ri in rows:
+            idx = self.index(ri, 0)
+            self.dataChanged.emit(idx, idx, [Qt.DecorationRole])

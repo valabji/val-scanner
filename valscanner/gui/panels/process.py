@@ -852,6 +852,10 @@ class ProcessPanel(QWidget):
         super().__init__(parent)
         self._workers: dict[str, _PMWorker] = {}
         self._worker_order: list[str] = []
+        # Coalesce refresh() bursts: registry can fire dozens of times per
+        # scan tick; we cap visible repaints at ~20 Hz.
+        self._refresh_pending = False
+        self._refresh_min_interval_ms = 50
         # Auto-clear (persisted)
         saved_ac = settings().value(Keys.PMON_AUTO_CLEAR)
         self._auto_clear = True if saved_ac is None else str(saved_ac).lower() in ("1", "true", "yes")
@@ -1069,7 +1073,14 @@ class ProcessPanel(QWidget):
 
     @Slot()
     def _refresh(self) -> None:
-        """Full refresh on any registry change."""
+        """Coalesce refresh bursts — flush at most every ~50 ms."""
+        if self._refresh_pending:
+            return
+        self._refresh_pending = True
+        QTimer.singleShot(self._refresh_min_interval_ms, self._do_refresh)
+
+    def _do_refresh(self) -> None:
+        self._refresh_pending = False
         self._refresh_workers()
         self._refresh_summary()
         self._refresh_meters()

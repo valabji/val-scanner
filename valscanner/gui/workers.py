@@ -20,9 +20,11 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, Qt
+from PySide6.QtGui import QImage
 from sqlalchemy import text
 
 from ..core.db import repo_for, save_analysis_run
@@ -610,6 +612,260 @@ class FolderLoadWorker(QThread):
                 reg.mark_done(self._pid)
             else:
                 reg.mark_error(self._pid)
+
+
+class ThumbnailLoadWorker(QThread):
+    """Long-lived queue-driven worker that fetches thumbnail blobs from SQLite.
+
+    Producers call ``enqueue(path, size)`` from the GUI thread; this worker
+    pops requests, runs the JOIN, and emits ``thumb_ready(path, QImage, size)``
+    on the GUI thread (QImage is thread-safe; the GUI converts to QPixmap).
+
+    Requests for paths already loaded (or known to have no blob) are skipped
+    by the cache before they reach the queue.
+    """
+    thumb_ready = Signal(str, QImage, int)  # path, image (may be null), size
+    error       = Signal(str)
+
+    def __init__(self, db_path: str):
+        super().__init__()
+        self._db_path = db_path
+        self._queue: deque[tuple[str, int]] = deque()
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stop_flag = False
+
+    def set_db(self, db_path: str) -> None:
+        """Swap DB; drops any pending requests for the old DB."""
+        with self._lock:
+            self._db_path = db_path
+            self._queue.clear()
+
+    def enqueue(self, path: str, size: int) -> None:
+        with self._lock:
+            self._queue.append((path, size))
+        self._wake.set()
+
+    def stop(self) -> None:
+        self._stop_flag = True
+        self._wake.set()
+        self.wait(500)
+
+    def run(self) -> None:
+        while not self._stop_flag:
+            self._wake.wait(timeout=1.0)
+            if self._stop_flag:
+                return
+            self._wake.clear()
+            while not self._stop_flag:
+                with self._lock:
+                    if not self._queue:
+                        break
+                    path, size = self._queue.popleft()
+                    db_path = self._db_path
+                if not db_path:
+                    continue
+                try:
+                    engine = repo_for(db_path).engine
+                    with engine.connect() as conn:
+                        row = conn.execute(
+                            text("SELECT t.data FROM thumbnails t"
+                                 " JOIN files f ON f.id = t.file_id WHERE f.path=:p"),
+                            {"p": path},
+                        ).fetchone()
+                    img = QImage()
+                    if row and row[0]:
+                        img.loadFromData(bytes(row[0]))
+                    self.thumb_ready.emit(path, img, size)
+                except Exception as e:
+                    # Emit empty image on error so the cache can mark as resolved
+                    self.thumb_ready.emit(path, QImage(), size)
+                    self.error.emit(str(e))
+
+
+class DetailLoadWorker(QThread):
+    """One-shot worker: fetches the file's thumbnail blob and sample existence
+    in a single DB connection. Cancellation is implicit via supersession in
+    the GUI (the panel discards results whose ``path`` no longer matches).
+    """
+    loaded = Signal(str, QImage, bool)  # path, image (may be null), has_sample
+    error  = Signal(str)
+
+    def __init__(self, db_path: str, path: str, want_thumb: bool, want_sample: bool):
+        super().__init__()
+        self._db_path = db_path
+        self._path = path
+        self._want_thumb = want_thumb
+        self._want_sample = want_sample
+        self._stop = False
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def run(self) -> None:
+        img = QImage()
+        has_sample = False
+        try:
+            if not self._db_path:
+                self.loaded.emit(self._path, img, has_sample)
+                return
+            engine = repo_for(self._db_path).engine
+            with engine.connect() as conn:
+                if self._stop:
+                    return
+                if self._want_thumb:
+                    row = conn.execute(
+                        text("SELECT t.data FROM thumbnails t"
+                             " JOIN files f ON f.id = t.file_id WHERE f.path=:p"),
+                        {"p": self._path},
+                    ).fetchone()
+                    if row and row[0]:
+                        img.loadFromData(bytes(row[0]))
+                if self._stop:
+                    return
+                if self._want_sample:
+                    has = conn.execute(
+                        text("SELECT 1 FROM media_samples ms"
+                             " JOIN files f ON f.id = ms.file_id WHERE f.path=:p"),
+                        {"p": self._path},
+                    ).fetchone()
+                    has_sample = bool(has)
+            if not self._stop:
+                self.loaded.emit(self._path, img, has_sample)
+        except Exception as e:
+            self.error.emit(str(e))
+            if not self._stop:
+                self.loaded.emit(self._path, img, has_sample)
+
+
+# Filter constants (re-exported for the worker)
+from ..core.scanner import _SYSTEM_DIRS, _CACHE_DIRS, _VCS_DIRS, _BINARY_EXTS, _TEMP_EXTS, _LOG_EXTS  # noqa: E402
+
+
+class FilterWorker(QThread):
+    """Runs the (search + category + view-filter) sweep over ``rows`` off the
+    GUI thread. Emits ``done(generation, filtered_rows, parts_cache_updates)``.
+
+    The generation counter lets the caller drop stale results when the user
+    types/toggles filters rapidly.
+    """
+    done  = Signal(int, list, dict)
+    error = Signal(str)
+
+    _FOLDER_SENTINEL = "__folder__"
+
+    def __init__(
+        self,
+        generation: int,
+        rows: list,
+        term: str,
+        cat: str,
+        view_filters: dict,
+        parts_cache: dict,
+    ):
+        super().__init__()
+        self._gen = generation
+        self._rows = rows
+        self._term = term
+        self._cat = cat
+        self._vf = view_filters or {}
+        self._parts_cache = parts_cache
+        self._stop = False
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def run(self) -> None:
+        try:
+            term = self._term
+            cat = self._cat
+            FOLDER = self._FOLDER_SENTINEL
+
+            filtered: list = []
+            for r in self._rows:
+                if self._stop:
+                    return
+                # Folder rows: only search-term filter
+                if len(r) > 2 and r[2] == FOLDER:
+                    if term and term not in f"{r[1]} {r[0]}".lower():
+                        continue
+                    filtered.append(r)
+                    continue
+                if cat and r[2] != cat:
+                    continue
+                if term and term not in f"{r[1]} {r[2]} {r[6]} {r[7] if len(r) > 7 else ''} {r[0]}".lower():
+                    continue
+                filtered.append(r)
+
+            vf = self._vf
+            new_parts: dict = {}
+            if vf:
+                hidden_cats       = vf.get("hidden_categories", set())
+                min_bytes         = vf.get("min_bytes", 0)
+                max_bytes         = vf.get("max_bytes", 0)
+                exts              = vf.get("extensions", set())
+                hide_hidden_dirs  = vf.get("hide_hidden_dirs",  False)
+                hide_vcs          = vf.get("hide_vcs",          False)
+                hide_system       = vf.get("hide_system",       False)
+                hide_caches       = vf.get("hide_caches",       False)
+                hide_hidden_files = vf.get("hide_hidden_files", False)
+                hide_binaries     = vf.get("hide_binaries",     False)
+                hide_temp         = vf.get("hide_temp",         False)
+                hide_logs         = vf.get("hide_logs",         False)
+
+                any_path_filter = (hide_hidden_dirs or hide_vcs or hide_system or hide_caches)
+                any_active = (hidden_cats or min_bytes or max_bytes or exts
+                              or any_path_filter
+                              or hide_hidden_files or hide_binaries or hide_temp or hide_logs)
+
+                if any_active:
+                    out: list = []
+                    cache = self._parts_cache
+                    for r in filtered:
+                        if self._stop:
+                            return
+                        path, filename, _cat, size_b = r[0], r[1], r[2], r[3]
+                        ext = Path(filename).suffix.lower()
+
+                        if _cat in hidden_cats:
+                            continue
+                        if min_bytes and size_b < min_bytes:
+                            continue
+                        if max_bytes and size_b > max_bytes:
+                            continue
+                        if exts and ext.lstrip(".") not in exts:
+                            continue
+                        if hide_hidden_files and filename.startswith("."):
+                            continue
+                        if hide_binaries and ext in _BINARY_EXTS:
+                            continue
+                        if hide_temp and ext in _TEMP_EXTS:
+                            continue
+                        if hide_logs and ext in _LOG_EXTS:
+                            continue
+
+                        if any_path_filter:
+                            parts = cache.get(path)
+                            if parts is None:
+                                parts = frozenset(Path(path).parts)
+                                new_parts[path] = parts
+                            if hide_hidden_dirs and any(p.startswith(".") for p in parts):
+                                continue
+                            if hide_vcs and (parts & _VCS_DIRS):
+                                continue
+                            if hide_system and (parts & _SYSTEM_DIRS):
+                                continue
+                            if hide_caches and (parts & _CACHE_DIRS):
+                                continue
+
+                        out.append(r)
+                    filtered = out
+
+            if self._stop:
+                return
+            self.done.emit(self._gen, filtered, new_parts)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class ConnectWorker(QThread):
