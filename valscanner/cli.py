@@ -20,7 +20,7 @@ from .core.app_settings import active_url, mask_url, settings_path
 from .core.bootstrap import ensure_schema
 from .core.logging_config import setup_logging
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
-from .core.scanner import scan, count_files
+from .core.scanner import scan, count_files, ALL_PHASES, PHASE_ENUMERATE
 from .core.export import export_csv, export_json
 from .core.db import query_db, print_summary, list_scans, delete_scan, remap_scan, repo_for
 from .core.schema import human_size
@@ -263,6 +263,25 @@ def main() -> None:
     parser.add_argument("--no-hash",      action="store_true", help="Skip SHA-256 hashing")
     parser.add_argument("--resume",       action="store_true",
                         help="Resume an interrupted scan of the same path")
+    parser.add_argument("--phases",       metavar="LIST", default=None,
+                        help="Comma-separated subset of: enumerate, metadata, "
+                             "thumbnails, hash, samples. Default: all five. "
+                             "Use with --scan-id to re-enter an existing scan "
+                             "for additional phases.")
+    parser.add_argument("--scan-id",      type=int, default=None, metavar="N",
+                        help="Target an existing scan for enrichment phases "
+                             "(path argument becomes optional when set, as "
+                             "long as 'enumerate' is not in --phases).")
+    parser.add_argument("--scan-status",  action="store_true",
+                        help="Print per-phase eligible/done counts for "
+                             "--scan-id and exit.")
+    parser.add_argument("--by-ext",       action="store_true",
+                        help="With --scan-status, also break each phase down "
+                             "by file extension (sorted by missing-count). "
+                             "Useful for spotting misclassified extensions.")
+    parser.add_argument("--by-ext-limit", type=int, default=15, metavar="N",
+                        help="Max extensions to list per phase with --by-ext "
+                             "(default: 15; use 0 for unlimited).")
     parser.add_argument("--verbose",      action="store_true", help="Print each file as indexed")
     parser.add_argument("--no-progress-bar", action="store_true", help="Disable progress bar output")
     parser.add_argument("--query",        metavar="TERM", help="Query the database after scanning")
@@ -438,18 +457,88 @@ def main() -> None:
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)
 
+    if args.scan_status:
+        if args.scan_id is None:
+            parser.error("--scan-status requires --scan-id N")
+        repo = repo_for(url)
+        scan_info = repo.get_scan(args.scan_id)
+        if scan_info is None:
+            print(f"Error: scan #{args.scan_id} not found.")
+            sys.exit(1)
+        status = repo.phase_status(args.scan_id)
+        label = scan_info.get("label") or scan_info.get("root") or ""
+        print(f"\nScan #{args.scan_id}  {label}")
+        print(f"  Root: {scan_info.get('root')}")
+        print(f"  Status: {scan_info.get('status')}\n")
+        print(f"  {'phase':<12} {'done':>10} / {'eligible':<10}  {'%':>6}")
+        print(f"  {'-'*12} {'-'*10}   {'-'*10}  {'-'*6}")
+        for phase in ALL_PHASES:
+            row = status.get(phase, {"done": 0, "eligible": 0})
+            done = row["done"]
+            elig = row["eligible"]
+            pct = (100.0 * done / elig) if elig else 100.0
+            print(f"  {phase:<12} {done:>10,} / {elig:<10,}  {pct:>5.1f}%")
+        print()
+
+        if args.by_ext:
+            by_ext = repo.phase_status_by_extension(args.scan_id)
+            limit = args.by_ext_limit if args.by_ext_limit > 0 else None
+            for phase in ALL_PHASES:
+                rows = [r for r in by_ext.get(phase, []) if r["eligible"] > 0]
+                if not rows:
+                    continue
+                print(f"  {phase} by extension:")
+                shown = rows if limit is None else rows[:limit]
+                for r in shown:
+                    missing = r["eligible"] - r["done"]
+                    marker = f"  ({missing:,} missing)" if missing else ""
+                    print(f"    {r['ext']:<12} "
+                          f"{r['done']:>8,} / {r['eligible']:<8,}{marker}")
+                if limit is not None and len(rows) > limit:
+                    print(f"    … +{len(rows) - limit} more (raise --by-ext-limit to see)")
+                print()
+        sys.exit(0)
+
     if args.analyze and not args.path:
         _run_analysis(url, args, scan_id=None)
         sys.exit(0)
 
-    if not args.path:
-        parser.error("path is required unless using --list-scans, --delete-scan, "
-                     "--open-settings, --dump-to-sqlite, --load-from-sqlite, or --analyze")
+    # Parse --phases into a tuple (or None for default). Validate names early
+    # so a typo doesn't waste a precount before failing.
+    phases_arg: tuple | None = None
+    if args.phases is not None:
+        requested = [p.strip().lower() for p in args.phases.split(",") if p.strip()]
+        unknown = [p for p in requested if p not in ALL_PHASES]
+        if unknown:
+            parser.error(f"--phases: unknown phase(s) {unknown} "
+                         f"(valid: {list(ALL_PHASES)})")
+        phases_arg = tuple(p for p in ALL_PHASES if p in set(requested))
 
-    root = Path(args.path).expanduser().resolve()
-    if not root.exists():
-        print(f"Error: path does not exist: {root}")
-        sys.exit(1)
+    enrichment_only = (
+        args.scan_id is not None
+        and phases_arg is not None
+        and PHASE_ENUMERATE not in phases_arg
+    )
+
+    if not args.path and not enrichment_only:
+        parser.error("path is required unless using --list-scans, --delete-scan, "
+                     "--open-settings, --dump-to-sqlite, --load-from-sqlite, "
+                     "--scan-status, --analyze, or --scan-id with --phases that "
+                     "exclude 'enumerate'")
+
+    if args.path:
+        root = Path(args.path).expanduser().resolve()
+        if not root.exists():
+            print(f"Error: path does not exist: {root}")
+            sys.exit(1)
+    else:
+        # Enrichment-only run: borrow root from the existing scan for messaging.
+        repo = repo_for(url)
+        existing = repo.get_scan(args.scan_id)
+        if existing is None:
+            print(f"Error: scan #{args.scan_id} not found.")
+            sys.exit(1)
+        root = Path(existing["root"])
 
     store_thumbnails = not args.no_thumbnails
     store_samples    = not args.no_samples
@@ -493,7 +582,12 @@ def main() -> None:
     remaining_files = 0
     # Skip the pre-scan count when --no-precount is set OR when --verbose is
     # active (verbose disables the progress bar anyway, so the count is unused).
-    _do_precount = sys.stdout.isatty() and not args.no_precount and not args.verbose
+    _do_precount = (
+        sys.stdout.isatty()
+        and not args.no_precount
+        and not args.verbose
+        and not enrichment_only
+    )
     if _do_precount:
         print("   Counting files…", end="", flush=True)
         total_files = count_files(root, **skip_kw,
@@ -533,6 +627,8 @@ def main() -> None:
             workers=args.workers,
             exclude_patterns=args.exclude or None,
             on_progress=_make_scan_progress_cb(args.verbose, total_files, show_progress=not args.no_progress_bar),
+            phases=phases_arg,
+            scan_id=args.scan_id,
             **skip_kw,
         )
     except KeyboardInterrupt:
@@ -571,7 +667,29 @@ def main() -> None:
         _done_plain,
     )
 
-    print_summary(url)
+    per_phase = stats.get("per_phase") or {}
+    enrichment_phases = [p for p in per_phase
+                        if p != PHASE_ENUMERATE and per_phase[p].get("seen", 0) > 0]
+    if enrichment_phases:
+        print()
+        for phase in enrichment_phases:
+            s = per_phase[phase]
+            seen = s.get("seen", 0)
+            processed = s.get("processed", 0)
+            noop = s.get("noop", 0)
+            errors = s.get("errors", 0)
+            timed = s.get("timed_out", 0)
+            skipped = s.get("skipped", 0)
+            extras = []
+            if noop:    extras.append(f"{noop:,} no output")
+            if skipped: extras.append(f"{skipped:,} missing on disk")
+            if timed:   extras.append(f"{timed:,} timed out")
+            if errors:  extras.append(f"{errors:,} errors")
+            tail = f"  ({', '.join(extras)})" if extras else ""
+            print(f"   {phase:<11s} {processed:>5,}/{seen:<5,} written{tail}")
+
+    if not enrichment_only:
+        print_summary(url)
 
     db_stem = _export_stem(args.db)
     if args.export_csv:

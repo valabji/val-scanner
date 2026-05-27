@@ -32,6 +32,10 @@ valscanner-web --db my.db           # serves built app on :7070
 
 You may run only commands that are either (a) Claude Code's built-in auto-allowed set, or (b) listed in `.claude/settings.local.json` under `permissions.allow`. Anything outside that set will trigger an interactive prompt — **don't do it**. If a task genuinely requires a different command, stop and ask the user to extend the allowlist first; do not attempt the command and absorb the prompt.
 
+### Scratch / smoke-test artifacts → `./tmp/`, never `/tmp/`
+
+Write all throwaway files (fixture trees, smoke-test DBs, generated samples) under the project-local `./tmp/` directory, not system `/tmp/`. `./tmp/` is gitignored, lives inside the repo so paths are stable, and avoids the narrow `/tmp/vs_fixture` allowlist entries that only cover a handful of exact commands. The repo's `TMPDIR` env (set in `.claude/settings.local.json`) already points here for any tool that consults `$TMPDIR`, but shell commands must use the literal path `./tmp/...` (or `tmp/...`) — `TMPDIR` does **not** rewrite hardcoded `/tmp/...` strings. Do not invent new `/tmp/...` allowlist entries; prefer relocating the command.
+
 ### Auto-allowed (no allowlist entry required)
 - **Read-only file ops (any args):** `cat`, `head`, `tail`, `wc`, `stat`, `nl`, `cut`, `tr`, `tac`, `rev`, `fold`, `comm`, `diff`, `cmp`, `od`, `hexdump`, `strings`, `basename`, `dirname`, `realpath`, `readlink`, `numfmt`, `ls`, `find`, `cd`, `expand`, `unexpand`, `fmt`, `paste`, `column`, `pr`.
 - **Read-only system info (any args):** `id`, `uname`, `groups`, `locale`, `nproc`, `free`, `df`, `du`, `getconf`, `true`, `false`, `sleep`, `which`, `type`, `expr`, `test`, `seq`, `tsort`, `echo`, `printf`, `cal`, `uptime`.

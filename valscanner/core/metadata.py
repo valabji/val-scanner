@@ -1,9 +1,12 @@
 from __future__ import annotations
 import io
 import hashlib
+import logging
 import shutil
 import subprocess
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 try:
     from PIL import Image
@@ -139,8 +142,14 @@ def _thumb_video(fpath: Path, max_size: int, quality: int) -> bytes | None:
             ],
             capture_output=True, timeout=30,
         )
-        return result.stdout if result.returncode == 0 and result.stdout else None
-    except Exception:
+        if result.returncode == 0 and result.stdout:
+            return result.stdout
+        _log.warning("[thumb_video] %s: ffmpeg rc=%d stdout=%d bytes — %s",
+                     fpath, result.returncode, len(result.stdout or b""),
+                     (result.stderr or b"")[-400:].decode("utf-8", "replace").strip())
+        return None
+    except Exception as e:
+        _log.warning("[thumb_video] %s: %s", fpath, e)
         return None
 
 
@@ -170,6 +179,9 @@ def _sample_media(fpath: Path, category: str, duration: int) -> tuple[bytes, str
         result = subprocess.run(cmd, capture_output=True, timeout=60)
         if result.returncode == 0 and result.stdout:
             return result.stdout, fmt
-    except Exception:
-        pass
+        _log.warning("[sample_media] %s: ffmpeg rc=%d stdout=%d bytes — %s",
+                     fpath, result.returncode, len(result.stdout or b""),
+                     (result.stderr or b"")[-400:].decode("utf-8", "replace").strip())
+    except Exception as e:
+        _log.warning("[sample_media] %s: %s", fpath, e)
     return None
