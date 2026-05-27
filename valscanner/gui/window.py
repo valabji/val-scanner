@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
                         min(880, int(avail.height() * 0.92)))
         else:
             self.resize(1440, 880)
+        self._closing                = False
         self._db_path                = ""
         self._db_url                 = ""  # authoritative SQLAlchemy URL
         self._connect_worker: ConnectWorker | None = None
@@ -489,6 +490,51 @@ class MainWindow(QMainWindow):
         if sp_worker and sp_worker.isRunning():
             out.append("similarity analysis")
         return out
+
+    def _drain_workers(self, timeout_ms: int = 1500) -> None:
+        """Stop and wait for every background QThread owned by this window.
+
+        Run from closeEvent to prevent the process aborting at interpreter
+        shutdown when a QThread outlives its QApplication.
+        """
+        threads = []
+        for attr in ("_worker", "_connect_worker", "_db_load_worker",
+                     "_lazy_worker", "_browser_worker"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                threads.append(w)
+        threads.extend(getattr(self, "_filter_workers", []) or [])
+        sp = getattr(self, "similar_panel", None)
+        if sp is not None and getattr(sp, "_worker", None) is not None:
+            threads.append(sp._worker)
+
+        for t in threads:
+            if t is None:
+                continue
+            try:
+                if not t.isRunning():
+                    continue
+            except RuntimeError:
+                continue  # underlying C++ object already gone
+            try:
+                stop = getattr(t, "stop", None)
+                if callable(stop):
+                    stop()
+            except Exception:
+                pass
+            try:
+                t.quit()
+            except Exception:
+                pass
+        for t in threads:
+            if t is None:
+                continue
+            try:
+                if t.isRunning() and not t.wait(timeout_ms):
+                    t.terminate()
+                    t.wait(timeout_ms)
+            except RuntimeError:
+                pass
 
     def _any_filter_active(self) -> bool:
         if self._browser_path:
@@ -948,10 +994,12 @@ class MainWindow(QMainWindow):
         _ps.setValue("panelConsoleVisible",   (self._main_vsplit.sizes()[1] > 0) if hasattr(self, "_main_vsplit") else False)
         _ps.setValue("panelFilterBarVisible", self._filterbar.isVisible()   if hasattr(self, "_filterbar")   else True)
         _ps.setValue("panelStatsBarVisible",  self._statsbar.isVisible()    if hasattr(self, "_statsbar")    else True)
+        self._closing = True
         try:
             _THUMB_CACHE.shutdown()
         except Exception:
             pass
+        self._drain_workers()
         super().closeEvent(ev)
 
     def _refresh_recents_strip(self) -> None:
@@ -2329,6 +2377,8 @@ class MainWindow(QMainWindow):
     def _load_url(self, url: str) -> None:
         """Async entry point: dispatch a ConnectWorker for the given URL."""
         if not url:
+            return
+        if getattr(self, "_closing", False):
             return
         if self._connect_worker and self._connect_worker.isRunning():
             self._connect_worker.quit()
