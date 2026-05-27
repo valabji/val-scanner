@@ -22,7 +22,7 @@ from .core.logging_config import setup_logging
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
 from .core.scanner import scan, count_files
 from .core.export import export_csv, export_json
-from .core.db import query_db, print_summary, list_scans, delete_scan, repo_for
+from .core.db import query_db, print_summary, list_scans, delete_scan, remap_scan, repo_for
 from .core.schema import human_size
 from .core.transfer import transfer_db
 from .core.similarity import find_similar_folders
@@ -268,6 +268,10 @@ def main() -> None:
     parser.add_argument("--query",        metavar="TERM", help="Query the database after scanning")
     parser.add_argument("--list-scans",    action="store_true", help="List all scans in the database")
     parser.add_argument("--delete-scan",   type=int, metavar="ID", help="Delete a scan by ID")
+    parser.add_argument("--remap-scan",    type=int, metavar="ID",
+                        help="Remap a scan's root folder to a new location (use with --new-root)")
+    parser.add_argument("--new-root",      metavar="PATH",
+                        help="New root path for --remap-scan")
     parser.add_argument("--open-settings",   action="store_true",
                         help="Open settings.json in the system default editor and exit")
     parser.add_argument("--dump-to-sqlite",  metavar="FILE",
@@ -386,6 +390,27 @@ def main() -> None:
     if args.delete_scan is not None:
         delete_scan(url, args.delete_scan)
         print(f"✓ Scan {args.delete_scan} deleted.")
+        sys.exit(0)
+
+    if args.remap_scan is not None:
+        if not args.new_root:
+            parser.error("--remap-scan requires --new-root PATH")
+        new_root = str(Path(args.new_root).expanduser())
+        if not Path(new_root).exists():
+            print(f"⚠  New root {new_root} does not exist on disk — proceeding anyway.")
+        summary = remap_scan(url, args.remap_scan, new_root)
+        if summary["files_updated"] == 0 and summary["folders_updated"] == 0 \
+           and not summary["files_skipped"] and not summary["folders_skipped"]:
+            print(f"✓ Scan {args.remap_scan}: root already {summary['new_root']} — no changes.")
+        else:
+            print(f"✓ Scan {args.remap_scan} remapped:")
+            print(f"    {summary['old_root']}")
+            print(f"  → {summary['new_root']}")
+            print(f"    {summary['files_updated']:,} files, "
+                  f"{summary['folders_updated']:,} folders updated.")
+            n_skip = len(summary["files_skipped"]) + len(summary["folders_skipped"])
+            if n_skip:
+                print(f"  ⚠ {n_skip} row(s) skipped (path not under old root).")
         sys.exit(0)
 
     if args.dump_to_sqlite:

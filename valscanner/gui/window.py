@@ -2018,6 +2018,7 @@ class MainWindow(QMainWindow):
 
         self.scans_panel = ScansPanel()
         self.scans_panel.scan_deleted.connect(self._on_scan_deleted)
+        self.scans_panel.scan_remapped.connect(self._on_scan_remapped)
         self.scans_panel.scan_selected.connect(self._on_scan_panel_selected)
         self.center_tabs.addTab(self.scans_panel, _icons.icon("package", color=str(SUBTEXT)), "Scans")
 
@@ -3056,6 +3057,11 @@ class MainWindow(QMainWindow):
         self.folder_panel.load(self._db_path)
         self.scans_panel.load(self._db_path)
         self.similar_panel._rebuild_partition_row()
+
+    def _on_scan_remapped(self, _scan_id: int) -> None:
+        self._refresh_scan_combo()
+        self._load_from_db()
+        self.folder_panel.load(self._db_path)
 
     # ── Table interaction ─────────────────────────────────────────────────────
 

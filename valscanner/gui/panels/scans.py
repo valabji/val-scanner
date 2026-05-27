@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QStandardItemModel, QStandardItem, QKeySequence, QShortcut
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableView, QHeaderView, QAbstractItemView, QMenu, QStackedWidget,
+    QFileDialog, QMessageBox,
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, RED, SEL_BG, SEL_TEXT
 from ..density import get_row_height, on_changed as _density_on_changed
-from ...core.db import list_scans, delete_scan
+from ...core.db import list_scans, delete_scan, remap_scan
 from ...core.schema import human_size
 from .. import icons as _icons
 from ..feedback import confirm_destructive, undo_toast
@@ -18,6 +21,7 @@ from .. import persistence
 
 class ScansPanel(QWidget):
     scan_deleted  = Signal(int)
+    scan_remapped = Signal(int)
     scan_selected = Signal(int, str)
 
     def __init__(self, parent=None):
@@ -241,6 +245,13 @@ class ScansPanel(QWidget):
             return
         n = len(rows)
         menu = QMenu(self)
+        remap_act = None
+        if n == 1:
+            remap_act = menu.addAction(
+                _icons.icon("folder", color=str(ACCENT)),
+                "Remap root…",
+            )
+            menu.addSeparator()
         del_act = menu.addAction(
             _icons.icon("delete", color=str(RED)),
             f"Delete {n} scan{'s' if n > 1 else ''}",
@@ -248,6 +259,60 @@ class ScansPanel(QWidget):
         act = menu.exec(self.table.viewport().mapToGlobal(pos))
         if act == del_act:
             self._delete_selected()
+        elif remap_act is not None and act == remap_act:
+            self._remap_root_for_selected()
+
+    def _remap_root_for_selected(self) -> None:
+        rows = self.table.selectionModel().selectedRows()
+        if len(rows) != 1:
+            return
+        row = rows[0].row()
+        scan_id = self._scan_id_for_row(row)
+        old_root_item = self._model.item(row, 2)
+        old_root = old_root_item.text() if old_root_item else ""
+
+        start_dir = old_root if old_root and Path(old_root).exists() else str(Path.home())
+        new_root = QFileDialog.getExistingDirectory(
+            self, "Pick the new root for this scan", start_dir,
+        )
+        if not new_root:
+            return
+        new_root = str(Path(new_root).expanduser())
+
+        if not Path(new_root).exists():
+            if not confirm_destructive(
+                self, "Remap root",
+                f"The chosen folder does not exist on disk:\n  {new_root}\n\n"
+                "Remap anyway? File-open actions will fail until the drive is mounted.",
+                confirm_label="Remap",
+            ):
+                return
+
+        try:
+            summary = remap_scan(self._db_path, scan_id, new_root)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(
+                self, "Remap failed", f"Could not remap scan {scan_id}:\n{exc}",
+            )
+            return
+
+        self.load(self._db_path)
+        self.scan_remapped.emit(scan_id)
+
+        if summary["files_updated"] == 0 and summary["folders_updated"] == 0 \
+           and not summary["files_skipped"] and not summary["folders_skipped"]:
+            body = f"Root already {summary['new_root']} — nothing to update."
+        else:
+            body = (
+                f"Old: {summary['old_root']}\n"
+                f"New: {summary['new_root']}\n\n"
+                f"{summary['files_updated']:,} files, "
+                f"{summary['folders_updated']:,} folders updated."
+            )
+            n_skip = len(summary["files_skipped"]) + len(summary["folders_skipped"])
+            if n_skip:
+                body += f"\n{n_skip} row(s) skipped (path not under old root)."
+        QMessageBox.information(self, "Scan remapped", body)
 
     def _delete_selected(self) -> None:
         rows = self.table.selectionModel().selectedRows()

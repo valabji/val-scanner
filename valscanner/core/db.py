@@ -36,6 +36,10 @@ def delete_scan(db_path: str, scan_id: int) -> None:
     repo_for(db_path).delete_scan(scan_id)
 
 
+def remap_scan(db_path: str, scan_id: int, new_root: str) -> dict:
+    return repo_for(db_path).remap_scan_root(scan_id, new_root)
+
+
 def save_analysis_run(db_path: str, min_files: int, threshold: float,
                       scope_scan_ids: list[int] | None, scope_label: str,
                       duration_ms: int, results: list,
