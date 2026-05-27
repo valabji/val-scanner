@@ -22,8 +22,6 @@ jobs:
             python-version: "3.8"
           - os: windows-latest
             python-version: "3.12"
-          - os: macos-13          # Intel — Python 3.8 wheels available here
-            python-version: "3.8"
           - os: macos-latest      # arm64 — modern Python only
             python-version: "3.12"
 
