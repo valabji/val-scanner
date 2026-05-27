@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "valscanner"
-version = "0.1.16"
+version = "0.2.0"
 description = "A recursive file scanner with rich metadata extraction, full-text search, auto-tagging, thumbnail generation, and similar-folder detection — available as a CLI, a PySide6 desktop GUI, and a browser-based Web UI."
 readme = "README.md"
 license = { file = "LICENSE" }
