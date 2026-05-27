@@ -285,11 +285,26 @@ class ThumbnailCache:
         self._put(key, px)
 
     def shutdown(self) -> None:
-        """Stop the background worker — call from MainWindow.closeEvent."""
-        if self._worker is not None:
+        """Stop the background worker — call from MainWindow.closeEvent.
+
+        Waits for the worker to exit so the QThread does not outlive the
+        QApplication (which would SIGABRT at interpreter shutdown).
+        """
+        w = self._worker
+        if w is not None:
             try:
-                self._worker.stop()
+                w.stop()
             except Exception:
+                pass
+            try:
+                w.quit()
+            except Exception:
+                pass
+            try:
+                if w.isRunning() and not w.wait(1500):
+                    w.terminate()
+                    w.wait(1500)
+            except RuntimeError:
                 pass
             self._worker = None
 

@@ -38,11 +38,33 @@ def _isolate_qsettings(tmp_path, monkeypatch):
 
 @pytest.fixture(scope="session")
 def qapp():
-    """A single QApplication for the whole test session."""
+    """A single QApplication for the whole test session.
+
+    On session teardown drain the thumbnail-cache worker so its QThread
+    does not outlive the QApplication (which would SIGABRT at exit).
+    """
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
     yield app
+    try:
+        from valscanner.gui.models import _THUMB_CACHE
+        _THUMB_CACHE.shutdown()
+    except Exception:
+        pass
+    app.processEvents()
+
+
+@pytest.fixture(autouse=True)
+def _drain_events_after_test(request):
+    """Process queued Qt events after each test so deleteLater() runs."""
+    yield
+    if "qapp" in request.fixturenames:
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None:
+            for _ in range(3):
+                app.processEvents()
 
 
 @pytest.fixture
