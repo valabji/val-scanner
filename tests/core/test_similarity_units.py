@@ -8,7 +8,6 @@ exact function rather than the whole pipeline.
 from __future__ import annotations
 
 import math
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -122,17 +121,18 @@ def test_normalize_to_group_converts_pair_shape():
 # ─── End-to-end: find_similar_folders + groups ──────────────────────────────
 
 @pytest.fixture
-def populated_db():
+def populated_db(tmp_path: Path):
     """Build a DB with two near-identical folders and yield its URL."""
-    with tempfile.TemporaryDirectory() as scandir, tempfile.TemporaryDirectory() as dbdir:
-        for sub in ("alpha", "beta"):
-            d = Path(scandir, sub)
-            d.mkdir()
-            for name in ("a.txt", "b.pdf", "c.png"):
-                (d / name).write_text("hello")
-        db = f"{dbdir}/sim.db"
-        scan(Path(scandir), db, compute_hash=False)
-        yield db
+    scandir = tmp_path / "scan"
+    scandir.mkdir()
+    for sub in ("alpha", "beta"):
+        d = scandir / sub
+        d.mkdir()
+        for name in ("a.txt", "b.pdf", "c.png"):
+            (d / name).write_text("hello")
+    db = str(tmp_path / "sim.db")
+    scan(scandir, db, compute_hash=False)
+    yield db
 
 
 def test_find_similar_folders_respects_threshold(populated_db):

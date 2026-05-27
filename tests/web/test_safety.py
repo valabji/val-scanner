@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 
@@ -9,7 +10,7 @@ def test_non_loopback_refused():
         capture_output=True,
         text=True,
         timeout=5,
-        env={"PATH": "/usr/bin:/bin"},
+        env=os.environ.copy(),
     )
     assert proc.returncode == 2
     assert "refusing to bind" in proc.stderr.lower()
