@@ -26,6 +26,7 @@ from .core.db import query_db, print_summary, list_scans, delete_scan, remap_sca
 from .core.schema import human_size
 from .core.transfer import transfer_db
 from .core.similarity import find_similar_folders
+from ._telemetry import init_sentry
 
 # Optional rich output — graceful fallback to plain print when not installed
 try:
@@ -248,6 +249,7 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
 
 
 def main() -> None:
+    init_sentry("cli")
     parser = argparse.ArgumentParser(
         description="Scan a directory and build a searchable file database.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

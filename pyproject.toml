@@ -32,6 +32,7 @@ dependencies = [
     "keyring>=24.0",
     "alembic>=1.13",
     "psutil>=5.9",
+    "sentry-sdk>=2.0",
 ]
 
 [project.urls]

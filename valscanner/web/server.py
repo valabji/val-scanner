@@ -13,6 +13,7 @@ from valscanner import __version__ as VERSION
 from valscanner.core.app_settings import active_url, mask_url
 from valscanner.core.bootstrap import ensure_schema
 from valscanner.core.db import repo_for
+from valscanner._telemetry import init_sentry
 from .models import HealthResponse, ErrorResponse
 
 log = logging.getLogger("valscanner.web")
@@ -124,6 +125,7 @@ def _open_browser_when_ready(url: str, deadline: float = 10.0) -> None:
 
 
 def main() -> None:
+    init_sentry("web")
     import uvicorn
 
     parser = argparse.ArgumentParser(prog="valscanner-web")

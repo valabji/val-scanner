@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QStackedWidget, QButtonGroup,
 )
 
+from valscanner._telemetry import init_sentry
+
 from .constants import (
     CATEGORY_COLORS,
     DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, SEL_BG, SEL_TEXT,
@@ -3343,6 +3345,7 @@ def _app_icon() -> QIcon:
 
 
 def main() -> None:
+    init_sentry("gui")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                         stream=sys.stderr)
     # On Linux, Qt.ToolTip + FramelessWindowHint segfaults under Wayland.

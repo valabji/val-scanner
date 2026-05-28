@@ -32,6 +32,22 @@ valscanner-web --db my.db           # serves built app on :7070
 
 You may run only commands that are either (a) Claude Code's built-in auto-allowed set, or (b) listed in `.claude/settings.local.json` under `permissions.allow`. Anything outside that set will trigger an interactive prompt — **don't do it**. If a task genuinely requires a different command, stop and ask the user to extend the allowlist first; do not attempt the command and absorb the prompt.
 
+### No `#` comments inside inline `-c "..."` scripts
+
+Never include `#` comment lines inside quoted inline scripts (`python -c "..."`, `bash -c "..."`, `sh -c "..."`, etc.). A newline followed by `#` inside a quoted argument is flagged by path-validation as potentially hiding arguments, which forces an interactive permission prompt every time — even for otherwise-allowlisted commands. Strip the comments out entirely; use clear variable/function names or blank lines for readability, and put any rationale in surrounding chat text instead of inside the quoted script.
+
+### No inline `VAR=value` prefixes on commands
+
+Never prefix a command with an inline env-var assignment like `VALSCANNER_DISABLE_TELEMETRY=1 python -c "..."` or `FOO=bar npm run x`. Same class of issue as the `#`-comment rule above — path-validation treats the leading `VAR=value` token as something that could be hiding arguments, so the invocation falls outside the allowlisted pattern and triggers a permission prompt every time.
+
+Instead, use a separate `export` statement joined by `;` inside a **single** Bash call:
+
+```
+export VALSCANNER_DISABLE_TELEMETRY=1; python -c "..."
+```
+
+Do **not** split the export and the command into two separate Bash tool calls — shell state (including `export`) does not persist between calls, so the env var won't reach the second command.
+
 ### Scratch / smoke-test artifacts → `./tmp/`, never `/tmp/`
 
 Write all throwaway files (fixture trees, smoke-test DBs, generated samples) under the project-local `./tmp/` directory, not system `/tmp/`. `./tmp/` is gitignored, lives inside the repo so paths are stable, and avoids the narrow `/tmp/vs_fixture` allowlist entries that only cover a handful of exact commands. The repo's `TMPDIR` env (set in `.claude/settings.local.json`) already points here for any tool that consults `$TMPDIR`, but shell commands must use the literal path `./tmp/...` (or `tmp/...`) — `TMPDIR` does **not** rewrite hardcoded `/tmp/...` strings. Do not invent new `/tmp/...` allowlist entries; prefer relocating the command.
