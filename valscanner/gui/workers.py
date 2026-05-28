@@ -877,11 +877,11 @@ class FilterWorker(QThread):
 
 
 class ConnectWorker(QThread):
-    """Non-blocking database connect + initial summary load.
+    """Non-blocking database connect + schema-up-to-head probe.
 
     Signals
     -------
-    connected : emitted with {"url": str, "summary": dict} on success
+    connected : emitted with {"url": str} on success
     error     : emitted with a masked error message string on failure
     """
     connected = Signal(dict)
@@ -903,19 +903,18 @@ class ConnectWorker(QThread):
         self._pid = reg.register(name="Connecting to database", cancel_cb=self.stop)
         ok = False
         try:
+            from sqlalchemy import text
             from ..core.bootstrap import ensure_schema
-            from ..core.db import repo_for
+            from ..core.db_config import get_engine
 
             done: threading.Event = threading.Event()
             result: dict = {}
 
             def _go() -> None:
                 try:
-                    # Bring DB up to head before any read query — a fresh
-                    # PostgreSQL DB fails summary() with "relation 'files' does not exist".
                     ensure_schema(self.url)
-                    repo = repo_for(self.url)
-                    result["summary"] = repo.summary()
+                    with get_engine(self.url).connect() as conn:
+                        conn.execute(text("SELECT 1"))
                 except Exception as exc:
                     result["error"] = exc
                 finally:
@@ -938,7 +937,7 @@ class ConnectWorker(QThread):
                 self.error.emit(mask_url(str(result["error"])))
                 return
 
-            self.connected.emit({"url": self.url, "summary": result["summary"]})
+            self.connected.emit({"url": self.url})
             ok = True
         except Exception as exc:
             from ..core.app_settings import mask_url
