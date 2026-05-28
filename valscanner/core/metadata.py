@@ -27,6 +27,13 @@ try:
 except ImportError:
     PYPDF_AVAILABLE = False
 
+try:
+    from svglib.svglib import svg2rlg
+    from reportlab.graphics import renderPM
+    SVGLIB_AVAILABLE = True
+except ImportError:
+    SVGLIB_AVAILABLE = False
+
 FFMPEG_AVAILABLE = bool(shutil.which("ffmpeg"))
 
 
@@ -124,6 +131,28 @@ def _thumb_image(fpath: Path, max_size: int, quality: int) -> bytes | None:
         img.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
         return buf.getvalue()
     except Exception:
+        return None
+
+
+def _thumb_svg(fpath: Path, max_size: int, quality: int) -> bytes | None:
+    if not (SVGLIB_AVAILABLE and PIL_AVAILABLE):
+        return None
+    try:
+        drawing = svg2rlg(str(fpath))
+        if drawing is None or drawing.width <= 0 or drawing.height <= 0:
+            return None
+        scale = max_size / max(drawing.width, drawing.height)
+        if scale < 1:
+            drawing.width *= scale
+            drawing.height *= scale
+            drawing.scale(scale, scale)
+        png_bytes = renderPM.drawToString(drawing, fmt="PNG", bg=0xFFFFFF)
+        img = Image.open(io.BytesIO(png_bytes))
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
+        return buf.getvalue()
+    except Exception as e:
+        _log.warning("[thumb_svg] %s: %s", fpath, e)
         return None
 
 

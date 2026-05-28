@@ -28,7 +28,7 @@ from .filters import (
 )
 from .metadata import (
     extract_image_metadata, extract_audio_metadata, extract_pdf_metadata,
-    file_sha256, _thumb_image, _thumb_video, _sample_media,
+    file_sha256, _thumb_image, _thumb_svg, _thumb_video, _sample_media,
 )
 from .schema import human_size, ts
 from .tagging import generate_tags
@@ -62,6 +62,8 @@ def _extract_metadata_for_file(fpath: Path, category: str, ext: str) -> dict:
 
 def _make_thumbnail(fpath: Path, category: str, size: int, quality: int):
     if category in ("photo", "image"):
+        if fpath.suffix.lower() == ".svg":
+            return _thumb_svg(fpath, size, quality)
         return _thumb_image(fpath, size, quality)
     if category == "video":
         return _thumb_video(fpath, size, quality)

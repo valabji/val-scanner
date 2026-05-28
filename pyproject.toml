@@ -60,6 +60,8 @@ rich = [
     "Pillow",
     "mutagen",
     "pypdf",
+    "svglib>=1.5",
+    "rlPyCairo>=0.2",
 ]
 
 [project.scripts]

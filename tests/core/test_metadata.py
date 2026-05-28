@@ -14,8 +14,9 @@ import pytest
 from valscanner.core import metadata
 from valscanner.core.metadata import (
     FFMPEG_AVAILABLE, MUTAGEN_AVAILABLE, PIL_AVAILABLE, PYPDF_AVAILABLE,
+    SVGLIB_AVAILABLE,
     extract_audio_metadata, extract_image_metadata, extract_pdf_metadata,
-    file_sha256, _sample_media, _thumb_image, _thumb_video,
+    file_sha256, _sample_media, _thumb_image, _thumb_svg, _thumb_video,
 )
 
 
@@ -138,6 +139,37 @@ def test_thumb_image_bad_input_returns_none(tmp_path):
     p = tmp_path / "bad.png"
     p.write_bytes(b"not an image")
     assert _thumb_image(p, 64, 70) is None
+
+
+@pytest.mark.skipif(
+    not (SVGLIB_AVAILABLE and PIL_AVAILABLE),
+    reason="svglib or PIL not installed",
+)
+def test_thumb_svg_round_trip(tmp_path):
+    from PIL import Image
+    src = tmp_path / "shape.svg"
+    src.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120">'
+        '<rect width="200" height="120" fill="#3366cc"/>'
+        '<circle cx="100" cy="60" r="40" fill="#ffcc00"/>'
+        '</svg>'
+    )
+    thumb = _thumb_svg(src, max_size=64, quality=70)
+    assert isinstance(thumb, bytes) and thumb.startswith(b"\xff\xd8")
+    img = Image.open(io.BytesIO(thumb))
+    assert max(img.size) <= 64
+
+
+def test_thumb_svg_no_svglib_returns_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(metadata, "SVGLIB_AVAILABLE", False)
+    assert _thumb_svg(tmp_path / "x.svg", 64, 70) is None
+
+
+def test_thumb_svg_bad_input_returns_none(tmp_path):
+    p = tmp_path / "bad.svg"
+    p.write_bytes(b"<not><valid></svg>")
+    assert _thumb_svg(p, 64, 70) is None
 
 
 def test_thumb_video_no_ffmpeg_returns_none(tmp_path, monkeypatch):
