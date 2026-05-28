@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+
 import pytest
+
+os.environ.setdefault("VALSCANNER_DISABLE_TELEMETRY", "1")
 
 from valscanner.core.db import reset_repos
 from valscanner.core.db_config import reset_engines
