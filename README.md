@@ -142,6 +142,21 @@ pip install "valscanner[rich,web,postgres]"   # everything
 
 Extras are additive — combine the ones you need. The base install always includes the CLI and desktop GUI.
 
+**Linux note for `[rich]`:** the `rich` extra pulls in `rlPyCairo`/`pycairo`, which has no `manylinux` wheels and is built from source. Install the Cairo dev headers and `pkg-config` first:
+
+```bash
+# Debian / Ubuntu
+sudo apt-get install -y libcairo2-dev pkg-config
+
+# Fedora / RHEL
+sudo dnf install -y cairo-devel pkgconf-pkg-config
+
+# Arch
+sudo pacman -S --needed cairo pkgconf
+```
+
+Windows and macOS ship prebuilt wheels for `pycairo`, so no system packages are needed there.
+
 ---
 
 ## Quick Start

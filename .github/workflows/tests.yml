@@ -34,9 +34,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      # Qt needs a handful of X/EGL libs on Linux runners to load the
-      # offscreen platform plugin; macOS and Windows ship what PySide6 needs.
-      - name: Install Qt system libraries (Linux)
+      # Qt needs X/EGL libs to load the offscreen platform plugin;
+      # rlPyCairo (via the [rich] extra) needs libcairo2-dev + pkg-config
+      # since pycairo has no manylinux wheels and is built from source.
+      # macOS and Windows ship prebuilt wheels for both.
+      - name: Install system libraries (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -45,7 +47,8 @@ jobs:
             libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 \
             libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
-            libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1
+            libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
+            libcairo2-dev pkg-config
 
       - name: Install dependencies
         run: |

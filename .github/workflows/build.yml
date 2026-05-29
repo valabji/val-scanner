@@ -33,6 +33,14 @@ jobs:
           python-version: '3.12'
           cache: pip
 
+      # rlPyCairo (via the [rich] extra) pulls pycairo, which has no
+      # manylinux wheels and is built from source on Linux.
+      - name: Install Cairo dev libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev pkg-config
+
       - name: Install dependencies
         run: pip install -e ".[rich]" pyinstaller
 
