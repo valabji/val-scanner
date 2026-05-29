@@ -59,7 +59,10 @@ dev-gui = [
 rich = [
     "Pillow",
     "pillow-heif>=0.13",
-    "pillow-avif-plugin>=1.4",
+    # pillow-avif-plugin 1.5.x ships no cp38 Windows wheel yet leaves requires_python
+    # unset, so pip tries to build it from source on Windows/3.8 and fails (no libavif).
+    # AVIF support is optional (guarded in core/metadata.py), so skip that one combo.
+    "pillow-avif-plugin>=1.4; platform_system != 'Windows' or python_version >= '3.9'",
     "mutagen",
     "pypdf",
     "svglib>=1.5",
