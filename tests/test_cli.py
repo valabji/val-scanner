@@ -55,14 +55,26 @@ def test_make_scan_progress_cb_returns_none_when_disabled():
 
 
 def test_make_transfer_progress_cb_emits(capsys):
-    cb = cli._make_transfer_progress_cb(show_progress=True)
-    assert cb is not None
-    cb("hi")
+    on_prog, on_stage = cli._make_transfer_progress_cb(show_progress=True)
+    assert on_prog is not None
+    assert on_stage is not None
+    on_prog("hi")
     assert "hi" in capsys.readouterr().out
 
 
-def test_make_transfer_progress_cb_disabled_returns_none():
-    assert cli._make_transfer_progress_cb(show_progress=False) is None
+def test_make_transfer_progress_cb_stage_renders_bar(capsys):
+    _, on_stage = cli._make_transfer_progress_cb(show_progress=True)
+    on_stage("files", 50, 100)
+    out = capsys.readouterr().out
+    assert "files" in out
+    assert "50/100" in out
+    assert "50.0%" in out
+
+
+def test_make_transfer_progress_cb_disabled_returns_plain_emitter():
+    on_prog, on_stage = cli._make_transfer_progress_cb(show_progress=False)
+    assert on_prog is not None
+    assert on_stage is None
 
 
 def test_make_analysis_progress_cb_disabled_returns_none():

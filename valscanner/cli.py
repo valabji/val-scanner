@@ -124,14 +124,73 @@ def _make_scan_progress_cb(verbose: bool, total: int, show_progress: bool = True
 
 
 def _make_transfer_progress_cb(show_progress: bool = True):
-    """Return an on_progress callback for transfer_db()."""
-    if not show_progress:
-        return None
+    """Return (on_progress, on_stage_progress) callbacks for transfer_db().
 
-    def _cb(msg: str) -> None:
+    The progress-bar callback throttles to 10 Hz, redraws in place, and the
+    stage-summary callback clears any active bar before printing.
+    """
+    if not show_progress:
+        def _plain(msg: str) -> None:
+            print(msg)
+        return _plain, None
+
+    import time as _time
+    import shutil as _shutil
+    BAR_W = 25
+    state = {"stage": None, "start": 0.0, "last": 0.0, "active": False}
+
+    def _cols() -> int:
+        try:
+            return max(40, _shutil.get_terminal_size((100, 24)).columns - 1)
+        except OSError:
+            return 99
+
+    def _fmt_eta(secs: float) -> str:
+        secs = int(secs)
+        if secs < 60:
+            return f"{secs}s"
+        m, s = divmod(secs, 60)
+        if m < 60:
+            return f"{m}m{s:02d}s"
+        h, m = divmod(m, 60)
+        return f"{h}h{m:02d}m"
+
+    def _clear() -> None:
+        if state["active"]:
+            print("\r" + " " * _cols() + "\r", end="", flush=True)
+            state["active"] = False
+
+    def on_progress(msg: str) -> None:
+        _clear()
         print(msg)
 
-    return _cb
+    def on_stage(stage: str, done: int, total: int) -> None:
+        now = _time.time()
+        if stage != state["stage"]:
+            state["stage"] = stage
+            state["start"] = now
+            state["last"] = 0.0
+        # Throttle to 10 Hz, but always paint the final frame.
+        if now - state["last"] < 0.1 and done < total:
+            return
+        state["last"] = now
+
+        if total <= 0:
+            return
+
+        elapsed = max(now - state["start"], 0.001)
+        rate    = done / elapsed
+        pct     = done / total
+        filled  = int(BAR_W * pct)
+        bar     = "=" * filled + (">" if filled < BAR_W else "") + " " * (BAR_W - filled - (1 if filled < BAR_W else 0))
+        remaining = total - done
+        eta     = _fmt_eta(remaining / rate) if rate > 0 else "?"
+        line    = (f"\r   {stage:<10s} [{bar}] {done:>7,}/{total:<7,}  "
+                   f"{pct*100:4.1f}%  {rate:,.0f}/s  ETA {eta}")
+        print(line[:_cols()], end="", flush=True)
+        state["active"] = True
+
+    return on_progress, on_stage
 
 
 def _make_analysis_progress_cb(show_progress: bool = True):
@@ -449,7 +508,9 @@ def main() -> None:
         dst_url  = f"sqlite:///{dst_path}"
         print(f"\n📦 Exporting  {mask_url(url)}")
         print(f"         →  {dst_path}\n")
-        stats = transfer_db(url, dst_url, on_progress=_make_transfer_progress_cb(show_progress=not args.no_progress_bar),
+        on_prog, on_stage = _make_transfer_progress_cb(show_progress=not args.no_progress_bar)
+        stats = transfer_db(url, dst_url, on_progress=on_prog,
+                            on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
                             include_cache=args.include_cache)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
@@ -463,7 +524,9 @@ def main() -> None:
         src_url = f"sqlite:///{src_path}"
         print(f"\n📥 Importing  {src_path}")
         print(f"         →  {mask_url(url)}\n")
-        stats = transfer_db(src_url, url, on_progress=_make_transfer_progress_cb(show_progress=not args.no_progress_bar),
+        on_prog, on_stage = _make_transfer_progress_cb(show_progress=not args.no_progress_bar)
+        stats = transfer_db(src_url, url, on_progress=on_prog,
+                            on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
                             include_cache=args.include_cache)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
