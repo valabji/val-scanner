@@ -15,6 +15,7 @@ import json
 import logging
 from collections.abc import Callable
 from sqlalchemy import create_engine, select, insert, func
+from sqlalchemy.exc import DatabaseError
 
 from .bootstrap import ensure_schema
 from .schema import scans, files, folders, thumbnails, media_samples, gui_cache, analysis_runs
@@ -125,30 +126,41 @@ def transfer_db(
         _emit(f"  folders:        {stats['folders']:>8,}")
 
         # ── thumbnails ────────────────────────────────────────────────────────
-        total = _count(sc, thumbnails)
-        for row in sc.execute(select(thumbnails).execution_options(**src_opts)):
-            m = row._mapping
-            new_fid = file_id_map.get(m["file_id"])
-            if new_fid is None:
-                continue
-            d = {k: m[k] for k in _THUMB_COLS}
-            dc.execute(insert(thumbnails).values(file_id=new_fid, **d))
-            stats["thumbnails"] += 1
-            _stage("thumbnails", stats["thumbnails"], total)
+        # Thumbnails and media samples hold only regenerable GUI assets, so a
+        # read failure here (e.g. a corrupt source DB) is non-fatal: salvage
+        # what was readable, warn, and keep the critical scan/file/folder data.
+        try:
+            total = _count(sc, thumbnails)
+            for row in sc.execute(select(thumbnails).execution_options(**src_opts)):
+                m = row._mapping
+                new_fid = file_id_map.get(m["file_id"])
+                if new_fid is None:
+                    continue
+                d = {k: m[k] for k in _THUMB_COLS}
+                dc.execute(insert(thumbnails).values(file_id=new_fid, **d))
+                stats["thumbnails"] += 1
+                _stage("thumbnails", stats["thumbnails"], total)
+        except DatabaseError as e:
+            _emit(f"  ⚠ thumbnails: read failed after {stats['thumbnails']:,} "
+                  f"row(s) — skipping the rest (source likely corrupt): {e.orig}")
         _stage("thumbnails", stats["thumbnails"], stats["thumbnails"])
         _emit(f"  thumbnails:     {stats['thumbnails']:>8,}")
 
         # ── media samples ─────────────────────────────────────────────────────
-        total = _count(sc, media_samples)
-        for row in sc.execute(select(media_samples).execution_options(**src_opts)):
-            m = row._mapping
-            new_fid = file_id_map.get(m["file_id"])
-            if new_fid is None:
-                continue
-            d = {k: m[k] for k in _SAMPLE_COLS}
-            dc.execute(insert(media_samples).values(file_id=new_fid, **d))
-            stats["samples"] += 1
-            _stage("samples", stats["samples"], total)
+        try:
+            total = _count(sc, media_samples)
+            for row in sc.execute(select(media_samples).execution_options(**src_opts)):
+                m = row._mapping
+                new_fid = file_id_map.get(m["file_id"])
+                if new_fid is None:
+                    continue
+                d = {k: m[k] for k in _SAMPLE_COLS}
+                dc.execute(insert(media_samples).values(file_id=new_fid, **d))
+                stats["samples"] += 1
+                _stage("samples", stats["samples"], total)
+        except DatabaseError as e:
+            _emit(f"  ⚠ samples: read failed after {stats['samples']:,} "
+                  f"row(s) — skipping the rest (source likely corrupt): {e.orig}")
         _stage("samples", stats["samples"], stats["samples"])
         _emit(f"  samples:        {stats['samples']:>8,}")
 
