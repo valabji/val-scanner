@@ -33,7 +33,7 @@ from .constants import (
 from .models import FileTableModel, FileIconModel, _THUMB_CACHE, COL_IDX, make_folder_row, _FOLDER_SENTINEL
 from . import icons as _icons
 from .delegates import FileCardDelegate, FileRowDelegate
-from .workers import ScanWorker, DbLoadWorker, LazyLoadWorker, BrowserLoadWorker, ConnectWorker, FilterWorker, PAGE_SIZE
+from .workers import ScanWorker, BrowserLoadWorker, ConnectWorker, FilterWorker
 from .dialogs import ScanOptionsDialog, ViewFiltersDialog, DatabaseSettingsDialog
 from valscanner import __version__
 from .panels.detail import DetailPanel
@@ -74,7 +74,6 @@ class MainWindow(QMainWindow):
         self._db_url                 = ""  # authoritative SQLAlchemy URL
         self._connect_worker: ConnectWorker | None = None
         self._worker                 = None
-        self._db_load_worker: DbLoadWorker | None = None
         self._all_rows: list         = []
         self._folder_filter_recursive = False
         self._active_scan_id         = 0
@@ -92,12 +91,15 @@ class MainWindow(QMainWindow):
         self._filter_gen: int        = 0
         self._filter_workers: list   = []   # hold refs so workers aren't GC'd mid-run
         self._path_parts_cache: dict = {}
-        self._lazy_worker: LazyLoadWorker | None = None
         self._total_row_count        = 0
         self._loaded_offset          = 0
         # Browser mode
         self._browser_path           = ""          # current path in browser mode
         self._browser_worker: BrowserLoadWorker | None = None
+        # Lazy paging for recursive ("all subfolders") browser view
+        self._browser_more_worker: BrowserLoadWorker | None = None
+        self._browser_recursive_paging = False
+        self._browser_file_offset    = 0           # files loaded so far this view
         self._browser_history: list[str] = []
         self._current_view_index     = 0           # 0=table 1=grid 2=list
 
@@ -500,8 +502,8 @@ class MainWindow(QMainWindow):
         shutdown when a QThread outlives its QApplication.
         """
         threads = []
-        for attr in ("_worker", "_connect_worker", "_db_load_worker",
-                     "_lazy_worker", "_browser_worker"):
+        for attr in ("_worker", "_connect_worker",
+                     "_browser_more_worker", "_browser_worker"):
             w = getattr(self, attr, None)
             if w is not None:
                 threads.append(w)
@@ -2714,29 +2716,6 @@ class MainWindow(QMainWindow):
         self._browser_history = []
         self._load_browser_view()
 
-    def _on_db_loaded(self, data: dict) -> None:
-        """Callback when database flat-view load completes."""
-        total = data["total"]
-        total_size = data["total_size"]
-        rows = data["rows"]
-
-        self._all_rows = rows
-        self._path_parts_cache = {}
-        self._total_row_count = total
-        self._loaded_offset = PAGE_SIZE
-
-        self._apply_filters()
-        self._update_stats(total, total_size, len(self._all_rows))
-        self.center_tabs.setTabText(1, f"Files ({total:,})")
-
-        sb = self.table.verticalScrollBar()
-        try:
-            sb.valueChanged.disconnect(self._on_table_scroll)
-        except RuntimeError:
-            pass
-        sb.valueChanged.connect(self._on_table_scroll)
-
-
     def _load_browser_view(self) -> None:
         """Browser view: load folders + files at the current path."""
         if not self._db_path:
@@ -2747,6 +2726,14 @@ class MainWindow(QMainWindow):
         self.center_tabs.setTabText(1, "Files (loading…)")
         self._stat_showing.setText("Loading…")
 
+        # Detach any in-flight lazy page so it can't append to the new view.
+        self._browser_recursive_paging = False
+        if self._browser_more_worker is not None:
+            try:
+                self._browser_more_worker.contents_ready.disconnect(self._on_browser_more)
+            except (RuntimeError, TypeError):
+                pass
+
         self._browser_worker = BrowserLoadWorker(
             self._db_path, self._active_scan_id, self._browser_path,
             recursive=self._folder_filter_recursive,
@@ -2756,7 +2743,7 @@ class MainWindow(QMainWindow):
         self._browser_worker.start()
 
     def _on_browser_loaded(self, data: dict) -> None:
-        """Render folders + files at the current browser path."""
+        """Render the first page of folders + files at the current browser path."""
         folders = data["folders"]
         files = data["files"]
         path = data["path"]
@@ -2765,13 +2752,17 @@ class MainWindow(QMainWindow):
             # Stale response — ignore
             return
 
+        recursive   = data.get("recursive", False)
+        total_files = data.get("total_files", -1)
+        worker_bytes = data.get("total_bytes", -1)
+
         rows: list = []
         total_bytes = 0
 
+        from ..core.schema import human_size as _hs
         for f in folders:
             # f = (path, file_count, total_bytes, scan_id)
             fp, fcount, fbytes = f[0], f[1] or 0, f[2] or 0
-            from ..core.schema import human_size as _hs
             rows.append(make_folder_row(fp, fcount, fbytes, _hs(fbytes)))
             total_bytes += fbytes
 
@@ -2781,20 +2772,42 @@ class MainWindow(QMainWindow):
 
         self._all_rows = rows
         self._path_parts_cache = {}
-        self._total_row_count = len(rows)
-        self._loaded_offset = len(rows)  # no lazy paging needed in browser mode
 
-        # Disconnect scroll lazy loader in browser mode
+        # Lazy paging only applies to the recursive (flat) file view, where one
+        # path can hold the entire scan. Single-directory levels load in one
+        # shot — they're bounded by directory width.
+        if recursive and total_files >= 0:
+            self._browser_file_offset = len(files)
+            self._browser_recursive_paging = total_files > len(files)
+            self._total_row_count = total_files          # folders == [] here
+            self._loaded_offset = len(files)
+            if worker_bytes >= 0:
+                total_bytes = worker_bytes
+            stat_total = total_files
+        else:
+            self._browser_recursive_paging = False
+            self._browser_file_offset = len(files)
+            self._total_row_count = len(rows)
+            self._loaded_offset = len(rows)
+            stat_total = len(rows)
+
         sb = self.table.verticalScrollBar()
         try:
             sb.valueChanged.disconnect(self._on_table_scroll)
         except RuntimeError:
             pass
+        if self._browser_recursive_paging:
+            sb.valueChanged.connect(self._on_table_scroll)
 
         self._apply_filters()
-        self._update_stats(len(rows), total_bytes, len(rows))
+        self._update_stats(stat_total, total_bytes, len(rows))
         label = Path(self._browser_path).name if self._browser_path else "root"
-        self.center_tabs.setTabText(1, f"{label} ({len(folders)} folders, {len(files)} files)")
+        if recursive and total_files >= 0:
+            self.center_tabs.setTabText(1, f"{label} ({total_files:,} files)")
+        else:
+            self.center_tabs.setTabText(
+                1, f"{label} ({len(folders)} folders, {len(files)} files)"
+            )
 
 
     def _navigate_to(self, path: str) -> None:
@@ -3235,54 +3248,81 @@ class MainWindow(QMainWindow):
             self._set_status(f"Could not reveal: {e}", level="error")
 
     def _on_table_scroll(self, value: int) -> None:
-        """Lazy load handler: trigger when scrolling near the end."""
+        """Lazy-load handler: fetch the next page when scrolling near the end."""
+        if not self._browser_recursive_paging:
+            return
         sb = self.table.verticalScrollBar()
         if sb.maximum() == 0:
             return
         # Trigger at 80% scroll depth
         if value / sb.maximum() < 0.80:
             return
-        # Already loaded all rows
+        # Already loaded everything
         if self._loaded_offset >= self._total_row_count:
             return
         # Avoid concurrent loads
-        if self._lazy_worker and self._lazy_worker.isRunning():
+        if self._browser_more_worker and self._browser_more_worker.isRunning():
             return
         self._fetch_next_page()
 
     def _fetch_next_page(self) -> None:
-        """Start background load of next page."""
-        self._lazy_worker = LazyLoadWorker(self._db_path, self._active_scan_id, self._loaded_offset)
-        self._lazy_worker.rows_ready.connect(self._on_lazy_rows_ready)
-        self._lazy_worker.error.connect(lambda e: self._set_status(f"Error loading rows: {e}"))
-        self._lazy_worker.start()
+        """Background-load the next page of files for the recursive browser view."""
+        self._browser_more_worker = BrowserLoadWorker(
+            self._db_path, self._active_scan_id, self._browser_path,
+            recursive=True, offset=self._browser_file_offset,
+        )
+        self._browser_more_worker.contents_ready.connect(self._on_browser_more)
+        self._browser_more_worker.error.connect(
+            lambda e: self._set_status(f"Error loading rows: {e}")
+        )
+        self._browser_more_worker.start()
 
-    def _on_lazy_rows_ready(self, new_rows: list) -> None:
-        """Handle newly loaded rows from background worker."""
+    def _on_browser_more(self, data: dict) -> None:
+        """Append the next page of files from the recursive browser pager."""
+        if data.get("path") != self._browser_path:
+            return  # stale — the view changed while loading
+        new_rows = data.get("files") or []
         if not new_rows:
             return
-        # Extend internal row cache
         self._all_rows.extend(new_rows)
+        self._browser_file_offset += len(new_rows)
         self._loaded_offset += len(new_rows)
 
-        # Filter new batch against current search/category state
+        # Run the new page through the same FilterWorker the initial load uses,
+        # so search + category + view-filters are applied identically. The
+        # survivors are appended (not reset) to preserve scroll position.
         term = self.search_edit.text().strip().lower()
         cat = self.cat_combo.currentText()
         if cat == "All types":
             cat = ""
-        filtered_new = [
-            r for r in new_rows
-            if (not cat or r[2] == cat)
-            and (not term or term in f"{r[1]} {r[2]} {r[6]} {r[0]}".lower())
-        ]
+        w = FilterWorker(
+            generation=self._filter_gen,
+            rows=list(new_rows),
+            term=term,
+            cat=cat,
+            view_filters=self._view_filters or {},
+            parts_cache=self._path_parts_cache,
+        )
+        w.done.connect(self._on_more_filtered)
+        w.error.connect(lambda e: self._set_status(f"Filter error: {e}"))
+        w.finished.connect(lambda w=w: self._reap_filter_worker(w))
+        self._filter_workers.append(w)
+        w.start()
 
-        if filtered_new:
-            self._filtered_rows.extend(filtered_new)
-            # Apply table model append (preserves scroll position)
-            self.table_model.append_rows(filtered_new)
-            # Icon model still resets (acceptable for secondary view)
-            self.icon_model.load(list(self.table_model._rows))
-            self._stat_showing.setText(f"Showing {len(self._filtered_rows):,}")
+    def _on_more_filtered(self, gen: int, filtered_new: list, new_parts: dict) -> None:
+        """Append a filtered lazy page, unless a newer filter run superseded it."""
+        if gen != self._filter_gen:
+            return  # filters changed mid-flight; the full sweep already covers this page
+        if new_parts:
+            self._path_parts_cache.update(new_parts)
+        if not filtered_new:
+            return
+        self._filtered_rows.extend(filtered_new)
+        # Append without resetting the model (preserves scroll position)
+        self.table_model.append_rows(filtered_new)
+        # Icon model still resets (acceptable for secondary view)
+        self.icon_model.load(list(self.table_model._rows))
+        self._stat_showing.setText(f"Showing {len(self._filtered_rows):,}")
 
     # ── Export ────────────────────────────────────────────────────────────────
 

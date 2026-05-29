@@ -209,169 +209,21 @@ class AnalysisWorker(QThread):
                 ProcessRegistry.instance().mark_error(self._pid, str(e))
 
 
-class DbLoadWorker(QThread):
-    """Background worker for initial database load."""
-    db_loaded = Signal(dict)  # {"total": N, "total_size": M, "rows": [...]}
-    error     = Signal(str)
-
-    def __init__(self, db_path: str, scan_id: int | None, page_size: int = PAGE_SIZE):
-        super().__init__()
-        self.db_path    = db_path
-        self.scan_id    = scan_id
-        self.page_size  = page_size
-        self._interrupt = threading.Event()
-        self._pid: str  = ""
-
-    def stop(self) -> None:
-        self._interrupt.set()
-
-    def run(self) -> None:
-        from .panels.process import ProcessRegistry
-        reg = ProcessRegistry.instance()
-        self._pid = reg.register(name="Loading database", cancel_cb=self.stop)
-        ok = False
-        try:
-            repo = repo_for(self.db_path)
-            sid  = self.scan_id
-
-            # Only cache the unfiltered initial load (scan_id None/0, offset 0)
-            cache_key = f"file_list:{'all' if not sid else f'scan_{sid}'}"
-            version   = repo.db_version()
-            if version:
-                cached = repo.get_gui_cache(cache_key, version)
-                if cached is not None:
-                    self.db_loaded.emit(cached)
-                    ok = True
-                    return
-
-            if self._interrupt.is_set():
-                return
-
-            engine = repo.engine
-            with engine.connect() as conn:
-                if self._interrupt.is_set():
-                    return
-                if sid:
-                    total, = conn.execute(
-                        text("SELECT COUNT(*) FROM files WHERE scan_id=:sid"), {"sid": sid}
-                    ).fetchone()
-                    total_size, = conn.execute(
-                        text("SELECT SUM(size_bytes) FROM files WHERE scan_id=:sid"), {"sid": sid}
-                    ).fetchone()
-                    if self._interrupt.is_set():
-                        return
-                    rows = conn.execute(
-                        text(
-                            "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, sha256, extra_meta "
-                            "FROM files WHERE scan_id=:sid ORDER BY filename LIMIT :lim OFFSET :off"
-                        ),
-                        {"sid": sid, "lim": self.page_size, "off": 0},
-                    ).fetchall()
-                else:
-                    total, = conn.execute(text("SELECT COUNT(*) FROM files")).fetchone()
-                    total_size, = conn.execute(
-                        text("SELECT SUM(size_bytes) FROM files")
-                    ).fetchone()
-                    if self._interrupt.is_set():
-                        return
-                    rows = conn.execute(
-                        text(
-                            "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, sha256, extra_meta "
-                            "FROM files ORDER BY filename LIMIT :lim OFFSET :off"
-                        ),
-                        {"lim": self.page_size, "off": 0},
-                    ).fetchall()
-
-            payload = {
-                "total":      total,
-                "total_size": total_size or 0,
-                "rows":       [list(r) for r in rows],
-            }
-            if version:
-                repo.set_gui_cache(cache_key, version, payload)
-            self.db_loaded.emit(payload)
-            ok = True
-        except Exception as e:
-            self.error.emit(str(e))
-        finally:
-            if self._interrupt.is_set():
-                reg.mark_done(self._pid)
-            elif ok:
-                reg.mark_done(self._pid)
-            else:
-                reg.mark_error(self._pid)
-
-
-class LazyLoadWorker(QThread):
-    """Background worker for paginated file loading from database."""
-    rows_ready = Signal(list)
-    error      = Signal(str)
-
-    def __init__(self, db_path: str, scan_id: int | None, offset: int,
-                 page_size: int = PAGE_SIZE):
-        super().__init__()
-        self.db_path    = db_path
-        self.scan_id    = scan_id
-        self.offset     = offset
-        self.page_size  = page_size
-        self._interrupt = threading.Event()
-        self._pid: str  = ""
-
-    def stop(self) -> None:
-        self._interrupt.set()
-
-    def run(self) -> None:
-        from .panels.process import ProcessRegistry
-        reg = ProcessRegistry.instance()
-        self._pid = reg.register(name="Loading more files", cancel_cb=self.stop)
-        ok = False
-        try:
-            if self._interrupt.is_set():
-                return
-            engine = repo_for(self.db_path).engine
-            with engine.connect() as conn:
-                if self.scan_id:
-                    rows = conn.execute(
-                        text(
-                            "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, sha256, extra_meta "
-                            "FROM files WHERE scan_id=:sid ORDER BY filename LIMIT :lim OFFSET :off"
-                        ),
-                        {"sid": self.scan_id, "lim": self.page_size, "off": self.offset},
-                    ).fetchall()
-                else:
-                    rows = conn.execute(
-                        text(
-                            "SELECT path, filename, category, size_bytes, size_human, "
-                            "modified_at, tags, sha256, extra_meta "
-                            "FROM files ORDER BY filename LIMIT :lim OFFSET :off"
-                        ),
-                        {"lim": self.page_size, "off": self.offset},
-                    ).fetchall()
-            self.rows_ready.emit(list(rows))
-            ok = True
-        except Exception as e:
-            self.error.emit(str(e))
-        finally:
-            if ok or self._interrupt.is_set():
-                reg.mark_done(self._pid)
-            else:
-                reg.mark_error(self._pid)
-
-
 class BrowserLoadWorker(QThread):
     """Loads folders + files at a specific path level (immediate children only)."""
     contents_ready = Signal(dict)  # {"folders": [...], "files": [...], "path": str, "scan_id": int}
     error          = Signal(str)
 
-    def __init__(self, db_path: str, scan_id: int | None, path: str, recursive: bool = False):
+    def __init__(self, db_path: str, scan_id: int | None, path: str,
+                 recursive: bool = False, offset: int = 0,
+                 page_size: int = PAGE_SIZE):
         super().__init__()
         self.db_path    = db_path
         self.scan_id    = scan_id
         self.path       = path
         self.recursive  = recursive
+        self.offset     = offset
+        self.page_size  = page_size
         self._interrupt = threading.Event()
         self._pid: str  = ""
 
@@ -389,6 +241,8 @@ class BrowserLoadWorker(QThread):
                 return
             engine = repo_for(self.db_path).engine
             sid = self.scan_id
+            total_files = -1   # -1 = caller computes from loaded rows
+            total_bytes = -1
             with engine.connect() as conn:
                 if not self.path:
                     if sid:
@@ -409,27 +263,55 @@ class BrowserLoadWorker(QThread):
                 else:
                     like_prefix = self.path.rstrip("/") + "/%"
                     if self.recursive:
-                        # All files under this path (flat, no folder rows)
+                        # All files under this path (flat, no folder rows),
+                        # loaded one page at a time for lazy scroll-in.
+                        folder_rows = []
                         if sid:
-                            folder_rows = []
                             file_rows = conn.execute(
                                 text(
                                     "SELECT path, filename, category, size_bytes, size_human, "
                                     "modified_at, tags, extra_meta "
-                                    "FROM files WHERE scan_id=:sid AND path LIKE :pre ORDER BY filename"
+                                    "FROM files WHERE scan_id=:sid AND path LIKE :pre "
+                                    "ORDER BY filename LIMIT :lim OFFSET :off"
                                 ),
-                                {"sid": sid, "pre": like_prefix},
+                                {"sid": sid, "pre": like_prefix,
+                                 "lim": self.page_size, "off": self.offset},
                             ).fetchall()
                         else:
-                            folder_rows = []
                             file_rows = conn.execute(
                                 text(
                                     "SELECT path, filename, category, size_bytes, size_human, "
                                     "modified_at, tags, extra_meta "
-                                    "FROM files WHERE path LIKE :pre ORDER BY filename"
+                                    "FROM files WHERE path LIKE :pre "
+                                    "ORDER BY filename LIMIT :lim OFFSET :off"
                                 ),
-                                {"pre": like_prefix},
+                                {"pre": like_prefix,
+                                 "lim": self.page_size, "off": self.offset},
                             ).fetchall()
+                        # Total count/size only on the first page; the caller
+                        # carries them forward across subsequent pages.
+                        if self.offset == 0:
+                            if sid:
+                                total_files, = conn.execute(
+                                    text("SELECT COUNT(*) FROM files "
+                                         "WHERE scan_id=:sid AND path LIKE :pre"),
+                                    {"sid": sid, "pre": like_prefix},
+                                ).fetchone()
+                                total_bytes, = conn.execute(
+                                    text("SELECT SUM(size_bytes) FROM files "
+                                         "WHERE scan_id=:sid AND path LIKE :pre"),
+                                    {"sid": sid, "pre": like_prefix},
+                                ).fetchone()
+                            else:
+                                total_files, = conn.execute(
+                                    text("SELECT COUNT(*) FROM files WHERE path LIKE :pre"),
+                                    {"pre": like_prefix},
+                                ).fetchone()
+                                total_bytes, = conn.execute(
+                                    text("SELECT SUM(size_bytes) FROM files WHERE path LIKE :pre"),
+                                    {"pre": like_prefix},
+                                ).fetchone()
+                            total_bytes = total_bytes or 0
                     else:
                         like_deeper = self.path.rstrip("/") + "/%/%"
                         if sid:
@@ -471,10 +353,14 @@ class BrowserLoadWorker(QThread):
                     files   = list(file_rows)
 
             self.contents_ready.emit({
-                "folders":  folders,
-                "files":    files,
-                "path":     self.path,
-                "scan_id":  sid or 0,
+                "folders":     folders,
+                "files":       files,
+                "path":        self.path,
+                "scan_id":     sid or 0,
+                "recursive":   self.recursive,
+                "offset":      self.offset,
+                "total_files": total_files,
+                "total_bytes": total_bytes,
             })
             ok = True
         except Exception as e:
