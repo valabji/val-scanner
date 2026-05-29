@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QAbstractListModel, QObject, Signal
+from PySide6.QtCore import (
+    Qt, QModelIndex, QAbstractTableModel, QAbstractListModel,
+    QObject, Signal, QMimeData, QUrl,
+)
 from PySide6.QtGui import QColor, QFont, QPixmap, QImage
 
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ROW_ALT, ACCENT, TEXT, SUBTEXT
@@ -25,6 +28,31 @@ def make_folder_row(path: str, file_count: int, total_bytes: int, human_size: st
     name = _Path(path).name or path
     tag = f"{file_count:,} files" if file_count else "empty"
     return (path, name, _FOLDER_SENTINEL, total_bytes or 0, human_size, "", tag, "", "")
+
+
+def _rows_to_mime(rows: list, indexes) -> QMimeData:
+    """Build a text/uri-list + plain-text drag payload from selected rows.
+
+    Skips group-header rows and de-duplicates by row index, so a multi-cell
+    selection of one row yields a single path.
+    """
+    md = QMimeData()
+    paths: list[str] = []
+    seen: set[int] = set()
+    for idx in indexes:
+        r = idx.row()
+        if r in seen or not (0 <= r < len(rows)):
+            continue
+        seen.add(r)
+        row = rows[r]
+        if len(row) > 2 and row[2] == _GROUP_SENTINEL:
+            continue
+        if row and row[0]:
+            paths.append(row[0])
+    if paths:
+        md.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        md.setText("\n".join(paths))
+    return md
 
 
 class FileTableModel(QAbstractTableModel):
@@ -63,7 +91,13 @@ class FileTableModel(QAbstractTableModel):
         row = self._rows[index.row()]
         if row[2] == _GROUP_SENTINEL:
             return Qt.ItemIsEnabled
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+
+    def mimeTypes(self) -> list[str]:
+        return ["text/uri-list", "text/plain"]
+
+    def mimeData(self, indexes) -> QMimeData:
+        return _rows_to_mime(self._rows, indexes)
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
@@ -347,6 +381,20 @@ class FileIconModel(QAbstractListModel):
 
     def rowCount(self, parent=QModelIndex()):
         return len(self._rows)
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.NoItemFlags
+        row = self._rows[index.row()]
+        if len(row) > 2 and row[2] == _GROUP_SENTINEL:
+            return Qt.ItemIsEnabled
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+
+    def mimeTypes(self) -> list[str]:
+        return ["text/uri-list", "text/plain"]
+
+    def mimeData(self, indexes) -> QMimeData:
+        return _rows_to_mime(self._rows, indexes)
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():

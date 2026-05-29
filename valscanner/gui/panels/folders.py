@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from PySide6.QtCore import Qt, Signal, QSortFilterProxyModel
+from PySide6.QtCore import Qt, Signal, QSortFilterProxyModel, QMimeData, QUrl
 from PySide6.QtGui import QColor, QStandardItemModel, QStandardItem, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -16,6 +16,29 @@ from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN,
 from ..widgets.volume_map import VolumeMapWidget
 from ...core.schema import human_size
 from .. import icons as _icons
+
+
+class _FolderDragModel(QStandardItemModel):
+    """Folder-tree model that exposes dragged folders as text/uri-list, so a
+    folder can be dragged out to Finder/Explorer. The folder path lives on the
+    name item at Qt.UserRole."""
+
+    def mimeTypes(self) -> list[str]:
+        return ["text/uri-list", "text/plain"]
+
+    def mimeData(self, indexes) -> QMimeData:
+        md = QMimeData()
+        paths: list[str] = []
+        for idx in indexes:
+            if not idx.isValid():
+                continue
+            path = idx.data(Qt.UserRole)
+            if path and path not in paths:
+                paths.append(path)
+        if paths:
+            md.setUrls([QUrl.fromLocalFile(p) for p in paths])
+            md.setText("\n".join(paths))
+        return md
 
 
 class FolderPanel(QWidget):
@@ -63,6 +86,8 @@ class FolderPanel(QWidget):
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tree.setDragEnabled(True)
+        self.tree.setDragDropMode(QAbstractItemView.DragOnly)
         self.tree.setIndentation(14)
         self.tree.setStyleSheet(f"""
             QTreeView {{
@@ -83,7 +108,7 @@ class FolderPanel(QWidget):
             }}
         """)
 
-        self.model = QStandardItemModel()
+        self.model = _FolderDragModel()
         self.model.setHorizontalHeaderLabels(["Folder", "Size", "Files"])
 
         self.proxy = QSortFilterProxyModel()

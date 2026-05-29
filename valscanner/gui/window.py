@@ -57,6 +57,45 @@ from ..core import app_settings as _app_settings
 from ..core.app_settings import active_url, mask_url
 
 
+class _ScanTargetEdit(QLineEdit):
+    """Scan-target field that accepts a folder dropped from the OS file
+    browser, filling in the clean local path (instead of the raw file:// URL
+    a plain QLineEdit would insert). Non-folder drops fall back to default
+    QLineEdit handling so the window-level drop handler still applies."""
+
+    def _first_local_dir(self, e) -> str | None:
+        md = e.mimeData()
+        if not md.hasUrls():
+            return None
+        for u in md.urls():
+            if u.isLocalFile() and Path(u.toLocalFile()).is_dir():
+                return u.toLocalFile()
+        return None
+
+    def _set_drop_active(self, active: bool) -> None:
+        self.setStyleSheet(f"QLineEdit {{ border: 1px solid {ACCENT}; }}" if active else "")
+
+    def dragEnterEvent(self, e) -> None:
+        if self._first_local_dir(e) is not None:
+            self._set_drop_active(True)
+            e.acceptProposedAction()
+        else:
+            super().dragEnterEvent(e)
+
+    def dragLeaveEvent(self, e) -> None:
+        self._set_drop_active(False)
+        super().dragLeaveEvent(e)
+
+    def dropEvent(self, e) -> None:
+        path = self._first_local_dir(e)
+        if path is not None:
+            self.setText(path)
+            self._set_drop_active(False)
+            e.acceptProposedAction()
+        else:
+            super().dropEvent(e)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -439,7 +478,6 @@ class MainWindow(QMainWindow):
         _mk("Ctrl+F",         self._focus_search)
         _mk("Ctrl+R",         self._toggle_folder_depth)
         _mk("Ctrl+Shift+R",   self._reveal_active_file)
-        _mk("Ctrl+Shift+C",   self._copy_active_path)
         _mk("Esc",            self._on_escape)
         _mk("Ctrl+.",         self._hard_cancel)
         _mk("Ctrl+Shift+B",   self._toggle_folder_panel)
@@ -450,6 +488,8 @@ class MainWindow(QMainWindow):
             _mk(key, lambda i=i: self.center_tabs.setCurrentIndex(i))
 
         for v in (self.table, self.grid_view, self.list_view):
+            v.setDragEnabled(True)
+            v.setDragDropMode(QAbstractItemView.DragOnly)
             for seq in ("Return", "Enter"):
                 sc = QShortcut(QKeySequence(seq), v)
                 sc.setContext(Qt.WidgetShortcut)
@@ -457,6 +497,12 @@ class MainWindow(QMainWindow):
             sc_a = QShortcut(QKeySequence("Ctrl+A"), v)
             sc_a.setContext(Qt.WidgetShortcut)
             sc_a.activated.connect(v.selectAll)
+            sc_c = QShortcut(QKeySequence.Copy, v)
+            sc_c.setContext(Qt.WidgetShortcut)
+            sc_c.activated.connect(self._copy_selected_paths)
+            sc_cn = QShortcut(QKeySequence("Ctrl+Shift+C"), v)
+            sc_cn.setContext(Qt.WidgetShortcut)
+            sc_cn.activated.connect(self._copy_selected_filenames)
 
     def _on_escape(self) -> None:
         busy = self._busy_workers()
@@ -596,12 +642,6 @@ class MainWindow(QMainWindow):
         row = self._active_row()
         if row:
             self._reveal(str(Path(row[0]).parent))
-
-    def _copy_active_path(self) -> None:
-        row = self._active_row()
-        if row:
-            QApplication.clipboard().setText(row[0])
-            self._set_status(f"Copied path: {row[0]}")
 
     def _active_row(self):
         if self._view_stack.currentIndex() == 0:
@@ -1237,7 +1277,7 @@ class MainWindow(QMainWindow):
         )
         rl.addWidget(scan_lbl)
 
-        self.path_edit = QLineEdit()
+        self.path_edit = _ScanTargetEdit()
         self.path_edit.setPlaceholderText("Pick a folder to index…")
         self.path_edit.setMinimumWidth(260)
         self.path_edit.setFixedHeight(28)
@@ -3196,6 +3236,15 @@ class MainWindow(QMainWindow):
             QApplication.clipboard().setText(text)
             n = len(rows)
             self._set_status(f"Copied {n} path{'s' if n > 1 else ''}")
+
+    def _copy_selected_filenames(self) -> None:
+        view = self._active_view()
+        rows = self._selected_rows_data(view)
+        if rows:
+            text = "\n".join(r[1] for r in rows)
+            QApplication.clipboard().setText(text)
+            n = len(rows)
+            self._set_status(f"Copied {n} filename{'s' if n > 1 else ''}")
 
     def _active_view(self):
         idx = self._current_view_index

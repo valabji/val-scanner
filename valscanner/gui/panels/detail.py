@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QLabel, QPushButton,
     QTextEdit, QHBoxLayout, QMessageBox, QStackedWidget,
+    QToolButton, QApplication,
 )
 
 from ..layouts import FlowLayout
@@ -268,6 +269,31 @@ class DetailPanel(QWidget):
         self.grid_lay.addWidget(lbl, row, 0)
         self.grid_lay.addWidget(val, row, 1)
 
+    def _copyable_value(self, what: str, display: str, copy_text: str, style: str) -> QWidget:
+        """A value label paired with a small copy button. `display` may be a
+        truncated form; the button always copies the full `copy_text`."""
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(4)
+        val = QLabel(display)
+        val.setWordWrap(True)
+        val.setStyleSheet(style)
+        val.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        h.addWidget(val, 1)
+        btn = QToolButton()
+        btn.setIcon(_icons.icon("copy", color=str(SUBTEXT)))
+        btn.setToolTip(f"Copy {what.lower()}")
+        btn.setAutoRaise(True)
+        btn.setFixedSize(20, 20)
+        btn.clicked.connect(lambda: self._copy_to_clipboard(copy_text, what))
+        h.addWidget(btn, 0, Qt.AlignTop)
+        return w
+
+    def _copy_to_clipboard(self, text: str, what: str) -> None:
+        QApplication.clipboard().setText(text)
+        self.status_message.emit(f"{what} copied to clipboard.", "success")
+
     def _on_exif_toggle(self) -> None:
         expanded = self._exif_toggle.isChecked()
         self._exif_content.setVisible(expanded)
@@ -328,17 +354,18 @@ class DetailPanel(QWidget):
         self._grid_row("Modified", row[5], 1)
         sha = row[7] if len(row) > 7 else ""
         if sha:
-            sha_lbl = QLabel(sha)
-            sha_lbl.setWordWrap(True)
-            sha_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 9px; font-family: monospace;")
+            display = sha[:16] + "…" if len(sha) > 16 else sha
             self.grid_lay.addWidget(QLabel("SHA-256"), 2, 0)
-            self.grid_lay.addWidget(sha_lbl, 2, 1)
+            self.grid_lay.addWidget(
+                self._copyable_value("SHA-256", display, sha,
+                    f"color: {SUBTEXT}; font-size: 9px; font-family: monospace;"),
+                2, 1)
         path_row = 3 if sha else 2
-        path_lbl = QLabel(row[0])
-        path_lbl.setWordWrap(True)
-        path_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px;")
         self.grid_lay.addWidget(QLabel("Path"), path_row, 0)
-        self.grid_lay.addWidget(path_lbl, path_row, 1)
+        self.grid_lay.addWidget(
+            self._copyable_value("Path", row[0], row[0],
+                f"color: {SUBTEXT}; font-size: 10px;"),
+            path_row, 1)
 
         for i in reversed(range(self.tags_layout.count())):
             w = self.tags_layout.itemAt(i).widget()
