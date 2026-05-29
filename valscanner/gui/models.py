@@ -332,6 +332,19 @@ class FileIconModel(QAbstractListModel):
                 self._path_to_rows.setdefault(r[0], []).append(i)
         self.endResetModel()
 
+    def append_rows(self, new_rows: list) -> None:
+        """Append rows without resetting the model (preserves scroll position)."""
+        if not new_rows:
+            return
+        first = len(self._rows)
+        last = first + len(new_rows) - 1
+        self.beginInsertRows(QModelIndex(), first, last)
+        for offset, r in enumerate(new_rows):
+            if r and r[0]:
+                self._path_to_rows.setdefault(r[0], []).append(first + offset)
+        self._rows.extend(new_rows)
+        self.endInsertRows()
+
     def rowCount(self, parent=QModelIndex()):
         return len(self._rows)
 

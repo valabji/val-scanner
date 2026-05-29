@@ -2791,13 +2791,16 @@ class MainWindow(QMainWindow):
             self._loaded_offset = len(rows)
             stat_total = len(rows)
 
-        sb = self.table.verticalScrollBar()
-        try:
-            sb.valueChanged.disconnect(self._on_table_scroll)
-        except RuntimeError:
-            pass
-        if self._browser_recursive_paging:
-            sb.valueChanged.connect(self._on_table_scroll)
+        # Watch every file view's scrollbar so lazy paging fires regardless of
+        # which view (table, grid, or list) is active.
+        for _v in (self.table, self.grid_view, self.list_view):
+            _sb = _v.verticalScrollBar()
+            try:
+                _sb.valueChanged.disconnect(self._on_view_scroll)
+            except (RuntimeError, TypeError):
+                pass
+            if self._browser_recursive_paging:
+                _sb.valueChanged.connect(self._on_view_scroll)
 
         self._apply_filters()
         self._update_stats(stat_total, total_bytes, len(rows))
@@ -3247,15 +3250,18 @@ class MainWindow(QMainWindow):
         except (OSError, FileNotFoundError) as e:
             self._set_status(f"Could not reveal: {e}", level="error")
 
-    def _on_table_scroll(self, value: int) -> None:
-        """Lazy-load handler: fetch the next page when scrolling near the end."""
+    def _on_view_scroll(self, value: int) -> None:
+        """Lazy-load handler: fetch the next page when the active view nears its end."""
         if not self._browser_recursive_paging:
             return
-        sb = self.table.verticalScrollBar()
+        view = self._view_stack.currentWidget()
+        if view not in (self.table, self.grid_view, self.list_view):
+            return
+        sb = view.verticalScrollBar()
         if sb.maximum() == 0:
             return
-        # Trigger at 80% scroll depth
-        if value / sb.maximum() < 0.80:
+        # Trigger at 80% scroll depth of the active view
+        if sb.value() / sb.maximum() < 0.80:
             return
         # Already loaded everything
         if self._loaded_offset >= self._total_row_count:
@@ -3318,10 +3324,10 @@ class MainWindow(QMainWindow):
         if not filtered_new:
             return
         self._filtered_rows.extend(filtered_new)
-        # Append without resetting the model (preserves scroll position)
+        # Append without resetting either model so the active view (table, grid,
+        # or list) keeps its scroll position as the next page slides in.
         self.table_model.append_rows(filtered_new)
-        # Icon model still resets (acceptable for secondary view)
-        self.icon_model.load(list(self.table_model._rows))
+        self.icon_model.append_rows(filtered_new)
         self._stat_showing.setText(f"Showing {len(self._filtered_rows):,}")
 
     # ── Export ────────────────────────────────────────────────────────────────
