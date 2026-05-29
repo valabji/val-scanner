@@ -72,6 +72,8 @@ class ScanOptionsDialog(QDialog):
         self.thumb_size.setValue(opts.get("thumb_size", 128))
         self.thumb_size.setSuffix(" px")
         self.thumb_size.setFixedWidth(90)
+        self.thumb_size.setAccessibleName("Maximum thumbnail size")
+        self.thumb_size.setAccessibleDescription("Largest edge of stored thumbnails, in pixels")
         row1.addWidget(self.thumb_size)
         row1.addSpacing(16)
         row1.addWidget(QLabel("JPEG quality:"))
@@ -81,6 +83,8 @@ class ScanOptionsDialog(QDialog):
         self.thumb_quality.setValue(opts.get("thumb_quality", 75))
         self.thumb_quality.setSuffix(" %")
         self.thumb_quality.setFixedWidth(80)
+        self.thumb_quality.setAccessibleName("Thumbnail JPEG quality")
+        self.thumb_quality.setAccessibleDescription("JPEG compression quality for stored thumbnails")
         row1.addWidget(self.thumb_quality)
         row1.addStretch()
         tl.addLayout(row1)
@@ -124,6 +128,8 @@ class ScanOptionsDialog(QDialog):
         self.sample_dur.setValue(opts.get("sample_duration", 5))
         self.sample_dur.setSuffix(" s")
         self.sample_dur.setFixedWidth(70)
+        self.sample_dur.setAccessibleName("Sample clip duration")
+        self.sample_dur.setAccessibleDescription("Length of stored audio or video preview clips, in seconds")
         row2.addWidget(self.sample_dur)
         note = QLabel("Low quality: audio 32 kbps mp3 · video 240p mp4")
         note.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
@@ -242,6 +248,17 @@ class ScanOptionsDialog(QDialog):
         btns.rejected.connect(self.reject)
         lay.addWidget(btns)
 
+        order = [
+            self.thumb_chk, self.thumb_size, self.thumb_quality,
+            self.sample_chk, self.sample_dur,
+            self.skip_hidden_dirs_chk, self.skip_vcs_chk,
+            self.skip_system_chk, self.skip_caches_chk,
+            self.skip_hidden_files_chk, self.skip_binaries_chk,
+            self.skip_temp_chk, self.skip_logs_chk,
+        ]
+        for a, b in zip(order, order[1:]):
+            self.setTabOrder(a, b)
+
     def get_options(self) -> dict:
         return {
             "store_thumbnails": self.thumb_chk.isChecked(),
@@ -353,6 +370,8 @@ class ViewFiltersDialog(QDialog):
         self._min_spin.setRange(0, 999_999)
         self._min_spin.setDecimals(1)
         self._min_spin.setFixedWidth(90)
+        self._min_spin.setAccessibleName("Minimum file size")
+        self._min_spin.setAccessibleDescription("Hide files smaller than this size; 0 means no minimum")
         sl.addWidget(self._min_spin)
 
         sl.addWidget(QLabel("Max:"))
@@ -360,12 +379,16 @@ class ViewFiltersDialog(QDialog):
         self._max_spin.setRange(0, 999_999)
         self._max_spin.setDecimals(1)
         self._max_spin.setFixedWidth(90)
+        self._max_spin.setAccessibleName("Maximum file size")
+        self._max_spin.setAccessibleDescription("Hide files larger than this size; 0 means no maximum")
         sl.addWidget(self._max_spin)
 
         self._size_unit = QComboBox()
         self._size_unit.addItems(["B", "KB", "MB", "GB"])
         self._size_unit.setCurrentIndex(2)
         self._size_unit.setFixedWidth(62)
+        self._size_unit.setAccessibleName("Size unit")
+        self._size_unit.setAccessibleDescription("Unit for the minimum and maximum file size")
         sl.addWidget(self._size_unit)
         sl.addStretch()
 
@@ -389,6 +412,9 @@ class ViewFiltersDialog(QDialog):
         el = QVBoxLayout(ext_grp)
         self._ext_edit = QLineEdit()
         self._ext_edit.setPlaceholderText("e.g. jpg, png, mp4, pdf")
+        self._ext_edit.setAccessibleName("File extensions")
+        self._ext_edit.setAccessibleDescription(
+            "Comma-separated extensions to show; leave empty to show all")
         saved_exts = filters.get("extensions", set())
         if saved_exts:
             self._ext_edit.setText(", ".join(sorted(saved_exts)))
@@ -453,6 +479,15 @@ class ViewFiltersDialog(QDialog):
         btn_bar.addStretch()
         btn_bar.addWidget(close_btn)
         lay.addLayout(btn_bar)
+
+        order = [
+            *self._cat_chks.values(),
+            self._min_spin, self._max_spin, self._size_unit, self._ext_edit,
+            *self._pf_chks.values(),
+            reset_btn, close_btn,
+        ]
+        for a, b in zip(order, order[1:]):
+            self.setTabOrder(a, b)
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -615,6 +650,10 @@ class AnalysisFiltersDialog(QDialog):
         btn_bar.addWidget(close_btn)
         lay.addLayout(btn_bar)
 
+        order = [*self._chks.values(), clear_btn, close_btn]
+        for a, b in zip(order, order[1:]):
+            self.setTabOrder(a, b)
+
     def _on_change(self) -> None:
         self.filters_changed.emit(self.get_filters())
 
@@ -673,7 +712,10 @@ class DatabaseSettingsDialog(QDialog):
 
         test_row = QHBoxLayout()
         self._btn_test        = QPushButton("Test Connection")
+        self._btn_test.setAccessibleName("Test connection")
+        self._btn_test.setAccessibleDescription("Check that the database can be reached with these settings")
         self._btn_test_cancel = QPushButton("Cancel")
+        self._btn_test_cancel.setAccessibleName("Cancel connection test")
         self._btn_test_cancel.setVisible(False)
         self._lbl_status = QLabel("—")
         self._lbl_status.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -695,13 +737,25 @@ class DatabaseSettingsDialog(QDialog):
         self._btn_cancel.clicked.connect(self.reject)
         self._btn_save.clicked.connect(self._save)
 
+        order = [
+            self._rb_sqlite, self._rb_pg,
+            self._sqlite_path,
+            self._pg_host, self._pg_port, self._pg_db, self._pg_user,
+            self._pg_pw, self._btn_show,
+            self._btn_test, self._btn_save,
+        ]
+        for a, b in zip(order, order[1:]):
+            self.setTabOrder(a, b)
+
     def _build_sqlite_panel(self) -> QWidget:
         panel = QWidget()
         box = QGroupBox("SQLite", panel)
         fl = QFormLayout(box)
         self._sqlite_path = QLineEdit()
         self._sqlite_path.setPlaceholderText("/Users/you/valscanner.db")
+        self._sqlite_path.setAccessibleName("SQLite database file path")
         browse = QPushButton("Browse…")
+        browse.setAccessibleName("Browse for database file")
         browse.clicked.connect(self._browse_sqlite)
         row = QHBoxLayout()
         row.addWidget(self._sqlite_path)
@@ -716,18 +770,25 @@ class DatabaseSettingsDialog(QDialog):
         box = QGroupBox("PostgreSQL", panel)
         fl = QFormLayout(box)
         self._pg_host = QLineEdit(); self._pg_host.setPlaceholderText("localhost")
+        self._pg_host.setAccessibleName("PostgreSQL host")
         fl.addRow("Host", self._pg_host)
         self._pg_port = QLineEdit()
         self._pg_port.setValidator(QIntValidator(1, 65535, self))
         self._pg_port.setMaximumWidth(80)
+        self._pg_port.setAccessibleName("PostgreSQL port")
         fl.addRow("Port", self._pg_port)
         self._pg_db = QLineEdit(); self._pg_db.setPlaceholderText("valscanner")
+        self._pg_db.setAccessibleName("PostgreSQL database name")
         fl.addRow("Database", self._pg_db)
         self._pg_user = QLineEdit()
+        self._pg_user.setAccessibleName("PostgreSQL user")
         fl.addRow("User", self._pg_user)
         pw_row = QHBoxLayout()
         self._pg_pw   = QLineEdit(); self._pg_pw.setEchoMode(QLineEdit.Password)
+        self._pg_pw.setAccessibleName("PostgreSQL password")
         self._btn_show = QPushButton("Show"); self._btn_show.setCheckable(True)
+        self._btn_show.setAccessibleName("Show password")
+        self._btn_show.setAccessibleDescription("Reveal or hide the database password")
         self._btn_show.setMaximumWidth(56)
         self._btn_show.toggled.connect(
             lambda on: self._pg_pw.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password)

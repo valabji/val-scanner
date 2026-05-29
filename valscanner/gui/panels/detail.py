@@ -189,6 +189,9 @@ class DetailPanel(QWidget):
 
         self.meta_text = QTextEdit()
         self.meta_text.setReadOnly(True)
+        self.meta_text.setAccessibleName("File metadata")
+        self.meta_text.setAccessibleDescription(
+            "Read-only technical metadata extracted from the selected file")
         self.meta_text.setMaximumHeight(160)
         self.meta_text.setStyleSheet(f"""
             QTextEdit {{
@@ -214,6 +217,7 @@ class DetailPanel(QWidget):
             f"text-align:left;padding:2px 0;border:none;background:transparent;}}"
             f"QPushButton:hover{{color:{TEXT};}}"
         )
+        self._exif_toggle.setAccessibleName("Toggle EXIF details")
         self._exif_toggle.clicked.connect(self._on_exif_toggle)
         exif_outer.addWidget(self._exif_toggle)
 
@@ -235,6 +239,8 @@ class DetailPanel(QWidget):
             QPushButton:hover {{ background: {BTN_HOVER}; }}
             QPushButton:pressed {{ background: {BTN_PRESSED}; }}
         """)
+        self.open_btn.setAccessibleName("Open file")
+        self.open_btn.setAccessibleDescription("Open this file in its default application")
         self.open_btn.clicked.connect(self._open_file)
         self.open_btn.hide()
         lay.addWidget(self.open_btn)
@@ -250,6 +256,9 @@ class DetailPanel(QWidget):
             QPushButton:hover {{ background: {GREEN}22; border-color: {GREEN}; }}
             QPushButton:pressed {{ background: {GREEN}33; }}
         """)
+        self.sample_btn.setAccessibleName("Play sample")
+        self.sample_btn.setAccessibleDescription(
+            "Play a low-quality preview clip of this media file")
         self.sample_btn.clicked.connect(self._play_sample)
         self.sample_btn.hide()
         lay.addWidget(self.sample_btn)
@@ -284,6 +293,8 @@ class DetailPanel(QWidget):
         btn = QToolButton()
         btn.setIcon(_icons.icon("copy", color=str(SUBTEXT)))
         btn.setToolTip(f"Copy {what.lower()}")
+        btn.setAccessibleName(f"Copy {what.lower()}")
+        btn.setAccessibleDescription(f"Copy this file's {what.lower()} to the clipboard")
         btn.setAutoRaise(True)
         btn.setFixedSize(20, 20)
         btn.clicked.connect(lambda: self._copy_to_clipboard(copy_text, what))

@@ -226,6 +226,10 @@ class MainWindow(QMainWindow):
             QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 8px; }}
             QStatusBar {{ background: {PANEL_BG}; color: {SUBTEXT}; font-size: 11px; }}
             QStatusBar::item {{ border: none; }}
+            QPushButton:focus, QToolButton:focus, QCheckBox:focus,
+            QSpinBox:focus, QTableView:focus, QListView:focus, QTreeView:focus {{
+                border: 1px solid {ACCENT};
+            }}
         """)
 
     def _apply_stylesheet(self) -> None:
@@ -1336,6 +1340,26 @@ class MainWindow(QMainWindow):
         self.scan_btn.setFixedHeight(28)
         self.scan_btn.clicked.connect(self._start_scan)
         rl.addWidget(self.scan_btn)
+
+        self.path_edit.setAccessibleName("Scan target path")
+        self.path_edit.setAccessibleDescription(
+            "Enter a folder path to scan. Folders can also be dropped here from Finder.")
+        browse_scan_btn.setAccessibleName("Browse for folder")
+        browse_scan_btn.setAccessibleDescription("Choose a folder to scan")
+        self.label_edit.setAccessibleName("Scan label")
+        self.label_edit.setAccessibleDescription("Optional name for this scan")
+        self.hash_chk.setAccessibleName("Compute SHA-256 hashes")
+        self.hash_chk.setAccessibleDescription("Enables exact duplicate detection")
+        self.options_btn.setAccessibleName("Scan options")
+        self.options_btn.setAccessibleDescription("Configure scan options")
+        self.scan_btn.setAccessibleName("Start scan")
+        self.scan_btn.setAccessibleDescription("Scan the folder entered above")
+        QWidget.setTabOrder(self.path_edit, browse_scan_btn)
+        QWidget.setTabOrder(browse_scan_btn, self.label_edit)
+        QWidget.setTabOrder(self.label_edit, self.hash_chk)
+        QWidget.setTabOrder(self.hash_chk, self.options_btn)
+        QWidget.setTabOrder(self.options_btn, self.scan_btn)
+
         outer.addWidget(r1)
 
         r2 = QWidget()
@@ -1561,6 +1585,9 @@ class MainWindow(QMainWindow):
             f"border-radius:8px; padding:0 10px; font-size:12px; }}"
             f"QLineEdit:focus {{ border-color:{ACCENT}; background:{PANEL_BG}; }}"
         )
+        self.search_edit.setAccessibleName("Search files")
+        self.search_edit.setAccessibleDescription(
+            "Filter the file list by name, tag, EXIF, or path")
         rl1.addWidget(self.search_edit, 1)
 
         # ── Active pills (inline) ──────────────────────────────────────────
@@ -1630,6 +1657,9 @@ class MainWindow(QMainWindow):
         self._depth_flat_btn.setChecked(True)
         self._depth_flat_btn.setEnabled(False)
         self._depth_flat_btn.setToolTip("This folder only")
+        self._depth_flat_btn.setAccessibleName("This folder only")
+        self._depth_flat_btn.setAccessibleDescription(
+            "Show files in the selected folder only")
         self._depth_flat_btn.setStyleSheet(
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:4px;}}"
             f"QPushButton:hover{{color:{TEXT};background:{BG2};}}"
@@ -1644,6 +1674,9 @@ class MainWindow(QMainWindow):
         self._depth_rec_btn.setCheckable(True)
         self._depth_rec_btn.setEnabled(False)
         self._depth_rec_btn.setToolTip("Include subfolders")
+        self._depth_rec_btn.setAccessibleName("Include subfolders")
+        self._depth_rec_btn.setAccessibleDescription(
+            "Show files in the selected folder and all subfolders")
         self._depth_rec_btn.setStyleSheet(
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:4px;}}"
             f"QPushButton:hover{{color:{TEXT};background:{BG2};}}"
@@ -1677,6 +1710,7 @@ class MainWindow(QMainWindow):
         self._group_combo.addItems(["No group", "Category", "Extension", "Folder", "Date"])
         self._group_combo.setFixedWidth(100)
         self._group_combo.setToolTip("Group files in the Details view")
+        self._group_combo.setAccessibleName("Group files by")
         self._group_combo.currentIndexChanged.connect(self._on_group_changed)
         rl1.addWidget(self._group_combo)
 
@@ -1715,6 +1749,7 @@ class MainWindow(QMainWindow):
         self.scan_combo.addItem("All scans", userData=0)
         self.scan_combo.currentIndexChanged.connect(self._on_scan_filter_changed)
         self.scan_combo.setFixedWidth(110)
+        self.scan_combo.setAccessibleName("Filter by scan")
         fgl.addWidget(self.scan_combo)
 
         self.cat_combo = QComboBox()
@@ -1725,6 +1760,7 @@ class MainWindow(QMainWindow):
             self.cat_combo.addItem(cat)
         self.cat_combo.currentTextChanged.connect(self._apply_filters)
         self.cat_combo.setFixedWidth(95)
+        self.cat_combo.setAccessibleName("Filter by category")
         fgl.addWidget(self.cat_combo)
 
         self.sort_combo = QComboBox()
@@ -1733,6 +1769,7 @@ class MainWindow(QMainWindow):
         self.sort_combo.addItems(["Name ↑", "Size ↓", "Modified ↓", "Category"])
         self.sort_combo.currentIndexChanged.connect(self._apply_sort)
         self.sort_combo.setFixedWidth(100)
+        self.sort_combo.setAccessibleName("Sort files by")
         fgl.addWidget(self.sort_combo)
 
         self._vf_btn = QPushButton()
@@ -1740,6 +1777,9 @@ class MainWindow(QMainWindow):
         self._vf_btn.setIconSize(QSize(13, 13))
         self._vf_btn.setFixedSize(26, 24)
         self._vf_btn.setToolTip("View filters (advanced)")
+        self._vf_btn.setAccessibleName("Advanced view filters")
+        self._vf_btn.setAccessibleDescription(
+            "Open advanced filters for size, date, and metadata")
         self._vf_btn.setStyleSheet(
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:4px;}}"
             f"QPushButton:hover{{color:{TEXT};background:{BG2};}}"
@@ -1780,6 +1820,8 @@ class MainWindow(QMainWindow):
             b.setIcon(_icons.icon(icon_name, color=str(SUBTEXT)))
             b.setIconSize(QSize(14, 14))
             b.setToolTip(f"{label} — {tip}")
+            b.setAccessibleName(f"{label} view")
+            b.setAccessibleDescription(tip)
             b.setCheckable(True)
             b.setFixedSize(28, 24)
             b.setStyleSheet(_seg_ss_inner)
@@ -1797,6 +1839,8 @@ class MainWindow(QMainWindow):
 
         clear_btn = self._btn_ghost("Clear")
         clear_btn.setFixedHeight(26)
+        clear_btn.setAccessibleName("Clear filters")
+        clear_btn.setAccessibleDescription("Reset all file filters")
         clear_btn.clicked.connect(self._clear_filters)
         rl2.addWidget(clear_btn)
 
@@ -1805,6 +1849,7 @@ class MainWindow(QMainWindow):
         self._fb_collapse_btn.setIconSize(QSize(14, 14))
         self._fb_collapse_btn.setFixedSize(24, 26)
         self._fb_collapse_btn.setToolTip("Collapse filter bar")
+        self._fb_collapse_btn.setAccessibleName("Collapse filter bar")
         self._fb_collapse_btn.setStyleSheet(
             f"QPushButton{{background:transparent;border:none;border-radius:4px;}}"
             f"QPushButton:hover{{background:{BG2};}}"
@@ -2048,6 +2093,9 @@ class MainWindow(QMainWindow):
                 font-size: 11px; font-weight: bold;
             }}
         """)
+        self.table.setAccessibleName("File list, details view")
+        self.table.setAccessibleDescription(
+            "Scanned files. Use arrow keys to move; Enter to open; Ctrl+C to copy paths.")
         self.table.selectionModel().currentRowChanged.connect(self._on_row_selected)
         self.table.doubleClicked.connect(self._open_selected)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -2073,6 +2121,9 @@ class MainWindow(QMainWindow):
             f"QListView {{ background:{DARK_BG}; border:none; }}"
             f"QListView::item:selected {{ background:transparent; }}"
         )
+        self.grid_view.setAccessibleName("File list, grid view")
+        self.grid_view.setAccessibleDescription(
+            "Scanned files as thumbnails. Use arrow keys to move; Enter to open.")
         self.grid_view.selectionModel().currentChanged.connect(self._on_icon_selected)
         self.grid_view.doubleClicked.connect(self._open_selected)
         self.grid_view.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -2090,6 +2141,9 @@ class MainWindow(QMainWindow):
             f"QListView {{ background:{DARK_BG}; border:none; }}"
             f"QListView::item:selected {{ background:transparent; }}"
         )
+        self.list_view.setAccessibleName("File list, compact view")
+        self.list_view.setAccessibleDescription(
+            "Scanned files in a compact list. Use arrow keys to move; Enter to open.")
         self.list_view.selectionModel().currentChanged.connect(self._on_icon_selected)
         self.list_view.doubleClicked.connect(self._open_selected)
         self.list_view.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -2608,6 +2662,9 @@ class MainWindow(QMainWindow):
 
     def _set_scan_btn_scanning(self) -> None:
         self.scan_btn.setText("Stop")
+        self.scan_btn.setAccessibleName("Stop scan")
+        self.scan_btn.setAccessibleDescription(
+            "Cancel the running scan. Already-indexed files are kept.")
         self.scan_btn.setIcon(_icons.icon("stop", color="#ffffff"))
         self.scan_btn.setStyleSheet(
             f"QPushButton{{background:{RED};color:white;border:none;"
@@ -2623,6 +2680,8 @@ class MainWindow(QMainWindow):
 
     def _set_scan_btn_idle(self) -> None:
         self.scan_btn.setText("Scan")
+        self.scan_btn.setAccessibleName("Start scan")
+        self.scan_btn.setAccessibleDescription("Scan the folder entered above")
         self.scan_btn.setIcon(_icons.icon("scan", color="#ffffff"))
         self.scan_btn.setStyleSheet(
             f"QPushButton{{background:{ACCENT};color:white;border:none;"
@@ -2893,6 +2952,8 @@ class MainWindow(QMainWindow):
         root_btn.setIcon(_icons.icon("folder", color=str(SUBTEXT)))
         root_btn.setIconSize(QSize(14, 14))
         root_btn.setStyleSheet(crumb_ss)
+        root_btn.setAccessibleName("Scan root")
+        root_btn.setAccessibleDescription("Navigate to the top of the scanned folder")
         root_btn.setCursor(Qt.PointingHandCursor)
         root_btn.clicked.connect(lambda: self._navigate_to_path(""))
         self._breadcrumb_lay.insertWidget(self._breadcrumb_lay.count() - 2, root_btn)

@@ -382,6 +382,9 @@ class SimilarFoldersPanel(QWidget):
         self.min_spin.setFixedWidth(62)
         self.min_spin.setFixedHeight(28)
         self.min_spin.setStyleSheet(self._input_ss())
+        self.min_spin.setAccessibleName("Minimum files per folder")
+        self.min_spin.setAccessibleDescription(
+            "Ignore folders containing fewer than this many files")
         cl.addWidget(self.min_spin)
 
         cl.addWidget(self._sublabel("Threshold:"))
@@ -389,6 +392,9 @@ class SimilarFoldersPanel(QWidget):
         self.thresh_combo.addItems(["0.30 — broad", "0.40 — balanced", "0.55 — strict", "0.70 — very strict"])
         self.thresh_combo.setCurrentIndex(1)
         self.thresh_combo.setFixedWidth(150)
+        self.thresh_combo.setAccessibleName("Similarity threshold")
+        self.thresh_combo.setAccessibleDescription(
+            "How alike two folders must be to count as similar")
         cl.addWidget(self.thresh_combo)
 
         _ghost_ss = (
@@ -404,6 +410,9 @@ class SimilarFoldersPanel(QWidget):
         self.filters_btn.setIcon(_icons.icon("filters", color=str(SUBTEXT)))
         self.filters_btn.setIconSize(_QSize(14, 14))
         self.filters_btn.setStyleSheet(_ghost_ss)
+        self.filters_btn.setAccessibleName("Analysis filters")
+        self.filters_btn.setAccessibleDescription(
+            "Restrict which folders are compared by size, depth, or path")
         self.filters_btn.clicked.connect(self._open_filters_dialog)
         cl.addWidget(self.filters_btn)
 
@@ -411,6 +420,8 @@ class SimilarFoldersPanel(QWidget):
         self.history_btn.setIcon(_icons.icon("mdi.history", color=str(SUBTEXT)))
         self.history_btn.setIconSize(_QSize(14, 14))
         self.history_btn.setStyleSheet(_ghost_ss)
+        self.history_btn.setAccessibleName("Analysis history")
+        self.history_btn.setAccessibleDescription("Reopen results from a past analysis run")
         self.history_btn.clicked.connect(self._show_history_menu)
         self.history_btn.setEnabled(False)
         cl.addWidget(self.history_btn)
@@ -424,6 +435,9 @@ class SimilarFoldersPanel(QWidget):
             f"padding:6px 10px;font-size:11px;}}"
             f"QPushButton:hover{{color:{TEXT};border-color:{TEXT};}}"
         )
+        self._dismiss_sel_btn.setAccessibleName("Dismiss selected pairs")
+        self._dismiss_sel_btn.setAccessibleDescription(
+            "Hide the selected folder pairs from these results")
         self._dismiss_sel_btn.setVisible(False)
         self._dismiss_sel_btn.clicked.connect(self._dismiss_selected_cards)
         cl.addWidget(self._dismiss_sel_btn)
@@ -436,6 +450,9 @@ class SimilarFoldersPanel(QWidget):
             f"border-radius:6px;padding:6px 16px;font-weight:bold;}}"
             f"QPushButton:disabled{{background:{BORDER};color:{SUBTEXT};}}"
         )
+        self.analyze_btn.setAccessibleName("Analyze similarity")
+        self.analyze_btn.setAccessibleDescription(
+            "Compare folders in this database to find duplicates and overlaps")
         self.analyze_btn.clicked.connect(self._run_analysis)
         self.analyze_btn.setEnabled(False)
         cl.addWidget(self.analyze_btn)
@@ -486,6 +503,9 @@ class SimilarFoldersPanel(QWidget):
         self.sort_combo.addItems(["Score ↓", "Total size ↓", "Files ↓", "Name ↑"])
         self.sort_combo.setFixedWidth(130)
         self.sort_combo.setFixedHeight(24)
+        self.sort_combo.setAccessibleName("Sort results by")
+        self.sort_combo.setAccessibleDescription(
+            "Order the similar-folder pairs by score, size, file count, or name")
         self.sort_combo.currentIndexChanged.connect(self._apply_sort_filter)
         vl.addWidget(self.sort_combo)
         vl.addSpacing(12)
@@ -496,6 +516,9 @@ class SimilarFoldersPanel(QWidget):
         self.min_size_combo.setCurrentIndex(0)
         self.min_size_combo.setFixedWidth(90)
         self.min_size_combo.setFixedHeight(24)
+        self.min_size_combo.setAccessibleName("Minimum folder size")
+        self.min_size_combo.setAccessibleDescription(
+            "Hide pairs whose folders are smaller than this size")
         self.min_size_combo.currentTextChanged.connect(self._apply_sort_filter)
         vl.addWidget(self.min_size_combo)
         vl.addStretch()
@@ -679,6 +702,9 @@ class SimilarFoldersPanel(QWidget):
             pill.setCheckable(True)
             pill.setFixedHeight(26)
             pill.setStyleSheet(_pill_ss)
+            pill.setAccessibleName(f"Limit analysis to scan: {label}")
+            pill.setAccessibleDescription(
+                "Toggle to include or exclude this scan from the comparison")
             self._part_layout.insertWidget(self._part_layout.count() - 1, pill)
             self._scan_pills[s["id"]] = pill
 
@@ -845,6 +871,9 @@ class SimilarFoldersPanel(QWidget):
     def _set_analyze_busy(self, busy: bool) -> None:
         if busy:
             self.analyze_btn.setText("Stop")
+            self.analyze_btn.setAccessibleName("Stop analysis")
+            self.analyze_btn.setAccessibleDescription(
+                "Cancel the running similarity analysis. Partial results are discarded.")
             self.analyze_btn.setIcon(_icons.icon("stop", color="#ffffff"))
             self.analyze_btn.setStyleSheet(
                 f"QPushButton{{background:{RED};color:white;border:none;"
@@ -858,6 +887,9 @@ class SimilarFoldersPanel(QWidget):
             self.analyze_btn.clicked.connect(self._cancel_analysis)
         else:
             self.analyze_btn.setText("Analyze")
+            self.analyze_btn.setAccessibleName("Analyze similarity")
+            self.analyze_btn.setAccessibleDescription(
+                "Compare folders in this database to find duplicates and overlaps")
             self.analyze_btn.setIcon(_icons.icon("scan", color="#ffffff"))
             self.analyze_btn.setStyleSheet(
                 f"QPushButton{{background:{ACCENT};color:white;border:none;"

@@ -80,6 +80,11 @@ class FolderPanel(QWidget):
         lay.setSpacing(0)
 
         self.tree = QTreeView()
+        self.tree.setAccessibleName("Folder hierarchy")
+        self.tree.setAccessibleDescription(
+            "Scanned folders with cumulative size and file counts. "
+            "Press Enter to filter files by the selected folder. "
+            "Right-click for more actions.")
         self.tree.setHeaderHidden(False)
         self.tree.setRootIsDecorated(True)
         self.tree.setAnimated(True)

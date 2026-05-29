@@ -83,12 +83,16 @@ class ConsolePanel(QWidget):
             f"border-radius:3px;font-size:10px;}}"
             f"QPushButton:hover{{color:{TEXT};border-color:{TEXT};}}"
         )
+        self._clear_btn.setAccessibleName("Clear console")
+        self._clear_btn.setAccessibleDescription("Erase the diagnostic output shown below")
         self._clear_btn.clicked.connect(lambda: self._output.clear())
         hl.addWidget(self._clear_btn)
         lay.addWidget(self._hdr)
 
         self._output = QTextEdit()
         self._output.setReadOnly(True)
+        self._output.setAccessibleName("Console")
+        self._output.setAccessibleDescription("Read-only diagnostic output from scans and analysis")
         self._output.setStyleSheet(f"""
             QTextEdit {{
                 background: {PANEL_BG};

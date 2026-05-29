@@ -99,11 +99,19 @@ class ScansPanel(QWidget):
             f"QPushButton:hover{{background:{RED}22;}}"
             f"QPushButton:disabled{{color:{SUBTEXT};border-color:{BORDER};}}"
         )
+        self._del_btn.setAccessibleName("Delete selected scans")
+        self._del_btn.setAccessibleDescription(
+            "Permanently delete the selected scans and their indexed files. "
+            "This cannot be undone after the undo window passes.")
         self._del_btn.clicked.connect(self._delete_selected)
         hl.addWidget(self._del_btn)
         lay.addWidget(self._hdr)
 
         self.table = QTableView()
+        self.table.setAccessibleName("Scan history")
+        self.table.setAccessibleDescription(
+            "Past scans with their root folder, file count, and size. "
+            "Select rows and press Delete to remove them. Double-click to open a scan in Files view.")
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -174,6 +182,9 @@ class ScansPanel(QWidget):
             f"border-radius:6px;padding:4px 12px;font-size:11px;}}"
             f"QPushButton:hover{{background:{ACCENT}22;}}"
         )
+        self._show_all_btn.setAccessibleName("Show all scans in Files view")
+        self._show_all_btn.setAccessibleDescription(
+            "Switch to the Files view and list files from every scan")
         self._show_all_btn.clicked.connect(lambda: self.scan_selected.emit(0, ""))
         fl.addWidget(self._show_all_btn)
         fl.addStretch()
