@@ -47,4 +47,9 @@ EXT_CATEGORY: dict[str, str] = {
     ".ttf": "font", ".otf": "font", ".woff": "font", ".woff2": "font",
     # Ebooks
     ".epub": "ebook", ".mobi": "ebook", ".azw": "ebook",
+    # 3D / CAD models (some systems MIME these as image/* — keep them out of thumbnailing)
+    ".3ds": "other", ".obj": "other", ".fbx": "other", ".stl": "other",
+    ".blend": "other", ".dae": "other", ".gltf": "other", ".glb": "other",
+    ".ply": "other", ".3mf": "other", ".max": "other",
+    ".dwg": "other", ".dxf": "other",
 }

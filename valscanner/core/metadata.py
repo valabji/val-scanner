@@ -15,6 +15,17 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
+if PIL_AVAILABLE:
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+    except ImportError:
+        pass
+    try:
+        import pillow_avif  # noqa: F401  (registers AVIF opener on import)
+    except ImportError:
+        pass
+
 try:
     import mutagen
     MUTAGEN_AVAILABLE = True
@@ -159,27 +170,33 @@ def _thumb_svg(fpath: Path, max_size: int, quality: int) -> bytes | None:
 def _thumb_video(fpath: Path, max_size: int, quality: int) -> bytes | None:
     if not FFMPEG_AVAILABLE:
         return None
-    try:
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", str(fpath),
-                "-ss", "00:00:01",
-                "-vframes", "1",
-                "-vf", f"scale={max_size}:{max_size}:force_original_aspect_ratio=decrease",
-                "-q:v", str(max(1, (100 - quality) // 10)),
-                "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
-            ],
-            capture_output=True, timeout=30,
-        )
+    qv = str(max(1, (100 - quality) // 10))
+    vf = f"scale={max_size}:{max_size}:force_original_aspect_ratio=decrease"
+    last_err: bytes = b""
+    last_rc: int = 0
+    for seek in ("00:00:01", "0"):
+        try:
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-y", "-ss", seek, "-i", str(fpath),
+                    "-vframes", "1",
+                    "-vf", vf,
+                    "-q:v", qv,
+                    "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
+                ],
+                capture_output=True, timeout=30,
+            )
+        except Exception as e:
+            _log.warning("[thumb_video] %s: %s", fpath, e)
+            return None
         if result.returncode == 0 and result.stdout:
             return result.stdout
-        _log.warning("[thumb_video] %s: ffmpeg rc=%d stdout=%d bytes — %s",
-                     fpath, result.returncode, len(result.stdout or b""),
-                     (result.stderr or b"")[-400:].decode("utf-8", "replace").strip())
-        return None
-    except Exception as e:
-        _log.warning("[thumb_video] %s: %s", fpath, e)
-        return None
+        last_rc = result.returncode
+        last_err = result.stderr or b""
+    _log.warning("[thumb_video] %s: ffmpeg rc=%d — %s",
+                 fpath, last_rc,
+                 last_err[-400:].decode("utf-8", "replace").strip())
+    return None
 
 
 def _sample_media(fpath: Path, category: str, duration: int) -> tuple[bytes, str] | None:

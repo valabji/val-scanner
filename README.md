@@ -41,7 +41,7 @@ A recursive file scanner with rich metadata extraction, full-text search, auto-t
 - **Recursive scan** — indexes every file under a root directory through a backend-agnostic database layer
 - **Multiple database backends** — SQLite (default, zero-config) or local PostgreSQL (optional, better for very large indexes and concurrent access); switch between them through the GUI's Database Settings dialog with no env vars or config-file editing
 - **Rich metadata** — image EXIF, audio tags, PDF page count (optional deps: Pillow, mutagen, pypdf)
-- **Thumbnails** — JPEG blobs stored in-database; shown in GUI grid view (requires Pillow or ffmpeg)
+- **Thumbnails** — JPEG blobs stored in-database; shown in GUI grid view (requires Pillow or ffmpeg). Supports JPEG/PNG/GIF/BMP/TIFF/WebP/ICO/PBM/PSD natively, **HEIC/HEIF and AVIF** via the bundled `pillow-heif` + `pillow-avif-plugin`, **SVG** via `svglib`, and any video format ffmpeg can decode
 - **Media samples** — short low-quality audio/video clips stored in-database (requires ffmpeg)
 - **Auto-tagging** — rule-based tags from path keywords, filename, size bucket, and extension
 - **Full-text search** — FTS5 (SQLite) or `tsvector` + GIN (PostgreSQL); live search in the GUI and Web UI
@@ -64,6 +64,8 @@ A recursive file scanner with rich metadata extraction, full-text search, auto-t
 | keyring | ≥ 24.0 | OS-keychain storage for the PostgreSQL password (falls back to settings.json when no keychain is available) |
 | platformdirs | ≥ 4.0 | locating the per-user settings directory |
 | Pillow *(optional)* | any | image EXIF + thumbnails |
+| pillow-heif *(optional)* | ≥ 0.13 | HEIC/HEIF thumbnail decoding (bundled in `[rich]`) |
+| pillow-avif-plugin *(optional)* | ≥ 1.4 | AVIF thumbnail decoding (bundled in `[rich]`) |
 | mutagen *(optional)* | any | audio metadata (artist, album, duration, …) |
 | pypdf *(optional)* | any | PDF page count |
 | ffmpeg *(optional)* | any | video thumbnails + media samples |
@@ -239,6 +241,10 @@ valscanner ~/Music --sample-duration 10
 
 Thumbnails require **Pillow** (images) or **ffmpeg** (video). Media samples require **ffmpeg**. If neither is installed, those options are silently skipped and a warning is printed.
 
+The `[rich]` extra also bundles `pillow-heif` and `pillow-avif-plugin`, which add HEIC/HEIF (iPhone photos) and AVIF support to Pillow automatically — no extra registration needed. Wheels for both ship with their native libraries on macOS and Windows; on Linux they fall back to building from source, in which case install the system codecs first: `apt-get install libheif-dev libavif-dev` (Debian/Ubuntu) or `dnf install libheif-devel libavif-devel` (Fedora/RHEL).
+
+For videos the thumbnail extractor seeks to 1 s into the clip; if that fails (e.g. short voicemail-style `.3gp` files under a second) it automatically falls back to the first frame, so very short clips still get a thumbnail. Files for which ffmpeg cannot produce a frame at all — DRM-locked, codec-unsupported, or corrupt — are left without a thumbnail; check the log output for an `[thumb_video]` warning explaining why.
+
 ### Filtering what gets scanned
 
 All `--skip-*` flags are off by default — everything is indexed unless you ask otherwise:
@@ -365,7 +371,7 @@ valscanner --delete-scan 3 --db archive.db
 | `--list-scans` | — | Print all scans in the database and exit |
 | `--delete-scan ID` | — | Delete a scan by numeric ID and exit |
 
-**Thumbnails** *(requires Pillow for images, ffmpeg for video — on by default)*
+**Thumbnails** *(requires Pillow for images, ffmpeg for video — on by default; HEIC/AVIF support via `pillow-heif` + `pillow-avif-plugin`, bundled in `[rich]`)*
 
 | Flag | Default | Description |
 |---|---|---|

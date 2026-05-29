@@ -58,6 +58,8 @@ dev-gui = [
 ]
 rich = [
     "Pillow",
+    "pillow-heif>=0.13",
+    "pillow-avif-plugin>=1.4",
     "mutagen",
     "pypdf",
     "svglib>=1.5",
