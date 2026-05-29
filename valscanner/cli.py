@@ -16,7 +16,7 @@ import time
 import argparse
 from pathlib import Path
 
-from .core.app_settings import active_url, mask_url, settings_path
+from .core.app_settings import active_url, cli_defaults, mask_url, settings_path
 from .core.bootstrap import ensure_schema
 from .core.logging_config import setup_logging
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
@@ -250,6 +250,7 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
 
 def main() -> None:
     init_sentry("cli")
+    _defs = cli_defaults()
     parser = argparse.ArgumentParser(
         description="Scan a directory and build a searchable file database.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -262,7 +263,8 @@ def main() -> None:
                         help="Human-readable label for this scan")
     parser.add_argument("--export-csv",   action="store_true", help="Export results to CSV")
     parser.add_argument("--export-json",  action="store_true", help="Export results to JSON")
-    parser.add_argument("--no-hash",      action="store_true", help="Skip SHA-256 hashing")
+    parser.add_argument("--no-hash",      action="store_true", default=_defs["no_hash"],
+                        help="Skip SHA-256 hashing")
     parser.add_argument("--resume",       action="store_true",
                         help="Resume an interrupted scan of the same path")
     parser.add_argument("--phases",       metavar="LIST", default=None,
@@ -284,8 +286,10 @@ def main() -> None:
     parser.add_argument("--by-ext-limit", type=int, default=15, metavar="N",
                         help="Max extensions to list per phase with --by-ext "
                              "(default: 15; use 0 for unlimited).")
-    parser.add_argument("--verbose",      action="store_true", help="Print each file as indexed")
-    parser.add_argument("--no-progress-bar", action="store_true", help="Disable progress bar output")
+    parser.add_argument("--verbose",      action="store_true", default=_defs["verbose"],
+                        help="Print each file as indexed")
+    parser.add_argument("--no-progress-bar", action="store_true", default=_defs["no_progress_bar"],
+                        help="Disable progress bar output")
     parser.add_argument("--query",        metavar="TERM", help="Query the database after scanning")
     parser.add_argument("--list-scans",    action="store_true", help="List all scans in the database")
     parser.add_argument("--delete-scan",   type=int, metavar="ID", help="Delete a scan by ID")
@@ -293,6 +297,8 @@ def main() -> None:
                         help="Remap a scan's root folder to a new location (use with --new-root)")
     parser.add_argument("--new-root",      metavar="PATH",
                         help="New root path for --remap-scan")
+    parser.add_argument("--configure",       action="store_true",
+                        help="Run the interactive configuration wizard and exit")
     parser.add_argument("--open-settings",   action="store_true",
                         help="Open settings.json in the system default editor and exit")
     parser.add_argument("--dump-to-sqlite",  metavar="FILE",
@@ -305,46 +311,46 @@ def main() -> None:
                         help="Also transfer GUI cache entries (default: skipped)")
 
     thumb = parser.add_argument_group("thumbnails (requires Pillow, on by default)")
-    thumb.add_argument("--no-thumbnails",  action="store_true",
+    thumb.add_argument("--no-thumbnails",  action="store_true", default=_defs["no_thumbnails"],
                        help="Skip thumbnail generation")
-    thumb.add_argument("--thumb-size",    type=int, default=128, metavar="PX",
+    thumb.add_argument("--thumb-size",    type=int, default=_defs["thumb_size"], metavar="PX",
                        help="Thumbnail max dimension in pixels (default: 128)")
-    thumb.add_argument("--thumb-quality", type=int, default=75,  metavar="PCT",
+    thumb.add_argument("--thumb-quality", type=int, default=_defs["thumb_quality"], metavar="PCT",
                        help="Thumbnail JPEG quality 40-95 (default: 75)")
 
     media = parser.add_argument_group("media samples (requires ffmpeg, on by default)")
-    media.add_argument("--no-samples",      action="store_true",
+    media.add_argument("--no-samples",      action="store_true", default=_defs["no_samples"],
                        help="Skip audio/video sample generation")
-    media.add_argument("--sample-duration", type=int, default=5, metavar="SEC",
+    media.add_argument("--sample-duration", type=int, default=_defs["sample_duration"], metavar="SEC",
                        help="Media sample duration in seconds (default: 5)")
 
     skip = parser.add_argument_group("skip during scan (all off by default)")
-    skip.add_argument("--skip-hidden-dirs",  action="store_true",
+    skip.add_argument("--skip-hidden-dirs",  action="store_true", default=_defs["skip_hidden_dirs"],
                       help="Skip hidden folders (names starting with .)")
-    skip.add_argument("--skip-vcs",          action="store_true",
+    skip.add_argument("--skip-vcs",          action="store_true", default=_defs["skip_vcs"],
                       help="Skip version-control dirs (.git, .svn, .hg, …)")
-    skip.add_argument("--skip-system",       action="store_true",
+    skip.add_argument("--skip-system",       action="store_true", default=_defs["skip_system"],
                       help="Skip OS system dirs (Windows, Library, /proc, …)")
-    skip.add_argument("--skip-caches",       action="store_true",
+    skip.add_argument("--skip-caches",       action="store_true", default=_defs["skip_caches"],
                       help="Skip cache/build dirs (node_modules, __pycache__, venv, …)")
-    skip.add_argument("--skip-hidden-files", action="store_true",
+    skip.add_argument("--skip-hidden-files", action="store_true", default=_defs["skip_hidden_files"],
                       help="Skip hidden files (names starting with .)")
-    skip.add_argument("--skip-binaries",     action="store_true",
+    skip.add_argument("--skip-binaries",     action="store_true", default=_defs["skip_binaries"],
                       help="Skip binary/compiled files (.exe, .dll, .so, .pyc, …)")
-    skip.add_argument("--skip-temp",         action="store_true",
+    skip.add_argument("--skip-temp",         action="store_true", default=_defs["skip_temp"],
                       help="Skip temp/backup files (.tmp, .bak, .swp, .DS_Store, …)")
-    skip.add_argument("--skip-logs",         action="store_true",
+    skip.add_argument("--skip-logs",         action="store_true", default=_defs["skip_logs"],
                       help="Skip log files (.log)")
-    skip.add_argument("--file-timeout",      type=int, default=120, metavar="SEC",
+    skip.add_argument("--file-timeout",      type=int, default=_defs["file_timeout"], metavar="SEC",
                       help="Maximum time to wait per file in seconds (default: 120)")
     skip.add_argument("--exclude",           metavar="GLOB", action="append", default=[],
                       help="Skip files whose path (relative to root) matches GLOB "
                            "(repeatable; e.g. --exclude '*.pyc' --exclude '__pycache__/*')")
 
     perf = parser.add_argument_group("performance")
-    perf.add_argument("--workers",      type=int, default=4, metavar="N",
+    perf.add_argument("--workers",      type=int, default=_defs["workers"], metavar="N",
                       help="Parallel file-processing threads (default: 4; 1 = sequential)")
-    perf.add_argument("--no-precount",  action="store_true",
+    perf.add_argument("--no-precount",  action="store_true", default=_defs["no_precount"],
                       help="Skip the pre-scan file count; progress shows a spinner "
                            "with a running tally instead of a percentage bar")
 
@@ -352,11 +358,11 @@ def main() -> None:
     analysis.add_argument("--analyze",          action="store_true",
                           help="Run folder-similarity analysis after scanning "
                                "(or standalone with --db, no path required)")
-    analysis.add_argument("--min-files",        type=int, default=3, metavar="N",
+    analysis.add_argument("--min-files",        type=int, default=_defs["min_files"], metavar="N",
                           help="Minimum files per folder for analysis (default: 3)")
-    analysis.add_argument("--threshold",        type=float, default=0.40, metavar="F",
+    analysis.add_argument("--threshold",        type=float, default=_defs["threshold"], metavar="F",
                           help="Minimum similarity score 0–1 (default: 0.40)")
-    analysis.add_argument("--analysis-results", type=int, default=200, metavar="N",
+    analysis.add_argument("--analysis-results", type=int, default=_defs["analysis_results"], metavar="N",
                           help="Maximum number of folder pairs to report (default: 200)")
     analysis.add_argument("--analysis-scan-id", type=int, default=None, metavar="ID",
                           help="Restrict analysis to a specific scan ID")
@@ -364,14 +370,14 @@ def main() -> None:
     logging_group = parser.add_argument_group("logging")
     logging_group.add_argument("--log-file",    metavar="PATH", default=None,
                                help="Write logs to file (default: no file logging)")
-    logging_group.add_argument("--log-level",   metavar="LEVEL", default="INFO",
+    logging_group.add_argument("--log-level",   metavar="LEVEL", default=_defs["log_level"],
                                choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                                help="Log level (default: INFO)")
-    logging_group.add_argument("--log-max-size", type=int, default=10485760, metavar="BYTES",
+    logging_group.add_argument("--log-max-size", type=int, default=_defs["log_max_size"], metavar="BYTES",
                                help="Max log file size before rotation in bytes (default: 10485760 = 10MB)")
-    logging_group.add_argument("--log-backup-count", type=int, default=5, metavar="N",
+    logging_group.add_argument("--log-backup-count", type=int, default=_defs["log_backup_count"], metavar="N",
                                help="Number of backup log files to keep (default: 5)")
-    logging_group.add_argument("--log-no-console", action="store_true",
+    logging_group.add_argument("--log-no-console", action="store_true", default=_defs["log_no_console"],
                                help="Disable console output, log to file only")
 
     args = parser.parse_args()
@@ -384,6 +390,10 @@ def main() -> None:
         log_backup_count=args.log_backup_count,
         log_no_console=args.log_no_console,
     )
+
+    if args.configure:
+        from .config_wizard import run_wizard
+        sys.exit(run_wizard())
 
     if args.open_settings:
         sf = settings_path()
@@ -524,9 +534,9 @@ def main() -> None:
 
     if not args.path and not enrichment_only:
         parser.error("path is required unless using --list-scans, --delete-scan, "
-                     "--open-settings, --dump-to-sqlite, --load-from-sqlite, "
-                     "--scan-status, --analyze, or --scan-id with --phases that "
-                     "exclude 'enumerate'")
+                     "--configure, --open-settings, --dump-to-sqlite, "
+                     "--load-from-sqlite, --scan-status, --analyze, or "
+                     "--scan-id with --phases that exclude 'enumerate'")
 
     if args.path:
         root = Path(args.path).expanduser().resolve()

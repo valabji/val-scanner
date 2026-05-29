@@ -1,9 +1,11 @@
 """Sentry initialization for ValScanner.
 
-Errors are reported to Sentry by default. Disable by setting
-``VALSCANNER_DISABLE_TELEMETRY=1``. Redirect to a self-hosted Sentry
-project by setting ``VALSCANNER_SENTRY_DSN``. Override the deployment
-environment tag with ``VALSCANNER_SENTRY_ENV``.
+Errors are reported to Sentry by default. Each option can be set via env
+var OR settings.json (env var wins when both are set):
+
+* Disable:  ``VALSCANNER_DISABLE_TELEMETRY=1``  /  ``disable_telemetry: true``
+* Custom DSN:  ``VALSCANNER_SENTRY_DSN``  /  ``sentry_dsn``
+* Env tag:  ``VALSCANNER_SENTRY_ENV``  /  ``sentry_env``  (default "production")
 """
 
 from __future__ import annotations
@@ -70,17 +72,38 @@ def _before_send(event: dict, hint: dict) -> dict | None:
         return event
 
 
+def _load_settings_safe() -> dict:
+    """Best-effort settings load. Never raises — telemetry must not crash."""
+    try:
+        from valscanner.core.app_settings import load
+        return load()
+    except Exception:
+        return {}
+
+
 def init_sentry(component: str) -> None:
     """Initialize Sentry for the given entry point ("gui", "cli", "web").
 
     Silently no-ops on any failure — telemetry must never crash the app.
     """
-    if _is_truthy(os.environ.get("VALSCANNER_DISABLE_TELEMETRY")):
+    settings = _load_settings_safe()
+
+    env_disable = os.environ.get("VALSCANNER_DISABLE_TELEMETRY")
+    if env_disable is not None:
+        if _is_truthy(env_disable):
+            return
+    elif settings.get("disable_telemetry"):
         return
 
-    dsn = os.environ.get("VALSCANNER_SENTRY_DSN", _DEFAULT_DSN)
+    dsn = os.environ.get("VALSCANNER_SENTRY_DSN")
+    if dsn is None:
+        dsn = (settings.get("sentry_dsn") or "").strip() or _DEFAULT_DSN
     if not dsn:
         return
+
+    env_tag = os.environ.get("VALSCANNER_SENTRY_ENV")
+    if env_tag is None:
+        env_tag = (settings.get("sentry_env") or "").strip() or "production"
 
     try:
         import sentry_sdk
@@ -91,7 +114,7 @@ def init_sentry(component: str) -> None:
         sentry_sdk.init(
             dsn=dsn,
             release=f"valscanner@{__version__}",
-            environment=os.environ.get("VALSCANNER_SENTRY_ENV", "production"),
+            environment=env_tag,
             send_default_pii=False,
             traces_sample_rate=0.0,
             profiles_sample_rate=0.0,

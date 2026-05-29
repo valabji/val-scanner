@@ -21,6 +21,41 @@ _DEFAULTS: dict = {
     "pg_database": "valscanner",
     "pg_user": "",
     # pg_password intentionally NOT in defaults — comes from keyring.
+    "disable_telemetry": False,
+    "sentry_dsn": "",   # empty → built-in default DSN in _telemetry.py
+    "sentry_env": "",   # empty → "production" in _telemetry.py
+}
+
+# Built-in CLI argument defaults. Mirrors the hardcoded `default=` values in
+# valscanner/cli.py — keep in sync. Wizard overrides live under settings
+# key "cli_defaults" and overlay this baseline.
+CLI_DEFAULTS_BUILTIN: dict = {
+    "no_hash":           False,
+    "no_thumbnails":     False,
+    "thumb_size":        128,
+    "thumb_quality":     75,
+    "no_samples":        False,
+    "sample_duration":   5,
+    "skip_hidden_dirs":  False,
+    "skip_vcs":          False,
+    "skip_system":       False,
+    "skip_caches":       False,
+    "skip_hidden_files": False,
+    "skip_binaries":     False,
+    "skip_temp":         False,
+    "skip_logs":         False,
+    "workers":           4,
+    "file_timeout":      120,
+    "no_precount":       False,
+    "no_progress_bar":   False,
+    "verbose":           False,
+    "min_files":         3,
+    "threshold":         0.40,
+    "analysis_results":  200,
+    "log_level":         "INFO",
+    "log_max_size":      10_485_760,
+    "log_backup_count":  5,
+    "log_no_console":    False,
 }
 
 # ── path helpers ─────────────────────────────────────────────────────────────
@@ -139,6 +174,24 @@ def active_url(db_path_override: str | None = None) -> str:
         return f"postgresql://{auth}{s['pg_host']}:{s['pg_port']}/{s['pg_database']}"
 
     return f"sqlite:///{_normalize_sqlite_path(s['sqlite_path'])}"
+
+
+def cli_defaults() -> dict:
+    """Return CLI defaults: built-in baseline overlaid with saved overrides."""
+    s = load()
+    overrides = s.get("cli_defaults") or {}
+    if not isinstance(overrides, dict):
+        overrides = {}
+    return {**CLI_DEFAULTS_BUILTIN, **overrides}
+
+
+def save_cli_defaults(overrides: dict) -> None:
+    """Merge *overrides* into the saved CLI defaults and persist."""
+    s = load()
+    cur = dict(s.get("cli_defaults") or {})
+    cur.update(overrides)
+    s["cli_defaults"] = cur
+    save(s)
 
 
 def mask_url(url: str) -> str:
