@@ -116,6 +116,7 @@ def init_sentry(component: str) -> None:
             release=f"valscanner@{__version__}",
             environment=env_tag,
             send_default_pii=False,
+            sample_rate=0.001,
             traces_sample_rate=0.0,
             profiles_sample_rate=0.0,
             before_send=_before_send,
