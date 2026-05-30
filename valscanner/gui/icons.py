@@ -31,6 +31,9 @@ except ImportError:  # pragma: no cover - guarded by pyproject dep
     _HAS_QTA = False
 
 
+_ICON_CACHE: dict[tuple, QIcon] = {}
+
+
 # Semantic name → MDI glyph. Centralised so individual call sites stay readable
 # and a future style swap only edits this map.
 NAMES: dict[str, str] = {
@@ -127,18 +130,27 @@ def icon(
     """
     if not _HAS_QTA:
         return QIcon()
+    key = (name, color, color_disabled, color_active)
+    cached = _ICON_CACHE.get(key)
+    if cached is not None:
+        return cached
     glyph = _resolve(name)
-    kwargs: dict[str, object] = {"color": color or str(TEXT)}
-    if color_disabled:
-        kwargs["color_disabled"] = color_disabled
-    else:
-        kwargs["color_disabled"] = str(SUBTEXT)
+    kwargs: dict[str, object] = {"color":          color          or str(TEXT),
+                                 "color_disabled": color_disabled or str(SUBTEXT)}
     if color_active:
         kwargs["color_active"] = color_active
     try:
-        return _qta.icon(glyph, **kwargs)
+        ic = _qta.icon(glyph, **kwargs)
     except Exception:
-        return QIcon()
+        ic = QIcon()
+    _ICON_CACHE[key] = ic
+    return ic
+
+
+def clear_icon_cache() -> None:
+    """Drop all cached QIcons. Call this after a theme change so subsequent
+    `icon()` calls re-render in the new palette."""
+    _ICON_CACHE.clear()
 
 
 def pixmap(name: str, size: int, *, color: Optional[str] = None) -> QPixmap:

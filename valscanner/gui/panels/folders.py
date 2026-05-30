@@ -50,6 +50,7 @@ class FolderPanel(QWidget):
         self._last_scan_id    = 0
         self._separate_scans  = False
         self._folder_worker   = None  # type: ignore[assignment]
+        self._lazy_state: dict[int, tuple[dict, dict, int]] = {}
         self._build_ui()
         from ..theme import Theme
         Theme.instance().on_changed(self._apply_stylesheet)
@@ -131,6 +132,7 @@ class FolderPanel(QWidget):
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tree.header().setSortIndicator(1, Qt.DescendingOrder)
         self.tree.clicked.connect(self._on_click)
+        self.tree.expanded.connect(self._on_tree_expanded)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -252,30 +254,76 @@ class FolderPanel(QWidget):
 
         return [name_item, size_item, count_item]
 
-    def _build_subtree(self, parent_item, data: dict, root_bytes: int) -> None:
-        all_paths = sorted(data.keys())
-        item_map:  dict[str, QStandardItem] = {}
+    @staticmethod
+    def _compute_children_map(data: dict) -> tuple[dict[str, list[str]], list[str]]:
+        """Mirror the original `_build_subtree` parent-resolution but return an
+        index instead of building items: for each path, the list of paths whose
+        nearest already-seen ancestor is this path. Paths with no seen ancestor
+        become roots.
 
-        for path_str in all_paths:
-            tb, fc    = data[path_str]
-            row       = self._make_row(path_str, tb, fc, root_bytes)
-            name_item = row[0]
-
-            parent_candidate = None
-            for ancestor in list(Path(path_str).parents):
-                anc_str = str(ancestor)
-                if anc_str in item_map:
-                    parent_candidate = item_map[anc_str]
+        Uses `os.path.dirname` on the raw string rather than `Path.parents` —
+        constructing 836K PurePath objects dominated this loop at scale.
+        """
+        import os.path as _osp
+        children_map: dict[str, list[str]] = {}
+        roots: list[str] = []
+        seen: set[str] = set()
+        for path_str in sorted(data.keys()):
+            parent_path = None
+            anc = _osp.dirname(path_str)
+            while anc and anc != path_str:
+                if anc in seen:
+                    parent_path = anc
                     break
-
-            if parent_candidate is not None:
-                parent_candidate.appendRow(row)
-            elif parent_item is not None:
-                parent_item.appendRow(row)
+                new_anc = _osp.dirname(anc)
+                if new_anc == anc:
+                    break
+                anc = new_anc
+            if parent_path is None:
+                roots.append(path_str)
             else:
-                self.model.appendRow(row)
+                children_map.setdefault(parent_path, []).append(path_str)
+            seen.add(path_str)
+        return children_map, roots
 
-            item_map[path_str] = name_item
+    @staticmethod
+    def _attach_placeholder(parent_item: QStandardItem) -> None:
+        ph = QStandardItem()
+        ph.setData(True, Qt.UserRole + 3)
+        parent_item.appendRow([ph])
+
+    def _populate_lazy_children(self, parent_item: QStandardItem) -> None:
+        if parent_item.rowCount() != 1:
+            return
+        first_child = parent_item.child(0, 0)
+        if first_child is None or not first_child.data(Qt.UserRole + 3):
+            return
+        path = parent_item.data(Qt.UserRole)
+        scan_key = parent_item.data(Qt.UserRole + 2)
+        if scan_key is None or not path:
+            return
+        state = self._lazy_state.get(scan_key)
+        if state is None:
+            return
+        data, children_map, root_bytes = state
+        children = children_map.get(path, [])
+        parent_item.removeRows(0, parent_item.rowCount())
+        for child_path in children:
+            tb, fc = data[child_path]
+            row = self._make_row(child_path, tb, fc, root_bytes)
+            row[0].setData(scan_key, Qt.UserRole + 2)
+            parent_item.appendRow(row)
+            if child_path in children_map:
+                self._attach_placeholder(row[0])
+
+    def _on_tree_expanded(self, proxy_index) -> None:
+        if not proxy_index.isValid():
+            return
+        col0_proxy = self.proxy.index(proxy_index.row(), 0, proxy_index.parent())
+        source_idx = self.proxy.mapToSource(col0_proxy)
+        item = self.model.itemFromIndex(source_idx)
+        if item is not None:
+            self._populate_lazy_children(item)
 
     def load(self, db_path: str, scan_id: int = 0) -> None:
         self._last_db_path = db_path
@@ -307,6 +355,7 @@ class FolderPanel(QWidget):
         self._folder_worker = None
         self.model.beginResetModel()
         self.model.removeRows(0, self.model.rowCount())
+        self._lazy_state.clear()
 
         if payload["mode"] == "separate":
             scans     = payload["scans"]
@@ -345,7 +394,15 @@ class FolderPanel(QWidget):
 
                 self.model.appendRow([scan_name_item, scan_size_item, scan_count_item])
                 if data:
-                    self._build_subtree(scan_name_item, data, root_bytes)
+                    children_map, roots = self._compute_children_map(data)
+                    self._lazy_state[sid] = (data, children_map, root_bytes)
+                    for root_path in roots:
+                        tb, fc = data[root_path]
+                        row = self._make_row(root_path, tb, fc, root_bytes)
+                        row[0].setData(sid, Qt.UserRole + 2)
+                        scan_name_item.appendRow(row)
+                        if root_path in children_map:
+                            self._attach_placeholder(row[0])
 
         else:
             rows = payload["rows"]
@@ -356,7 +413,15 @@ class FolderPanel(QWidget):
                 return
             data       = {r[0]: (r[1], r[2]) for r in rows}
             root_bytes = max(v[0] for v in data.values()) or 1
-            self._build_subtree(None, data, root_bytes)
+            children_map, roots = self._compute_children_map(data)
+            self._lazy_state[0] = (data, children_map, root_bytes)
+            for root_path in roots:
+                tb, fc = data[root_path]
+                row = self._make_row(root_path, tb, fc, root_bytes)
+                row[0].setData(0, Qt.UserRole + 2)
+                self.model.appendRow(row)
+                if root_path in children_map:
+                    self._attach_placeholder(row[0])
 
         self.model.endResetModel()
         self._folders_empty_lbl.setText("Scan a folder first to populate this view.")
@@ -367,7 +432,7 @@ class FolderPanel(QWidget):
             self._volume_map.show()
         else:
             self._volume_map.hide()
-        self.tree.expandToDepth(1)
+        self.tree.expandToDepth(0)
         col   = self.tree.header().sortIndicatorSection()
         order = self.tree.header().sortIndicatorOrder()
         self.proxy.sort(col, order)

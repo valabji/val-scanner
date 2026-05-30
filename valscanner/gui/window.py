@@ -152,7 +152,9 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
         from .theme import Theme
+        from . import icons as _icons_mod
         Theme.instance().on_changed(self._apply_stylesheet)
+        Theme.instance().on_changed(_icons_mod.clear_icon_cache)
         _density.on_changed(self._on_density_changed)
 
         self.setAcceptDrops(True)
