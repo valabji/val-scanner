@@ -58,6 +58,10 @@ files = Table(
     # Composite covering index for the hot web/GUI paged-list query:
     # WHERE scan_id = :sid AND category = :cat ORDER BY path
     Index("idx_files_scan_cat_path", "scan_id", "category", "path"),
+    # Standalone btree on path for the "open folder" path-prefix queries
+    # that don't constrain scan_id/category (the All Scans browser path).
+    # Postgres uses C collation, so plain btree supports LIKE 'prefix%'.
+    Index("ix_files_path", "path"),
     Index("idx_files_category", "category"),
     Index("idx_files_extension", "extension"),
     Index("idx_files_size", "size_bytes"),
@@ -77,6 +81,9 @@ folders = Table(
     UniqueConstraint("scan_id", "path", name="uq_folders_scan_path"),
     Index("idx_folders_size", "total_bytes"),
     Index("idx_folders_scan", "scan_id"),
+    # Btree on path for "open folder" immediate-children queries
+    # (WHERE path LIKE :pre AND path NOT LIKE :deep).
+    Index("ix_folders_path", "path"),
 )
 
 thumbnails = Table(
