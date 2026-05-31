@@ -364,12 +364,19 @@ def main() -> None:
                         help="Open settings.json in the system default editor and exit")
     parser.add_argument("--dump-to-sqlite",  metavar="FILE",
                         help="Export the connected database to a SQLite file and exit")
+    parser.add_argument("--dump-scan-ids",   metavar="IDS",
+                        help="Comma-separated scan IDs to include in --dump-to-sqlite "
+                             "(e.g. 1,3,5); omit to dump all scans")
     parser.add_argument("--load-from-sqlite", metavar="FILE",
                         help="Import from a SQLite file into the connected database and exit")
-    parser.add_argument("--include-analysis", action="store_true",
+    parser.add_argument("--include-analysis",    action="store_true",
                         help="Also transfer analysis runs (default: skipped)")
-    parser.add_argument("--include-cache",    action="store_true",
+    parser.add_argument("--include-cache",       action="store_true",
                         help="Also transfer GUI cache entries (default: skipped)")
+    parser.add_argument("--no-dump-thumbnails",  action="store_true",
+                        help="Skip thumbnail blobs when dumping/loading (default: included)")
+    parser.add_argument("--no-dump-samples",     action="store_true",
+                        help="Skip media sample blobs when dumping/loading (default: included)")
 
     thumb = parser.add_argument_group("thumbnails (requires Pillow, on by default)")
     thumb.add_argument("--no-thumbnails",  action="store_true", default=_defs["no_thumbnails"],
@@ -512,13 +519,29 @@ def main() -> None:
     if args.dump_to_sqlite:
         dst_path = Path(args.dump_to_sqlite).expanduser().resolve()
         dst_url  = f"sqlite:///{dst_path}"
+
+        dump_scan_ids: list[int] | None = None
+        if args.dump_scan_ids:
+            try:
+                dump_scan_ids = [int(x.strip()) for x in args.dump_scan_ids.split(",") if x.strip()]
+            except ValueError:
+                parser.error("--dump-scan-ids must be a comma-separated list of integers, e.g. 1,3,5")
+        elif args.scan_id is not None:
+            dump_scan_ids = [args.scan_id]
+
         print(f"\n📦 Exporting  {mask_url(url)}")
+        if dump_scan_ids:
+            ids_str = ", ".join(str(i) for i in dump_scan_ids)
+            print(f"   Scans:    [{ids_str}]")
         print(f"         →  {dst_path}\n")
         on_prog, on_stage = _make_transfer_progress_cb(show_progress=not args.no_progress_bar)
         stats = transfer_db(url, dst_url, on_progress=on_prog,
                             on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
-                            include_cache=args.include_cache)
+                            include_cache=args.include_cache,
+                            include_thumbnails=not args.no_dump_thumbnails,
+                            include_samples=not args.no_dump_samples,
+                            scan_ids=dump_scan_ids)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)
 
@@ -534,7 +557,9 @@ def main() -> None:
         stats = transfer_db(src_url, url, on_progress=on_prog,
                             on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
-                            include_cache=args.include_cache)
+                            include_cache=args.include_cache,
+                            include_thumbnails=not args.no_dump_thumbnails,
+                            include_samples=not args.no_dump_samples)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)
 

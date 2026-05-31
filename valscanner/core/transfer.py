@@ -52,12 +52,16 @@ def transfer_db(
     on_stage_progress: Callable[[str, int, int], None] | None = None,
     include_analysis: bool = False,
     include_cache: bool = False,
+    include_thumbnails: bool = True,
+    include_samples: bool = True,
+    scan_ids: list[int] | None = None,
 ) -> dict:
     """Copy scan data from *src_url* to *dst_url*, remapping primary keys.
 
     ``on_progress(msg)`` is called with terminal stage-completion lines.
     ``on_stage_progress(stage, done, total)`` is called repeatedly during
     each table copy and is expected to throttle/render its own progress bar.
+    ``scan_ids`` restricts the transfer to specific scan IDs; None copies all.
 
     Returns a dict with counts: scans, files, folders, thumbnails, samples,
     and optionally analysis_runs / cache_entries.
@@ -87,9 +91,12 @@ def transfer_db(
     with src_engine.connect() as sc, dst_engine.begin() as dc:
 
         # ── scans ─────────────────────────────────────────────────────────────
-        total = _count(sc, scans)
+        scan_q = select(scans)
+        if scan_ids is not None:
+            scan_q = scan_q.where(scans.c.id.in_(scan_ids))
+        total = sc.execute(select(func.count()).select_from(scan_q.subquery())).scalar() or 0
         scan_id_map: dict[int, int] = {}
-        for row in sc.execute(select(scans).execution_options(**src_opts)):
+        for row in sc.execute(scan_q.execution_options(**src_opts)):
             m = row._mapping
             d = {k: m[k] for k in _SCAN_COLS}
             new_id = dc.execute(insert(scans).values(**d)).inserted_primary_key[0]
@@ -100,9 +107,13 @@ def transfer_db(
         _emit(f"  scans:          {stats['scans']:>8,}")
 
         # ── files ─────────────────────────────────────────────────────────────
-        total = _count(sc, files)
+        src_scan_ids = list(scan_id_map.keys())
+        file_q = select(files)
+        if scan_ids is not None:
+            file_q = file_q.where(files.c.scan_id.in_(src_scan_ids))
+        total = sc.execute(select(func.count()).select_from(file_q.subquery())).scalar() or 0
         file_id_map: dict[int, int] = {}
-        for row in sc.execute(select(files).execution_options(**src_opts)):
+        for row in sc.execute(file_q.execution_options(**src_opts)):
             m = row._mapping
             d = {k: m[k] for k in _FILE_COLS}
             d["scan_id"] = scan_id_map[d["scan_id"]]
@@ -114,8 +125,11 @@ def transfer_db(
         _emit(f"  files:          {stats['files']:>8,}")
 
         # ── folders ───────────────────────────────────────────────────────────
-        total = _count(sc, folders)
-        for row in sc.execute(select(folders).execution_options(**src_opts)):
+        folder_q = select(folders)
+        if scan_ids is not None:
+            folder_q = folder_q.where(folders.c.scan_id.in_(src_scan_ids))
+        total = sc.execute(select(func.count()).select_from(folder_q.subquery())).scalar() or 0
+        for row in sc.execute(folder_q.execution_options(**src_opts)):
             m = row._mapping
             d = {k: m[k] for k in _FOLDER_COLS}
             d["scan_id"] = scan_id_map[d["scan_id"]]
@@ -129,46 +143,56 @@ def transfer_db(
         # Thumbnails and media samples hold only regenerable GUI assets, so a
         # read failure here (e.g. a corrupt source DB) is non-fatal: salvage
         # what was readable, warn, and keep the critical scan/file/folder data.
-        try:
-            total = _count(sc, thumbnails)
-            for row in sc.execute(select(thumbnails).execution_options(**src_opts)):
-                m = row._mapping
-                new_fid = file_id_map.get(m["file_id"])
-                if new_fid is None:
-                    continue
-                d = {k: m[k] for k in _THUMB_COLS}
-                dc.execute(insert(thumbnails).values(file_id=new_fid, **d))
-                stats["thumbnails"] += 1
-                _stage("thumbnails", stats["thumbnails"], total)
-        except DatabaseError as e:
-            _emit(f"  ⚠ thumbnails: read failed after {stats['thumbnails']:,} "
-                  f"row(s) — skipping the rest (source likely corrupt): {e.orig}")
-        _stage("thumbnails", stats["thumbnails"], stats["thumbnails"])
-        _emit(f"  thumbnails:     {stats['thumbnails']:>8,}")
+        src_file_ids = list(file_id_map.keys())
+        if include_thumbnails:
+            try:
+                thumb_q = select(thumbnails)
+                if scan_ids is not None:
+                    thumb_q = thumb_q.where(thumbnails.c.file_id.in_(src_file_ids))
+                total = sc.execute(select(func.count()).select_from(thumb_q.subquery())).scalar() or 0
+                for row in sc.execute(thumb_q.execution_options(**src_opts)):
+                    m = row._mapping
+                    new_fid = file_id_map.get(m["file_id"])
+                    if new_fid is None:
+                        continue
+                    d = {k: m[k] for k in _THUMB_COLS}
+                    dc.execute(insert(thumbnails).values(file_id=new_fid, **d))
+                    stats["thumbnails"] += 1
+                    _stage("thumbnails", stats["thumbnails"], total)
+            except DatabaseError as e:
+                _emit(f"  ⚠ thumbnails: read failed after {stats['thumbnails']:,} "
+                      f"row(s) — skipping the rest (source likely corrupt): {e.orig}")
+            _stage("thumbnails", stats["thumbnails"], stats["thumbnails"])
+            _emit(f"  thumbnails:     {stats['thumbnails']:>8,}")
 
         # ── media samples ─────────────────────────────────────────────────────
-        try:
-            total = _count(sc, media_samples)
-            for row in sc.execute(select(media_samples).execution_options(**src_opts)):
-                m = row._mapping
-                new_fid = file_id_map.get(m["file_id"])
-                if new_fid is None:
-                    continue
-                d = {k: m[k] for k in _SAMPLE_COLS}
-                dc.execute(insert(media_samples).values(file_id=new_fid, **d))
-                stats["samples"] += 1
-                _stage("samples", stats["samples"], total)
-        except DatabaseError as e:
-            _emit(f"  ⚠ samples: read failed after {stats['samples']:,} "
-                  f"row(s) — skipping the rest (source likely corrupt): {e.orig}")
-        _stage("samples", stats["samples"], stats["samples"])
-        _emit(f"  samples:        {stats['samples']:>8,}")
+        if include_samples:
+            try:
+                sample_q = select(media_samples)
+                if scan_ids is not None:
+                    sample_q = sample_q.where(media_samples.c.file_id.in_(src_file_ids))
+                total = sc.execute(select(func.count()).select_from(sample_q.subquery())).scalar() or 0
+                for row in sc.execute(sample_q.execution_options(**src_opts)):
+                    m = row._mapping
+                    new_fid = file_id_map.get(m["file_id"])
+                    if new_fid is None:
+                        continue
+                    d = {k: m[k] for k in _SAMPLE_COLS}
+                    dc.execute(insert(media_samples).values(file_id=new_fid, **d))
+                    stats["samples"] += 1
+                    _stage("samples", stats["samples"], total)
+            except DatabaseError as e:
+                _emit(f"  ⚠ samples: read failed after {stats['samples']:,} "
+                      f"row(s) — skipping the rest (source likely corrupt): {e.orig}")
+            _stage("samples", stats["samples"], stats["samples"])
+            _emit(f"  samples:        {stats['samples']:>8,}")
 
         # ── analysis runs (optional) ──────────────────────────────────────────
         if include_analysis:
             stats["analysis_runs"] = 0
-            total = _count(sc, analysis_runs)
-            for row in sc.execute(select(analysis_runs).execution_options(**src_opts)):
+            analysis_q = select(analysis_runs)
+            total = sc.execute(select(func.count()).select_from(analysis_q.subquery())).scalar() or 0
+            for row in sc.execute(analysis_q.execution_options(**src_opts)):
                 m = row._mapping
                 d = {k: m[k] for k in _ANALYSIS_COLS}
 
