@@ -48,8 +48,11 @@ A recursive file scanner with rich metadata extraction, full-text search, auto-t
 - **Similar-folder detection** — pairwise comparison using filename Jaccard + extension cosine + size ratio + SHA-256 Jaccard
 - **View filters** — slice the result set by category, size range, extension, or path pattern without re-scanning
 - **Export** — CSV and JSON from CLI, GUI, and Web UI
-- **Multiple scan sessions** — each scan stored with a label; compare, list, or delete past sessions
+- **Multiple scan sessions** — each scan stored with a label; compare, list, or delete past sessions; multiple scans can run in parallel from the GUI
+- **Database transfer** — dump to / load from a portable SQLite file; optionally keep blob data in a companion ZIP for a slimmer transfer
+- **Database status** — `--db-status` prints DB size, table counts, per-scan breakdown, and orphan check
 - **Versioned migrations** — schema changes managed by Alembic; v0.1.x databases auto-upgrade in place
+- **Accessibility** — all major controls carry accessible names and a logical tab order for screen readers
 
 ---
 
@@ -351,6 +354,32 @@ valscanner --list-scans --db archive.db
 
 # Delete a specific scan (removes its files, folders, thumbnails, and media samples)
 valscanner --delete-scan 3 --db archive.db
+
+# Show DB size, table counts, per-scan breakdown, and orphan check
+valscanner --db-status --db archive.db
+```
+
+### Transfer databases
+
+Move scan data between databases or machines, or make a portable SQLite snapshot of a PostgreSQL database.
+
+```bash
+# Export everything to a self-contained SQLite file
+valscanner --dump-to-sqlite backup.db --db postgresql://localhost/mydb
+
+# Export only specific scans
+valscanner --dump-to-sqlite backup.db --dump-scan-ids 1,3 --db mydb.db
+
+# Skip large blobs for a lightweight transfer (metadata only)
+valscanner --dump-to-sqlite slim.db --no-dump-thumbnails --no-dump-samples
+
+# Keep blobs out of the SQLite file — write them to a companion ZIP instead
+valscanner --dump-to-sqlite slim.db --zip-blobs          # creates slim.zip alongside slim.db
+valscanner --dump-to-sqlite slim.db --zip-blobs arch.zip # named ZIP
+
+# Import on the other machine
+valscanner --load-from-sqlite slim.db --db ~/valscanner.db
+valscanner --load-from-sqlite slim.db --zip-blobs arch.zip --db ~/valscanner.db
 ```
 
 ### Full flag reference
@@ -370,6 +399,20 @@ valscanner --delete-scan 3 --db archive.db
 | `--verbose` | off | Print each file path as it is indexed |
 | `--list-scans` | — | Print all scans in the database and exit |
 | `--delete-scan ID` | — | Delete a scan by numeric ID and exit |
+| `--db-status` | — | Print DB size, table row counts, per-scan breakdown, and orphan check, then exit |
+
+**Database transfer**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dump-to-sqlite FILE` | — | Export the active database to a SQLite file and exit |
+| `--load-from-sqlite FILE` | — | Import from a SQLite file into the active database and exit |
+| `--dump-scan-ids IDS` | all | Comma-separated scan IDs to include in `--dump-to-sqlite` (e.g. `1,3,5`) |
+| `--no-dump-thumbnails` | off | Skip thumbnail blobs during dump/load (faster, smaller transfer) |
+| `--no-dump-samples` | off | Skip media-sample blobs during dump/load |
+| `--zip-blobs [FILE]` | off | Write/read blobs to a companion ZIP instead of embedding them in the SQLite file; `FILE` defaults to `<db>.zip` |
+| `--include-analysis` | off | Also transfer similar-folder analysis runs (skipped by default) |
+| `--include-cache` | off | Also transfer GUI cache entries (skipped by default) |
 
 **Thumbnails** *(requires Pillow for images, ffmpeg for video — on by default; HEIC/AVIF support via `pillow-heif` + `pillow-avif-plugin`, bundled in `[rich]`)*
 
@@ -462,8 +505,36 @@ After a scan completes, the file list populates immediately. Use:
 - **Grid view** — shows thumbnails for images and videos; cards display name, size, and category colour
 - **List view** — compact rows; sortable by name, size, category, or extension; numeric sort for size
 - **Search bar** — full-text search over filenames and paths (FTS5); results update as you type
-- **Folder tree** (left panel) — click any folder to filter the file list to that directory; hold Shift and click for a recursive filter
+- **Folder browser** (left panel) — click any folder to navigate into it; the `..` row at the top of each listing steps to the parent. Press **Backspace** or **Alt+Up** to go up from the keyboard. The breadcrumb bar at the top also lets you jump to any ancestor folder directly.
 - **Detail panel** (right panel) — click any file to see its full path, size, category, extension, tags, EXIF/audio metadata, and thumbnail
+
+**Clipboard and drag**
+
+| Action | Result |
+|---|---|
+| **Ctrl+C** in the file list | Copies the full path(s) of selected files |
+| **Ctrl+Shift+C** in the file list | Copies only the filename(s) |
+| **Drag** selected files out | Drops them into Finder/Explorer or any drag-aware app as file URLs |
+| **Drop a folder** onto the scan-target field | Fills in the path directly (no Browse… dialog needed) |
+| **Drop a `.db` file** onto the window | Opens that database |
+
+Multiple scans can run at the same time — start a second scan while one is already in progress and both proceed concurrently. Each scan reports its own progress in the status bar.
+
+**Keyboard shortcuts**
+
+| Key | Action |
+|---|---|
+| `/` or **Ctrl+F** | Focus the search bar |
+| **Backspace** or **Alt+Up** | Navigate to parent folder (in file views) |
+| **Return** / **Enter** | Open the selected file |
+| **Ctrl+A** | Select all rows in the current view |
+| **Ctrl+C** | Copy selected file paths |
+| **Ctrl+Shift+C** | Copy selected filenames |
+| **Ctrl+R** | Toggle "Include subfolders" |
+| **Ctrl+Shift+R** | Reveal active file in Finder/Explorer |
+| **Ctrl+1 / 2 / 3** | Switch to Details / Grid / List view |
+| **Ctrl+Shift+B** | Toggle folder panel |
+| **Ctrl+Shift+D** | Toggle detail panel |
 
 ### View Filters dialog
 

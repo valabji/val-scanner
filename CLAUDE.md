@@ -135,10 +135,10 @@ val-scanner/                ← repo root
 
 ### GUI layer (valscanner/gui/)
 
-- **workers.py** — `ScanWorker` monkey-patches `os.walk` to emit per-file progress signals; `AnalysisWorker` runs `find_similar_folders` in background
+- **workers.py** — `ScanWorker` monkey-patches `os.walk` to emit per-file progress signals; multiple workers can run concurrently (`_scan_workers` list in `MainWindow`); `AnalysisWorker` runs `find_similar_folders` in background
 - **models.py** — `FileTableModel` (flat list, raw `size_bytes` for numeric sort), `FileIconModel`, `ThumbnailCache` singleton `_THUMB_CACHE`
 - **delegates.py** — `FileCardDelegate` (grid view), `FileRowDelegate` (compact list)
-- **panels/folders.py** — `FolderPanel` tree view; uses `QSortFilterProxyModel` with `Qt.UserRole+1` for numeric sort
+- **panels/folders.py** — `FolderPanel` tree view; lazy subtree expansion with per-scan `_lazy_state` cache + icon cache for snappiness on large scans
 - **panels/similar.py** — collapsible `FolderPairCard` cards; child pairs display relative paths via `Path.relative_to()`
 - **panels/detail.py** — right-side file inspector; tags as `TagChip` labels
 
