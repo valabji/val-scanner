@@ -377,6 +377,9 @@ def main() -> None:
                         help="Skip thumbnail blobs when dumping/loading (default: included)")
     parser.add_argument("--no-dump-samples",     action="store_true",
                         help="Skip media sample blobs when dumping/loading (default: included)")
+    parser.add_argument("--zip-blobs",           nargs="?", const=True, metavar="FILE",
+                        help="Dump: write blobs to FILE (default: <db>.zip) instead of SQLite. "
+                             "Load: restore blobs from FILE (default: <db>.zip)")
 
     thumb = parser.add_argument_group("thumbnails (requires Pillow, on by default)")
     thumb.add_argument("--no-thumbnails",  action="store_true", default=_defs["no_thumbnails"],
@@ -529,19 +532,29 @@ def main() -> None:
         elif args.scan_id is not None:
             dump_scan_ids = [args.scan_id]
 
+        if args.zip_blobs is None:
+            write_zip = None
+        elif args.zip_blobs is True:
+            write_zip = dst_path.with_suffix(".zip")
+        else:
+            write_zip = Path(args.zip_blobs).expanduser().resolve()
         print(f"\n📦 Exporting  {mask_url(url)}")
         if dump_scan_ids:
             ids_str = ", ".join(str(i) for i in dump_scan_ids)
             print(f"   Scans:    [{ids_str}]")
-        print(f"         →  {dst_path}\n")
+        print(f"         →  {dst_path}")
+        if write_zip:
+            print(f"   Blobs  →  {write_zip}")
+        print()
         on_prog, on_stage = _make_transfer_progress_cb(show_progress=not args.no_progress_bar)
         stats = transfer_db(url, dst_url, on_progress=on_prog,
                             on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
                             include_cache=args.include_cache,
-                            include_thumbnails=not args.no_dump_thumbnails,
-                            include_samples=not args.no_dump_samples,
-                            scan_ids=dump_scan_ids)
+                            include_thumbnails=not (args.no_dump_thumbnails or args.zip_blobs is not None),
+                            include_samples=not (args.no_dump_samples or args.zip_blobs is not None),
+                            scan_ids=dump_scan_ids,
+                            write_blobs_zip=write_zip)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)
 
@@ -551,15 +564,24 @@ def main() -> None:
             print(f"Error: file not found: {src_path}")
             sys.exit(1)
         src_url = f"sqlite:///{src_path}"
+        if args.zip_blobs is None:
+            read_zip = None
+        elif args.zip_blobs is True:
+            read_zip = src_path.with_suffix(".zip")
+        else:
+            read_zip = Path(args.zip_blobs).expanduser().resolve()
         print(f"\n📥 Importing  {src_path}")
+        if read_zip:
+            print(f"   Blobs  ←  {read_zip}")
         print(f"         →  {mask_url(url)}\n")
         on_prog, on_stage = _make_transfer_progress_cb(show_progress=not args.no_progress_bar)
         stats = transfer_db(src_url, url, on_progress=on_prog,
                             on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
                             include_cache=args.include_cache,
-                            include_thumbnails=not args.no_dump_thumbnails,
-                            include_samples=not args.no_dump_samples)
+                            include_thumbnails=not (args.no_dump_thumbnails or args.zip_blobs is not None),
+                            include_samples=not (args.no_dump_samples or args.zip_blobs is not None),
+                            read_blobs_zip=read_zip)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)
 

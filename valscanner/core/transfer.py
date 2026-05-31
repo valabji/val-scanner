@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import logging
+import zipfile
 from collections.abc import Callable
+from pathlib import Path
 from sqlalchemy import create_engine, select, insert, func
 from sqlalchemy.exc import DatabaseError
 
@@ -55,6 +57,8 @@ def transfer_db(
     include_thumbnails: bool = True,
     include_samples: bool = True,
     scan_ids: list[int] | None = None,
+    write_blobs_zip: Path | str | None = None,
+    read_blobs_zip: Path | str | None = None,
 ) -> dict:
     """Copy scan data from *src_url* to *dst_url*, remapping primary keys.
 
@@ -62,6 +66,10 @@ def transfer_db(
     ``on_stage_progress(stage, done, total)`` is called repeatedly during
     each table copy and is expected to throttle/render its own progress bar.
     ``scan_ids`` restricts the transfer to specific scan IDs; None copies all.
+    ``write_blobs_zip`` writes thumbnail/sample blobs to a ZIP file keyed by
+    destination file ID instead of (or in addition to) storing them in SQLite.
+    ``read_blobs_zip`` reads thumbnail/sample blobs from a ZIP file keyed by
+    source file ID and inserts them into the destination with remapped IDs.
 
     Returns a dict with counts: scans, files, folders, thumbnails, samples,
     and optionally analysis_runs / cache_entries.
@@ -186,6 +194,103 @@ def transfer_db(
                       f"row(s) — skipping the rest (source likely corrupt): {e.orig}")
             _stage("samples", stats["samples"], stats["samples"])
             _emit(f"  samples:        {stats['samples']:>8,}")
+
+        # ── blob zip write (optional) ─────────────────────────────────────────
+        if write_blobs_zip is not None:
+            with zipfile.ZipFile(Path(write_blobs_zip), "w", zipfile.ZIP_DEFLATED) as zf:
+                thumb_q = select(thumbnails)
+                if scan_ids is not None:
+                    thumb_q = thumb_q.where(thumbnails.c.file_id.in_(src_file_ids))
+                total = sc.execute(select(func.count()).select_from(thumb_q.subquery())).scalar() or 0
+                n = 0
+                for row in sc.execute(thumb_q.execution_options(**src_opts)):
+                    m = row._mapping
+                    dst_fid = file_id_map.get(m["file_id"])
+                    if dst_fid is None:
+                        continue
+                    zf.writestr(f"thumbnails/{dst_fid}", bytes(m["data"]))
+                    meta = {k: m[k] for k in ("width", "height") if m[k] is not None}
+                    if meta:
+                        zf.writestr(f"thumbnails/{dst_fid}.json", json.dumps(meta))
+                    stats["thumbnails"] += 1
+                    n += 1
+                    _stage("thumbnails", n, total)
+                _stage("thumbnails", n, n)
+                _emit(f"  thumbnails:     {stats['thumbnails']:>8,}  (zip)")
+
+                sample_q = select(media_samples)
+                if scan_ids is not None:
+                    sample_q = sample_q.where(media_samples.c.file_id.in_(src_file_ids))
+                total = sc.execute(select(func.count()).select_from(sample_q.subquery())).scalar() or 0
+                n = 0
+                for row in sc.execute(sample_q.execution_options(**src_opts)):
+                    m = row._mapping
+                    dst_fid = file_id_map.get(m["file_id"])
+                    if dst_fid is None:
+                        continue
+                    zf.writestr(f"samples/{dst_fid}", bytes(m["data"]))
+                    meta = {k: m[k] for k in ("format", "duration") if m[k] is not None}
+                    if meta:
+                        zf.writestr(f"samples/{dst_fid}.json", json.dumps(meta))
+                    stats["samples"] += 1
+                    n += 1
+                    _stage("samples", n, total)
+                _stage("samples", n, n)
+                _emit(f"  samples:        {stats['samples']:>8,}  (zip)")
+
+        # ── blob zip read (optional) ──────────────────────────────────────────
+        if read_blobs_zip is not None:
+            zip_path = Path(read_blobs_zip)
+            if not zip_path.exists():
+                _emit(f"  ⚠ blob zip not found: {zip_path} — skipping")
+            else:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zip_names = set(zf.namelist())
+                    thumb_entries = [
+                        (name, int(name[len("thumbnails/"):]))
+                        for name in zip_names
+                        if name.startswith("thumbnails/") and not name.endswith(".json")
+                        and name[len("thumbnails/"):].isdigit()
+                    ]
+                    total = len(thumb_entries)
+                    for i, (name, src_fid) in enumerate(thumb_entries):
+                        dst_fid = file_id_map.get(src_fid)
+                        if dst_fid is None:
+                            continue
+                        data = zf.read(name)
+                        meta_name = f"thumbnails/{src_fid}.json"
+                        meta = json.loads(zf.read(meta_name)) if meta_name in zip_names else {}
+                        dc.execute(insert(thumbnails).values(
+                            file_id=dst_fid, data=data,
+                            width=meta.get("width"), height=meta.get("height"),
+                        ))
+                        stats["thumbnails"] += 1
+                        _stage("thumbnails", i + 1, total)
+                    _stage("thumbnails", stats["thumbnails"], stats["thumbnails"])
+                    _emit(f"  thumbnails:     {stats['thumbnails']:>8,}  (zip)")
+
+                    sample_entries = [
+                        (name, int(name[len("samples/"):]))
+                        for name in zip_names
+                        if name.startswith("samples/") and not name.endswith(".json")
+                        and name[len("samples/"):].isdigit()
+                    ]
+                    total = len(sample_entries)
+                    for i, (name, src_fid) in enumerate(sample_entries):
+                        dst_fid = file_id_map.get(src_fid)
+                        if dst_fid is None:
+                            continue
+                        data = zf.read(name)
+                        meta_name = f"samples/{src_fid}.json"
+                        meta = json.loads(zf.read(meta_name)) if meta_name in zip_names else {}
+                        dc.execute(insert(media_samples).values(
+                            file_id=dst_fid, data=data,
+                            format=meta.get("format"), duration=meta.get("duration"),
+                        ))
+                        stats["samples"] += 1
+                        _stage("samples", i + 1, total)
+                    _stage("samples", stats["samples"], stats["samples"])
+                    _emit(f"  samples:        {stats['samples']:>8,}  (zip)")
 
         # ── analysis runs (optional) ──────────────────────────────────────────
         if include_analysis:
