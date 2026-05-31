@@ -489,6 +489,7 @@ class MainWindow(QMainWindow):
         _mk("Ctrl+Shift+B",   self._toggle_folder_panel)
         _mk("Ctrl+Shift+D",   self._toggle_detail_panel)
         _mk("Ctrl+`",         self._toggle_console)
+        _mk("Alt+Up",         self._navigate_up)
 
         for i, key in enumerate(("Ctrl+1", "Ctrl+2", "Ctrl+3")):
             _mk(key, lambda i=i: self.center_tabs.setCurrentIndex(i))
@@ -500,6 +501,9 @@ class MainWindow(QMainWindow):
                 sc = QShortcut(QKeySequence(seq), v)
                 sc.setContext(Qt.WidgetShortcut)
                 sc.activated.connect(self._open_active_file)
+            sc_up = QShortcut(QKeySequence("Backspace"), v)
+            sc_up.setContext(Qt.WidgetShortcut)
+            sc_up.activated.connect(self._navigate_up)
             sc_a = QShortcut(QKeySequence("Ctrl+A"), v)
             sc_a.setContext(Qt.WidgetShortcut)
             sc_a.activated.connect(v.selectAll)
@@ -2884,6 +2888,13 @@ class MainWindow(QMainWindow):
         for fr in files:
             total_bytes += fr[3] or 0
 
+        content_count = len(rows)  # folders + files, excluding ..
+
+        if self._browser_path:
+            _par = str(Path(self._browser_path).parent)
+            _up  = "" if (_par == "." or _par == self._browser_path) else _par
+            rows.insert(0, (_up, "..", _FOLDER_SENTINEL, 0, "", "", "", "", ""))
+
         self._all_rows = rows
         self._path_parts_cache = {}
 
@@ -2901,9 +2912,9 @@ class MainWindow(QMainWindow):
         else:
             self._browser_recursive_paging = False
             self._browser_file_offset = len(files)
-            self._total_row_count = len(rows)
-            self._loaded_offset = len(rows)
-            stat_total = len(rows)
+            self._total_row_count = content_count
+            self._loaded_offset = content_count
+            stat_total = content_count
 
         # Watch every file view's scrollbar so lazy paging fires regardless of
         # which view (table, grid, or list) is active.
@@ -2917,7 +2928,7 @@ class MainWindow(QMainWindow):
                 _sb.valueChanged.connect(self._on_view_scroll)
 
         self._apply_filters()
-        self._update_stats(stat_total, total_bytes, len(rows))
+        self._update_stats(stat_total, total_bytes, content_count)
         label = Path(self._browser_path).name if self._browser_path else "root"
         if recursive and total_files >= 0:
             self.center_tabs.setTabText(1, f"{label} ({total_files:,} files)")
