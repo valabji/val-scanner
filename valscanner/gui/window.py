@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         self._db_path                = ""
         self._db_url                 = ""  # authoritative SQLAlchemy URL
         self._connect_worker: ConnectWorker | None = None
-        self._worker                 = None
+        self._scan_workers: list     = []
         self._all_rows: list         = []
         self._folder_filter_recursive = False
         self._active_scan_id         = 0
@@ -390,7 +390,7 @@ class MainWindow(QMainWindow):
             _lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px; padding: 0 12px 0 4px;")
 
         # scan button — re-style only, never touch signals
-        if getattr(self, "_worker", None) and self._worker.isRunning():
+        if any(w.isRunning() for w in self._scan_workers):
             self.scan_btn.setStyleSheet(
                 f"QPushButton{{background:{RED};color:white;border:none;"
                 f"border-radius:7px;padding:6px 16px;font-weight:600;font-size:12px;}}"
@@ -531,8 +531,9 @@ class MainWindow(QMainWindow):
                 self._reset_all_filters()
 
     def _hard_cancel(self) -> None:
-        if getattr(self, "_worker", None) and self._worker.isRunning():
-            self._worker.stop()
+        for w in self._scan_workers:
+            if w.isRunning():
+                w.stop()
         sp_worker = getattr(getattr(self, "similar_panel", None), "_worker", None)
         if sp_worker and sp_worker.isRunning():
             sp_worker.stop()
@@ -540,8 +541,11 @@ class MainWindow(QMainWindow):
 
     def _busy_workers(self) -> list:
         out = []
-        if getattr(self, "_worker", None) and self._worker.isRunning():
+        running = sum(1 for w in self._scan_workers if w.isRunning())
+        if running == 1:
             out.append("scan")
+        elif running > 1:
+            out.append(f"{running} scans")
         sp_worker = getattr(getattr(self, "similar_panel", None), "_worker", None)
         if sp_worker and sp_worker.isRunning():
             out.append("similarity analysis")
@@ -553,8 +557,8 @@ class MainWindow(QMainWindow):
         Run from closeEvent to prevent the process aborting at interpreter
         shutdown when a QThread outlives its QApplication.
         """
-        threads = []
-        for attr in ("_worker", "_connect_worker",
+        threads = list(self._scan_workers)
+        for attr in ("_connect_worker",
                      "_browser_more_worker", "_browser_worker"):
             w = getattr(self, attr, None)
             if w is not None:
@@ -2597,10 +2601,6 @@ class MainWindow(QMainWindow):
                 detail=root)
             return
 
-        if self._worker and self._worker.isRunning():
-            self._enqueue_scan()
-            return
-
         db = self._db_url or self.db_edit.text().strip() or "file_index.db"
         self._db_path = db if not db.startswith("sqlite:///") else db[len("sqlite:///"):]
         self._clear_folder_filter()
@@ -2640,27 +2640,27 @@ class MainWindow(QMainWindow):
             if mb.clickedButton() is not fresh_btn:
                 scan_options["resume"] = True
 
-        self._worker = ScanWorker(root, db, self.hash_chk.isChecked(),
-                                  label=self.label_edit.text().strip(),
-                                  options=scan_options)
+        worker = ScanWorker(root, db, self.hash_chk.isChecked(),
+                            label=self.label_edit.text().strip(),
+                            options=scan_options)
+        self._scan_workers.append(worker)
 
-        # Register with process monitor before starting
         reg = ProcessRegistry.instance()
         pid = reg.register(
             name=f"Scan: {Path(root).name}",
-            cancel_cb=self._worker.stop,
-            kill_cb=self._worker.terminate,
+            cancel_cb=worker.stop,
+            kill_cb=worker.terminate,
         )
-        self._worker._pid = pid
+        worker._pid = pid
         self._set_process_dock_visible(True)
 
-        self._worker.progress.connect(self._on_progress)
-        self._worker.progress.connect(
+        worker.progress.connect(self._on_progress)
+        worker.progress.connect(
             lambda ev: reg.set_progress(pid, min(ev.get("scanned", 0) // 1000, 99))
         )
-        self._worker.done.connect(self._on_scan_done)
-        self._worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
-        self._worker.start()
+        worker.done.connect(self._on_scan_done)
+        worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
+        worker.start()
 
     def _set_scan_btn_scanning(self) -> None:
         self.scan_btn.setText("Stop")
@@ -2731,8 +2731,8 @@ class MainWindow(QMainWindow):
             self.options_btn.setText("Options")
 
     def _stop_scan(self) -> None:
-        if self._worker:
-            self._worker.stop()
+        for w in self._scan_workers:
+            w.stop()
         self._elapsed_timer.stop()
         self._set_scan_btn_idle()
         self._set_status("Scan cancelled.")
@@ -2751,12 +2751,17 @@ class MainWindow(QMainWindow):
             self.console.log(f"Scanned {count:,} files…", "info")
 
     def _on_scan_done(self, stats: dict) -> None:
-        self._elapsed_timer.stop()
-        self.progress.hide()
-        self.elapsed_lbl.hide()
-        self._set_scan_btn_idle()
-        self.csv_btn.setEnabled(True)
-        self.json_btn.setEnabled(True)
+        sender = self.sender()
+        if sender in self._scan_workers:
+            self._scan_workers.remove(sender)
+        still_running = any(w.isRunning() for w in self._scan_workers)
+        if not still_running:
+            self._elapsed_timer.stop()
+            self.progress.hide()
+            self.elapsed_lbl.hide()
+            self._set_scan_btn_idle()
+            self.csv_btn.setEnabled(True)
+            self.json_btn.setEnabled(True)
         elapsed = int(time.time() - self._scan_start)
 
         if stats.get("cancelled"):
@@ -2826,6 +2831,14 @@ class MainWindow(QMainWindow):
 
         self.center_tabs.setTabText(1, "Files (loading…)")
         self._stat_showing.setText("Loading…")
+
+        # Cancel any in-flight navigation so its result can't overwrite this one.
+        if self._browser_worker is not None:
+            try:
+                self._browser_worker.contents_ready.disconnect(self._on_browser_loaded)
+            except (RuntimeError, TypeError):
+                pass
+            self._browser_worker.stop()
 
         # Detach any in-flight lazy page so it can't append to the new view.
         self._browser_recursive_paging = False
