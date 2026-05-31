@@ -22,7 +22,7 @@ from .core.logging_config import setup_logging
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
 from .core.scanner import scan, count_files, ALL_PHASES, PHASE_ENUMERATE
 from .core.export import export_csv, export_json
-from .core.db import query_db, print_summary, list_scans, delete_scan, remap_scan, repo_for
+from .core.db import query_db, print_summary, print_db_status, list_scans, delete_scan, remap_scan, repo_for
 from .core.schema import human_size
 from .core.transfer import transfer_db
 from .core.similarity import find_similar_folders
@@ -350,6 +350,8 @@ def main() -> None:
     parser.add_argument("--no-progress-bar", action="store_true", default=_defs["no_progress_bar"],
                         help="Disable progress bar output")
     parser.add_argument("--query",        metavar="TERM", help="Query the database after scanning")
+    parser.add_argument("--db-status",     action="store_true",
+                        help="Show DB size, table counts, per-scan breakdown, and orphan entries")
     parser.add_argument("--list-scans",    action="store_true", help="List all scans in the database")
     parser.add_argument("--delete-scan",   type=int, metavar="ID", help="Delete a scan by ID")
     parser.add_argument("--remap-scan",    type=int, metavar="ID",
@@ -467,6 +469,10 @@ def main() -> None:
 
     url = active_url(args.db)
     ensure_schema(url)
+
+    if args.db_status:
+        print_db_status(url)
+        sys.exit(0)
 
     if args.list_scans:
         scans = list_scans(url)
@@ -596,7 +602,7 @@ def main() -> None:
     )
 
     if not args.path and not enrichment_only:
-        parser.error("path is required unless using --list-scans, --delete-scan, "
+        parser.error("path is required unless using --db-status, --list-scans, --delete-scan, "
                      "--configure, --open-settings, --dump-to-sqlite, "
                      "--load-from-sqlite, --scan-status, --analyze, or "
                      "--scan-id with --phases that exclude 'enumerate'")

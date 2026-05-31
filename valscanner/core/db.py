@@ -71,6 +71,52 @@ def query_db(db_path: str, term: str) -> None:
     print(f"{'─'*60}\n  Found {len(results)} result(s).")
 
 
+def get_db_status(db_path: str) -> dict:
+    return repo_for(db_path).db_status()
+
+
+def print_db_status(db_path: str) -> None:
+    s = get_db_status(db_path)
+    W = 62
+    print(f"\n{'═' * W}")
+    print(f"  Database Status  ({s['dialect']})")
+
+    url = s["db_url"]
+    if url.startswith("sqlite:///"):
+        url = url[len("sqlite:///"):]
+    print(f"  Path    : {url}")
+    print(f"  DB size : {human_size(s['db_bytes'])}")
+
+    print(f"\n  Table row counts:")
+    for name, count in s["row_counts"].items():
+        print(f"    {name:<18s} {count:>8,}")
+
+    if s["scans"]:
+        print(f"\n  Per-scan breakdown (indexed file content):")
+        for sc in s["scans"]:
+            label = (sc["label"] or sc["root"])[:38]
+            pct_str = f"{sc['pct']:5.1f}%"
+            print(f"    [{sc['id']:3d}] {label:<38s}  "
+                  f"{sc['file_count']:>7,} files  "
+                  f"{human_size(sc['indexed_bytes']):>10s}  {pct_str}")
+        if len(s["scans"]) > 1:
+            print(f"    {'':45s}  "
+                  f"{s['row_counts']['files']:>7,} files  "
+                  f"{human_size(s['total_indexed']):>10s}  100.0%")
+
+    orphans = s["orphans"]
+    total_orphans = sum(orphans.values())
+    print(f"\n  Orphan entries:")
+    if total_orphans == 0:
+        print(f"    ✓ No orphaned rows found.")
+    else:
+        for table, count in orphans.items():
+            if count:
+                print(f"    ⚠  {table}: {count:,} orphaned row(s)")
+
+    print(f"{'═' * W}\n")
+
+
 def print_summary(db_path: str) -> None:
     s = repo_for(db_path).summary()
     print(f"\n{'═'*60}")
