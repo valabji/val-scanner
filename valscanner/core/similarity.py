@@ -46,7 +46,7 @@ def _compute_folder_data_and_pairs(
     db_path, min_files, threshold, scan_ids, filters, stop_flag, progress_cb,
 ):
     repo = repo_for(db_path)
-    rows = list(repo.iter_similarity_rows(scan_ids=scan_ids))
+    rows = repo.iter_similarity_rows(scan_ids=scan_ids)
 
     fopts = filters or {}
     apply_filters = any(fopts.get(k) for k in (
