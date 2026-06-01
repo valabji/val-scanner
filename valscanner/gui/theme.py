@@ -108,6 +108,37 @@ THEME_LABELS: dict[str, str] = {
 DEFAULT_THEME = "catppuccin"
 
 
+class Spacing:
+    XS  =  4
+    SM  =  8
+    MD  = 12
+    LG  = 16
+    XL  = 24
+    XXL = 32
+
+
+class Margins:
+    PANEL   = (16, 16, 16, 16)
+    INNER   = (12, 12, 12, 12)
+    TIGHT   = ( 4,  4,  4,  4)
+    NONE    = ( 0,  0,  0,  0)
+    DIALOG  = (20, 20, 20, 20)
+    TOOLBAR = (12,  8, 12,  8)
+
+
+class Sizes:
+    BUTTON_H        = 30
+    BUTTON_H_SMALL  = 24
+    BUTTON_H_LARGE  = 36
+    INPUT_H         = 30
+    ICON_SM         = 14
+    ICON_MD         = 18
+    ICON_LG         = 24
+    CHIP_H          = 22
+    ROW_H_TABLE     = 28
+    ROW_H_TREE      = 24
+
+
 def _hex9_to_rgba(h: str) -> str:
     """Convert CSS #RRGGBBAA to rgba(r,g,b,a) — works in all Qt stylesheet properties."""
     r, g, b, a = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16), int(h[7:9], 16)

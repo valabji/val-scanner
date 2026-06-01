@@ -20,6 +20,7 @@ from ..layouts import FlowLayout
 
 from ...core.db import repo_for
 from ..constants import CATEGORY_COLORS, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, BTN_HOVER, BTN_PRESSED
+from ..theme import Spacing, Margins, Sizes
 from .. import icons as _icons
 
 
@@ -96,7 +97,7 @@ class DetailPanel(QWidget):
         w   = QWidget()
         pl  = QVBoxLayout(w)
         pl.setAlignment(Qt.AlignCenter)
-        pl.setSpacing(10)
+        pl.setSpacing(Spacing.MD)
         ico = QLabel()
         ico.setPixmap(_icons.pixmap("file", 48, color=str(SUBTEXT)))
         ico.setAlignment(Qt.AlignCenter)
@@ -117,11 +118,11 @@ class DetailPanel(QWidget):
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setContentsMargins(*Margins.NONE)
         outer.setSpacing(0)
 
         hdr = QWidget()
-        hdr.setFixedHeight(36)
+        hdr.setFixedHeight(Sizes.BUTTON_H_LARGE)
         hdr.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
@@ -146,8 +147,8 @@ class DetailPanel(QWidget):
 
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(10)
+        lay.setContentsMargins(*Margins.PANEL)
+        lay.setSpacing(Spacing.LG)
 
         self.icon_label = QLabel()
         self.icon_label.setAlignment(Qt.AlignCenter)
@@ -171,8 +172,8 @@ class DetailPanel(QWidget):
 
         self.grid = QWidget()
         self.grid_lay = QGridLayout(self.grid)
-        self.grid_lay.setContentsMargins(0, 0, 0, 0)
-        self.grid_lay.setSpacing(4)
+        self.grid_lay.setContentsMargins(*Margins.NONE)
+        self.grid_lay.setSpacing(Spacing.XS)
         lay.addWidget(self.grid)
 
         self.tags_title = QLabel("Tags")
@@ -223,14 +224,15 @@ class DetailPanel(QWidget):
 
         self._exif_content = QWidget()
         self._exif_grid_lay = QGridLayout(self._exif_content)
-        self._exif_grid_lay.setContentsMargins(0, 0, 0, 0)
-        self._exif_grid_lay.setSpacing(4)
+        self._exif_grid_lay.setContentsMargins(*Margins.NONE)
+        self._exif_grid_lay.setSpacing(Spacing.XS)
         exif_outer.addWidget(self._exif_content)
 
         self._exif_section.hide()
         lay.addWidget(self._exif_section)
 
         self.open_btn = QPushButton("Open File")
+        self.open_btn.setFixedHeight(Sizes.BUTTON_H)
         self.open_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {ACCENT}; color: white; border: none;
@@ -246,6 +248,7 @@ class DetailPanel(QWidget):
         lay.addWidget(self.open_btn)
 
         self.sample_btn = QPushButton("Play Sample")
+        self.sample_btn.setFixedHeight(Sizes.BUTTON_H)
         self.sample_btn.setIcon(_icons.icon("play", color=str(GREEN)))
         self.sample_btn.setStyleSheet(f"""
             QPushButton {{
@@ -283,8 +286,8 @@ class DetailPanel(QWidget):
         truncated form; the button always copies the full `copy_text`."""
         w = QWidget()
         h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(4)
+        h.setContentsMargins(*Margins.NONE)
+        h.setSpacing(Spacing.XS)
         val = QLabel(display)
         val.setWordWrap(True)
         val.setStyleSheet(style)
@@ -296,7 +299,7 @@ class DetailPanel(QWidget):
         btn.setAccessibleName(f"Copy {what.lower()}")
         btn.setAccessibleDescription(f"Copy this file's {what.lower()} to the clipboard")
         btn.setAutoRaise(True)
-        btn.setFixedSize(20, 20)
+        btn.setFixedSize(Sizes.BUTTON_H_SMALL, Sizes.BUTTON_H_SMALL)
         btn.clicked.connect(lambda: self._copy_to_clipboard(copy_text, what))
         h.addWidget(btn, 0, Qt.AlignTop)
         return w
