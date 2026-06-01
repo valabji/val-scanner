@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePo
 
 from ..constants import CATEGORY_COLORS, PANEL_BG, BORDER, SUBTEXT, TEXT
 from .. import icons as _icons
+from ..theme import Spacing, Margins, Sizes
 
 BAR_H    = 40
 LEGEND_H = 36
@@ -60,16 +61,16 @@ class VolumeMapWidget(QWidget):
         self.setStyleSheet(f"background: {PANEL_BG}; border-top: 1px solid {BORDER};")
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
 
         # Header with title and collapse button
         hdr = QWidget()
-        hdr.setFixedHeight(32)
+        hdr.setFixedHeight(Sizes.HEADER_H_SM)
         hdr.setStyleSheet(f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};")
         hdr_lay = QHBoxLayout(hdr)
-        hdr_lay.setContentsMargins(8, 0, 8, 0)
-        hdr_lay.setSpacing(6)
+        hdr_lay.setContentsMargins(Spacing.SM, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        hdr_lay.setSpacing(Spacing.PX6)
 
         title = QLabel("Volume Distribution")
         title.setStyleSheet(f"color: {TEXT}; font-size: 10px; font-weight: bold; background: transparent;")
@@ -91,8 +92,8 @@ class VolumeMapWidget(QWidget):
         # Content area
         self._content = QWidget()
         content_lay = QVBoxLayout(self._content)
-        content_lay.setContentsMargins(0, 0, 0, 0)
-        content_lay.setSpacing(0)
+        content_lay.setContentsMargins(*Margins.NONE)
+        content_lay.setSpacing(Spacing.NONE)
 
         self._bar = _StackBar()
         content_lay.addWidget(self._bar)
@@ -106,8 +107,8 @@ class VolumeMapWidget(QWidget):
 
         self._legend_row = QWidget()
         self._legend_lay = QVBoxLayout(self._legend_row)
-        self._legend_lay.setContentsMargins(8, 4, 8, 4)
-        self._legend_lay.setSpacing(4)
+        self._legend_lay.setContentsMargins(Spacing.SM, Spacing.XS, Spacing.SM, Spacing.XS)
+        self._legend_lay.setSpacing(Spacing.XS)
         self._legend_lay.addStretch()
         scroll.setWidget(self._legend_row)
         content_lay.addWidget(scroll)
@@ -176,8 +177,8 @@ class VolumeMapWidget(QWidget):
 
             pair = QWidget()
             pair_lay = QHBoxLayout(pair)
-            pair_lay.setContentsMargins(0, 0, 0, 0)
-            pair_lay.setSpacing(4)
+            pair_lay.setContentsMargins(*Margins.NONE)
+            pair_lay.setSpacing(Spacing.XS)
             pair_lay.addWidget(chip, 0, Qt.AlignVCenter)
             pair_lay.addWidget(lbl,  0, Qt.AlignVCenter)
             self._legend_lay.addWidget(pair)

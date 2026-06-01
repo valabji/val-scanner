@@ -113,6 +113,7 @@ class UndoToast:
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
         from .constants import DARK_BG, ACCENT
+        from .theme import Spacing, Sizes
 
         self._undo_cb    = undo_cb
         self._committed  = False
@@ -126,11 +127,11 @@ class UndoToast:
             f"  border-radius:20px;"
             f"}}"
         )
-        self._frame.setFixedHeight(40)
+        self._frame.setFixedHeight(Sizes.TOAST_H)
 
         lay = QHBoxLayout(self._frame)
-        lay.setContentsMargins(16, 0, 10, 0)
-        lay.setSpacing(8)
+        lay.setContentsMargins(Spacing.LG, Spacing.NONE, Spacing.PX10, Spacing.NONE)
+        lay.setSpacing(Spacing.SM)
 
         lbl = QLabel(msg)
         lbl.setStyleSheet(f"color:{DARK_BG}; font-size:12px; font-weight:600; border:none; background:transparent;")

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from .constants import PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, BTN_HOVER, BTN_PRESSED
-from .theme import ORG_NAME, APP_NAME
+from .theme import ORG_NAME, APP_NAME, Spacing
 
 
 Placement = Literal["above", "below", "left", "right", "center"]
@@ -111,8 +111,8 @@ class _Card(QFrame):
             }}
         """)
         v = QVBoxLayout(self)
-        v.setContentsMargins(16, 14, 16, 14)
-        v.setSpacing(8)
+        v.setContentsMargins(Spacing.LG, Spacing.PX14, Spacing.LG, Spacing.PX14)
+        v.setSpacing(Spacing.SM)
 
         self.title_lbl = QLabel()
         self.title_lbl.setStyleSheet(f"color: {TEXT}; font-weight: bold; font-size: 14px;")
@@ -125,7 +125,7 @@ class _Card(QFrame):
         v.addWidget(self.body_lbl)
 
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(Spacing.SM)
         self.progress_lbl = QLabel()
         self.progress_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
         row.addWidget(self.progress_lbl)

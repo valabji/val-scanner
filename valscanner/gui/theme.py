@@ -109,12 +109,24 @@ DEFAULT_THEME = "catppuccin"
 
 
 class Spacing:
-    XS  =  4
-    SM  =  8
-    MD  = 12
-    LG  = 16
-    XL  = 24
-    XXL = 32
+    NONE =  0
+    XS   =  4
+    SM   =  8
+    MD   = 12
+    LG   = 16
+    XL   = 24
+    XXL  = 32
+    # Off-scale values used by fine-tuned UIs.
+    PX2  =  2
+    PX3  =  3
+    PX5  =  5
+    PX6  =  6
+    PX7  =  7
+    PX9  =  9
+    PX10 = 10
+    PX14 = 14
+    PX18 = 18
+    PX20 = 20
 
 
 class Margins:
@@ -137,6 +149,18 @@ class Sizes:
     CHIP_H          = 22
     ROW_H_TABLE     = 28
     ROW_H_TREE      = 24
+    # Sweep additions.
+    DIVIDER     =  1   # 1px hairline separators
+    BAR_H       =  2   # thin progress / indicator bars
+    BAR_H_TALL  =  4   # taller progress bars
+    STRIP_H_SM  = 20   # very compact strip
+    STRIP_H     = 26   # standard strip / inline label
+    CTRL_H      = 28   # inline strip control height
+    HEADER_H_SM = 32
+    HEADER_H_MD = 38
+    TOAST_H     = 40   # toast / footer / sparkline
+    HEADER_H_LG = 44
+    HEADER_H_XL = 52
 
 
 def _hex9_to_rgba(h: str) -> str:

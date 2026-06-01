@@ -49,6 +49,7 @@ from .preferences import PreferencesDialog, get as pref_get, settings as pref_se
 from . import persistence
 from . import density as _density
 from .fonts import load_fonts, ui_font_family, mono_font_family
+from .theme import Spacing, Margins, Sizes
 from ..core.export import export_csv, export_json
 from ..core.db import list_scans, repo_for, reset_repos
 from ..core.db_config import reset_engines
@@ -1099,7 +1100,7 @@ class MainWindow(QMainWindow):
 
         chip_row = QHBoxLayout()
         chip_row.setAlignment(Qt.AlignCenter)
-        chip_row.setSpacing(8)
+        chip_row.setSpacing(Spacing.SM)
         chip_ss = (
             f"QPushButton{{background:transparent;color:{TEXT};"
             f"border:1px solid {BORDER};border-radius:12px;padding:4px 12px;font-size:11px;}}"
@@ -1203,8 +1204,8 @@ class MainWindow(QMainWindow):
         central  = QWidget()
         self.setCentralWidget(central)
         root_lay = QVBoxLayout(central)
-        root_lay.setContentsMargins(0, 0, 0, 0)
-        root_lay.setSpacing(0)
+        root_lay.setContentsMargins(*Margins.NONE)
+        root_lay.setSpacing(Spacing.NONE)
         # Never let children's min/max size cascade into the window — toggling
         # collapse states should not resize the main window.
         root_lay.setSizeConstraint(QLayout.SetNoConstraint)
@@ -1231,7 +1232,7 @@ class MainWindow(QMainWindow):
         self._add_panel_toggles()
 
         sb = QStatusBar()
-        sb.setFixedHeight(26)
+        sb.setFixedHeight(Sizes.STRIP_H)
         sb.setSizeGripEnabled(False)
         sb.setStyleSheet(
             f"QStatusBar {{ background: {DARK_BG}; color: {SUBTEXT}; font-size: 11px; }}"
@@ -1243,8 +1244,8 @@ class MainWindow(QMainWindow):
         # Left: dot + persistent status label (replaces showMessage to keep them visible)
         left = QWidget()
         ll = QHBoxLayout(left)
-        ll.setContentsMargins(8, 0, 0, 0)
-        ll.setSpacing(8)
+        ll.setContentsMargins(Spacing.SM, Spacing.NONE, Spacing.NONE, Spacing.NONE)
+        ll.setSpacing(Spacing.SM)
         self._status_dot = QLabel()
         self._status_dot.setFixedSize(8, 8)
         self._status_dot.setStyleSheet(
@@ -1287,23 +1288,23 @@ class MainWindow(QMainWindow):
         self._toolbar = bar
         bar.setStyleSheet(f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};")
         outer = QVBoxLayout(bar)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(*Margins.NONE)
+        outer.setSpacing(Spacing.NONE)
 
         r1 = QWidget()
         self._toolbar_r1 = r1
         r1.setStyleSheet(f"background: {PANEL_BG};")
-        r1.setFixedHeight(52)
+        r1.setFixedHeight(Sizes.HEADER_H_XL)
         rl = QHBoxLayout(r1)
-        rl.setContentsMargins(14, 0, 14, 0)
-        rl.setSpacing(10)
+        rl.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.PX14, Spacing.NONE)
+        rl.setSpacing(Spacing.PX10)
 
         # Brand mark + name + version tag
         brand = self._build_brand_mark()
         rl.addWidget(brand)
 
         sep = QFrame(); sep.setFrameShape(QFrame.VLine)
-        sep.setFixedHeight(22)
+        sep.setFixedHeight(Sizes.CHIP_H)
         sep.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
         rl.addWidget(sep)
 
@@ -1317,13 +1318,13 @@ class MainWindow(QMainWindow):
         self.path_edit = _ScanTargetEdit()
         self.path_edit.setPlaceholderText("Pick a folder to scan…")
         self.path_edit.setMinimumWidth(260)
-        self.path_edit.setFixedHeight(28)
+        self.path_edit.setFixedHeight(Sizes.CTRL_H)
         self.path_edit.addAction(_icons.icon("folder", color=str(SUBTEXT)), QLineEdit.LeadingPosition)
         self.path_edit.returnPressed.connect(self._start_scan)
         rl.addWidget(self.path_edit, 1)
 
         browse_scan_btn = self._btn_secondary("Browse", "Choose folder to scan (Ctrl+Shift+S)")
-        browse_scan_btn.setFixedHeight(28)
+        browse_scan_btn.setFixedHeight(Sizes.CTRL_H)
         browse_scan_btn.clicked.connect(self._browse_scan)
         rl.addWidget(browse_scan_btn)
 
@@ -1337,7 +1338,7 @@ class MainWindow(QMainWindow):
         self.label_edit = QLineEdit()
         self.label_edit.setPlaceholderText("✨ My amazing scan")
         self.label_edit.setFixedWidth(170)
-        self.label_edit.setFixedHeight(28)
+        self.label_edit.setFixedHeight(Sizes.CTRL_H)
         self.label_edit.setToolTip("Optional name for this scan")
         rl.addWidget(self.label_edit)
 
@@ -1364,13 +1365,13 @@ class MainWindow(QMainWindow):
         rl.addWidget(self._db_chip)
 
         self.options_btn = self._btn_secondary("Options", "Configure scan options", icon="options")
-        self.options_btn.setFixedHeight(28)
+        self.options_btn.setFixedHeight(Sizes.CTRL_H)
         self.options_btn.clicked.connect(self._open_scan_options)
         rl.addWidget(self.options_btn)
 
         self.scan_btn = self._btn_primary("Scan", "Start scanning (Enter)", icon="scan")
         self.scan_btn.setFixedWidth(110)
-        self.scan_btn.setFixedHeight(28)
+        self.scan_btn.setFixedHeight(Sizes.CTRL_H)
         self.scan_btn.clicked.connect(self._start_scan)
         rl.addWidget(self.scan_btn)
 
@@ -1398,10 +1399,10 @@ class MainWindow(QMainWindow):
         r2 = QWidget()
         self._toolbar_r2 = r2
         r2.setStyleSheet(f"background: {DARK_BG}; border-bottom: 1px solid {BORDER};")
-        r2.setFixedHeight(38)
+        r2.setFixedHeight(Sizes.HEADER_H_MD)
         rl2 = QHBoxLayout(r2)
-        rl2.setContentsMargins(14, 0, 8, 0)
-        rl2.setSpacing(10)
+        rl2.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        rl2.setSpacing(Spacing.PX10)
 
         db_icon = self._icon_label("database", 14, color=str(SUBTEXT))
         rl2.addWidget(db_icon)
@@ -1415,7 +1416,7 @@ class MainWindow(QMainWindow):
         self.db_edit = QLineEdit("file_index.db")
         self.db_edit.setPlaceholderText("Path to .db file…")
         self.db_edit.setMinimumWidth(280)
-        self.db_edit.setFixedHeight(24)
+        self.db_edit.setFixedHeight(Sizes.BUTTON_H_SMALL)
         self.db_edit.setStyleSheet(
             f"QLineEdit {{ background:{DARK_BG}; color:{TEXT}; border:1px solid {DIVIDER2};"
             f"border-radius:5px; padding:2px 8px; font-size:11px;"
@@ -1434,7 +1435,7 @@ class MainWindow(QMainWindow):
         rl2.addWidget(open_db_btn)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.VLine)
-        sep2.setFixedHeight(20)
+        sep2.setFixedHeight(Sizes.STRIP_H_SM)
         sep2.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
         rl2.addWidget(sep2)
 
@@ -1476,8 +1477,8 @@ class MainWindow(QMainWindow):
         """Compact brand chip — app logo + name + version tag."""
         w = QWidget()
         wl = QHBoxLayout(w)
-        wl.setContentsMargins(0, 0, 0, 0)
-        wl.setSpacing(10)
+        wl.setContentsMargins(*Margins.NONE)
+        wl.setSpacing(Spacing.PX10)
 
         mark = QLabel()
         mark.setFixedSize(28, 28)
@@ -1487,8 +1488,8 @@ class MainWindow(QMainWindow):
 
         col = QWidget()
         cl = QVBoxLayout(col)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
+        cl.setContentsMargins(*Margins.NONE)
+        cl.setSpacing(Spacing.NONE)
         name = QLabel("ValScanner")
         name.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-weight: 700;")
         ver = QLabel(f"v{__version__}")
@@ -1503,7 +1504,7 @@ class MainWindow(QMainWindow):
     def _build_db_chip(self) -> QPushButton:
         """Compact DB chip shown in Toolbar1 when Toolbar2 is collapsed."""
         btn = QPushButton("  no database  ")
-        btn.setFixedHeight(28)
+        btn.setFixedHeight(Sizes.CTRL_H)
         btn.setIcon(_icons.icon("database", color=str(SUBTEXT)))
         btn.setIconSize(QSize(13, 13))
         btn.setToolTip("Expand database bar")
@@ -1532,13 +1533,13 @@ class MainWindow(QMainWindow):
 
     def _build_queue_strip(self) -> QWidget:
         self._queue_strip = QWidget()
-        self._queue_strip.setFixedHeight(26)
+        self._queue_strip.setFixedHeight(Sizes.STRIP_H)
         self._queue_strip.setStyleSheet(
             f"background: {DARK_BG}; border-bottom: 1px solid {BORDER};"
         )
         ql = QHBoxLayout(self._queue_strip)
-        ql.setContentsMargins(14, 0, 14, 0)
-        ql.setSpacing(10)
+        ql.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.PX14, Spacing.NONE)
+        ql.setSpacing(Spacing.PX10)
 
         queue_icon = QLabel("◎")
         queue_icon.setStyleSheet(f"color: {ACCENT}; font-size: 10px;")
@@ -1579,8 +1580,8 @@ class MainWindow(QMainWindow):
         """Outer wrapper that swaps between expanded filterbar and a collapsed strip."""
         self._filterbar_container = QWidget()
         cl = QVBoxLayout(self._filterbar_container)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
+        cl.setContentsMargins(*Margins.NONE)
+        cl.setSpacing(Spacing.NONE)
         cl.addWidget(self._build_filterbar())
         cl.addWidget(self._build_filterbar_strip())
         self._filterbar_strip.hide()
@@ -1592,13 +1593,13 @@ class MainWindow(QMainWindow):
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
         fl = QVBoxLayout(self._filterbar)
-        fl.setContentsMargins(0, 6, 0, 6)
-        fl.setSpacing(4)
+        fl.setContentsMargins(Spacing.NONE, Spacing.PX6, Spacing.NONE, Spacing.PX6)
+        fl.setSpacing(Spacing.XS)
 
         # ── Row 1: search + depth + group ─────────────────────────────────
         rl1 = QHBoxLayout()
-        rl1.setContentsMargins(14, 0, 14, 8)
-        rl1.setSpacing(8)
+        rl1.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.PX14, Spacing.SM)
+        rl1.setSpacing(Spacing.SM)
 
         # ── Search input ───────────────────────────────────────────────────
         self.search_edit = QLineEdit()
@@ -1606,7 +1607,7 @@ class MainWindow(QMainWindow):
         self.search_edit.addAction(_icons.icon("search", color=str(SUBTEXT)), QLineEdit.LeadingPosition)
         self.search_edit.setMinimumWidth(180)
         self.search_edit.setMaximumWidth(260)
-        self.search_edit.setFixedHeight(30)
+        self.search_edit.setFixedHeight(Sizes.BUTTON_H)
         self.search_edit.setClearButtonEnabled(True)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -1628,10 +1629,10 @@ class MainWindow(QMainWindow):
         self.folder_pill.setStyleSheet(
             f"background: {ACCENT:22}; border: 1px solid {ACCENT:6a}; border-radius: 11px;"
         )
-        self.folder_pill.setFixedHeight(22)
+        self.folder_pill.setFixedHeight(Sizes.CHIP_H)
         pill_lay = QHBoxLayout(self.folder_pill)
-        pill_lay.setContentsMargins(9, 0, 4, 0)
-        pill_lay.setSpacing(5)
+        pill_lay.setContentsMargins(Spacing.PX9, Spacing.NONE, Spacing.XS, Spacing.NONE)
+        pill_lay.setSpacing(Spacing.PX5)
         pill_icon = self._icon_label("folder-open", 11, color=str(ACCENT))
         pill_lay.addWidget(pill_icon)
         self.folder_pill_lbl = QLabel()
@@ -1739,7 +1740,7 @@ class MainWindow(QMainWindow):
 
         self._group_combo = QComboBox()
         self._group_combo.setStyleSheet(_combo_ss)
-        self._group_combo.setFixedHeight(24)
+        self._group_combo.setFixedHeight(Sizes.BUTTON_H_SMALL)
         self._group_combo.addItems(["No group", "Category", "Extension", "Folder", "Date"])
         self._group_combo.setFixedWidth(100)
         self._group_combo.setToolTip("Group files in the Details view")
@@ -1751,8 +1752,8 @@ class MainWindow(QMainWindow):
 
         # ── Row 2: filters + view + clear + collapse ───────────────────────
         rl2 = QHBoxLayout()
-        rl2.setContentsMargins(14, 0, 14, 8)
-        rl2.setSpacing(8)
+        rl2.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.PX14, Spacing.SM)
+        rl2.setSpacing(Spacing.SM)
 
         # ── Grouped Filter cluster ─────────────────────────────────────────
         fb_group = QWidget()
@@ -1761,10 +1762,10 @@ class MainWindow(QMainWindow):
             f"border-radius:7px;}}"
         )
         fb_group.setObjectName("fbGroup")
-        fb_group.setFixedHeight(32)
+        fb_group.setFixedHeight(Sizes.HEADER_H_SM)
         fgl = QHBoxLayout(fb_group)
-        fgl.setContentsMargins(8, 0, 4, 0)
-        fgl.setSpacing(4)
+        fgl.setContentsMargins(Spacing.SM, Spacing.NONE, Spacing.XS, Spacing.NONE)
+        fgl.setSpacing(Spacing.XS)
 
         grp_lbl = QLabel("FILTER")
         grp_lbl.setStyleSheet(
@@ -1772,13 +1773,13 @@ class MainWindow(QMainWindow):
             f"letter-spacing: 0.06em; padding-right: 4px;"
             f"border-right: 1px solid {DIVIDER2};"
         )
-        grp_lbl.setFixedHeight(24)
+        grp_lbl.setFixedHeight(Sizes.BUTTON_H_SMALL)
         grp_lbl.setAlignment(Qt.AlignCenter)
         fgl.addWidget(grp_lbl)
 
         self.scan_combo = QComboBox()
         self.scan_combo.setStyleSheet(_combo_ss)
-        self.scan_combo.setFixedHeight(24)
+        self.scan_combo.setFixedHeight(Sizes.BUTTON_H_SMALL)
         self.scan_combo.addItem("All scans", userData=0)
         self.scan_combo.currentIndexChanged.connect(self._on_scan_filter_changed)
         self.scan_combo.setFixedWidth(110)
@@ -1787,7 +1788,7 @@ class MainWindow(QMainWindow):
 
         self.cat_combo = QComboBox()
         self.cat_combo.setStyleSheet(_combo_ss)
-        self.cat_combo.setFixedHeight(24)
+        self.cat_combo.setFixedHeight(Sizes.BUTTON_H_SMALL)
         self.cat_combo.addItem("All types")
         for cat in sorted(CATEGORY_COLORS.keys()):
             self.cat_combo.addItem(cat)
@@ -1798,7 +1799,7 @@ class MainWindow(QMainWindow):
 
         self.sort_combo = QComboBox()
         self.sort_combo.setStyleSheet(_combo_ss)
-        self.sort_combo.setFixedHeight(24)
+        self.sort_combo.setFixedHeight(Sizes.BUTTON_H_SMALL)
         self.sort_combo.addItems(["Name ↑", "Size ↓", "Modified ↓", "Category"])
         self.sort_combo.currentIndexChanged.connect(self._apply_sort)
         self.sort_combo.setFixedWidth(100)
@@ -1830,10 +1831,10 @@ class MainWindow(QMainWindow):
             f"QWidget#viewSeg{{border:1px solid {DIVIDER2};border-radius:5px;background:transparent;}}"
         )
         view_seg.setObjectName("viewSeg")
-        view_seg.setFixedHeight(26)
+        view_seg.setFixedHeight(Sizes.STRIP_H)
         vsl = QHBoxLayout(view_seg)
-        vsl.setContentsMargins(0, 0, 0, 0)
-        vsl.setSpacing(0)
+        vsl.setContentsMargins(*Margins.NONE)
+        vsl.setSpacing(Spacing.NONE)
 
         _seg_ss_inner = (
             f"QPushButton{{background:transparent;color:{SUBTEXT};border:0;border-radius:0;"
@@ -1871,7 +1872,7 @@ class MainWindow(QMainWindow):
         rl2.addWidget(view_seg)
 
         clear_btn = self._btn_ghost("Clear")
-        clear_btn.setFixedHeight(26)
+        clear_btn.setFixedHeight(Sizes.STRIP_H)
         clear_btn.setAccessibleName("Clear filters")
         clear_btn.setAccessibleDescription("Reset all file filters")
         clear_btn.clicked.connect(self._clear_filters)
@@ -1926,10 +1927,10 @@ class MainWindow(QMainWindow):
         self._filterbar_strip.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
-        self._filterbar_strip.setFixedHeight(30)
+        self._filterbar_strip.setFixedHeight(Sizes.BUTTON_H)
         sl = QHBoxLayout(self._filterbar_strip)
-        sl.setContentsMargins(14, 0, 14, 0)
-        sl.setSpacing(10)
+        sl.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.PX14, Spacing.NONE)
+        sl.setSpacing(Spacing.PX10)
 
         funnel = self._icon_label("filters", 12, color=str(SUBTEXT))
         sl.addWidget(funnel)
@@ -1944,7 +1945,7 @@ class MainWindow(QMainWindow):
         expand_btn = QPushButton("Expand filters")
         expand_btn.setIcon(_icons.icon("mdi.chevron-down", color=str(SUBTEXT)))
         expand_btn.setIconSize(QSize(12, 12))
-        expand_btn.setFixedHeight(22)
+        expand_btn.setFixedHeight(Sizes.CHIP_H)
         expand_btn.setStyleSheet(
             f"QPushButton{{background:transparent;color:{SUBTEXT};"
             f"border:1px solid {DIVIDER2};border-radius:4px;padding:0 10px;font-size:11px;}}"
@@ -2062,8 +2063,8 @@ class MainWindow(QMainWindow):
 
         file_tab = QWidget()
         ftl      = QVBoxLayout(file_tab)
-        ftl.setContentsMargins(0, 0, 0, 0)
-        ftl.setSpacing(0)
+        ftl.setContentsMargins(*Margins.NONE)
+        ftl.setSpacing(Spacing.NONE)
 
         # Filter bar lives inside the Files tab (per design)
         ftl.addWidget(self._build_filterbar_container())
@@ -2073,17 +2074,17 @@ class MainWindow(QMainWindow):
         self._breadcrumb_bar.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
-        self._breadcrumb_bar.setFixedHeight(36)
+        self._breadcrumb_bar.setFixedHeight(Sizes.BUTTON_H_LARGE)
         self._breadcrumb_lay = QHBoxLayout(self._breadcrumb_bar)
-        self._breadcrumb_lay.setContentsMargins(14, 0, 14, 0)
-        self._breadcrumb_lay.setSpacing(4)
+        self._breadcrumb_lay.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.PX14, Spacing.NONE)
+        self._breadcrumb_lay.setSpacing(Spacing.XS)
         self._breadcrumb_lay.addStretch()
 
         # Filter count pill — shown when filter bar is collapsed
         self._filter_pill = QPushButton()
         self._filter_pill.setIcon(_icons.icon("mdi.filter", color=str(ACCENT)))
         self._filter_pill.setIconSize(QSize(11, 11))
-        self._filter_pill.setFixedHeight(22)
+        self._filter_pill.setFixedHeight(Sizes.CHIP_H)
         self._filter_pill.clicked.connect(self._on_filter_pill_clicked)
         self._filter_pill.hide()
         self._breadcrumb_lay.addWidget(self._filter_pill)
@@ -2144,7 +2145,7 @@ class MainWindow(QMainWindow):
         self.grid_view.setViewMode(QListView.IconMode)
         self.grid_view.setResizeMode(QListView.Adjust)
         self.grid_view.setUniformItemSizes(True)
-        self.grid_view.setSpacing(2)
+        self.grid_view.setSpacing(Spacing.PX2)
         _card = FileCardDelegate()
         self.grid_view.setItemDelegate(_card)
         self.grid_view.setGridSize(QSize(_card.W, _card.H))
@@ -2229,7 +2230,7 @@ class MainWindow(QMainWindow):
         w.setStyleSheet(f"background: {DARK_BG};")
         lay = QVBoxLayout(w)
         lay.setAlignment(Qt.AlignCenter)
-        lay.setSpacing(16)
+        lay.setSpacing(Spacing.LG)
 
         icon = QLabel()
         icon.setPixmap(_icons.app_logo_pixmap(96, radius=20))
@@ -2250,7 +2251,7 @@ class MainWindow(QMainWindow):
         lay.addSpacing(8)
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignCenter)
-        btn_row.setSpacing(12)
+        btn_row.setSpacing(Spacing.MD)
         scan_btn = self._btn_primary("Scan a Folder", icon="scan")
         scan_btn.clicked.connect(self._browse_scan)
         open_btn = self._btn_secondary("Open Existing Database", icon="open")
@@ -2261,8 +2262,8 @@ class MainWindow(QMainWindow):
 
         self._recents_strip = QWidget()
         self._recents_lay   = QVBoxLayout(self._recents_strip)
-        self._recents_lay.setContentsMargins(0, 0, 0, 0)
-        self._recents_lay.setSpacing(6)
+        self._recents_lay.setContentsMargins(*Margins.NONE)
+        self._recents_lay.setSpacing(Spacing.PX6)
         self._recents_lay.setAlignment(Qt.AlignCenter)
         lay.addWidget(self._recents_strip)
         self._refresh_recents_strip()
@@ -2282,7 +2283,7 @@ class MainWindow(QMainWindow):
         w.setStyleSheet(f"background: {DARK_BG};")
         lay = QVBoxLayout(w)
         lay.setAlignment(Qt.AlignCenter)
-        lay.setSpacing(12)
+        lay.setSpacing(Spacing.MD)
         ico = QLabel()
         ico.setPixmap(_icons.pixmap("search", 64, color=str(SUBTEXT)))
         ico.setAlignment(Qt.AlignCenter)
@@ -2314,8 +2315,8 @@ class MainWindow(QMainWindow):
     def _build_task_pill(self) -> QWidget:
         pill = QWidget()
         pl = QHBoxLayout(pill)
-        pl.setContentsMargins(4, 0, 4, 0)
-        pl.setSpacing(4)
+        pl.setContentsMargins(Spacing.XS, Spacing.NONE, Spacing.XS, Spacing.NONE)
+        pl.setSpacing(Spacing.XS)
 
         from PySide6.QtWidgets import QToolButton
         self._task_gear_btn = QToolButton()
@@ -2408,16 +2409,16 @@ class MainWindow(QMainWindow):
     def _build_statsbar(self) -> QWidget:
         bar = QWidget()
         bar.setStyleSheet(f"background: {PANEL_BG}; border-top: 1px solid {BORDER}; border-bottom: 1px solid {BORDER};")
-        bar.setFixedHeight(32)
+        bar.setFixedHeight(Sizes.HEADER_H_SM)
         bl = QHBoxLayout(bar)
-        bl.setContentsMargins(14, 0, 14, 0)
-        bl.setSpacing(18)
+        bl.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.PX14, Spacing.NONE)
+        bl.setSpacing(Spacing.PX18)
 
         def _stat_pair(icon_name: str) -> tuple[QLabel, QWidget]:
             wrap = QWidget()
             wl   = QHBoxLayout(wrap)
-            wl.setContentsMargins(0, 0, 0, 0)
-            wl.setSpacing(7)
+            wl.setContentsMargins(*Margins.NONE)
+            wl.setSpacing(Spacing.PX7)
             ico  = self._icon_label(icon_name, 12, color=str(SUBTEXT))
             text = QLabel("—")
             text.setStyleSheet(

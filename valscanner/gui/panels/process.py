@@ -50,6 +50,7 @@ from ..fonts import mono_font_family
 from ..widgets.sparkline import Sparkline
 from .. import icons as _icons
 from ..persistence import settings, Keys
+from ..theme import Spacing, Margins, Sizes
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -447,13 +448,13 @@ class _PMSection(QWidget):
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(*Margins.NONE)
+        outer.setSpacing(Spacing.NONE)
         # Header
         self._hdr = QToolButton(self)
         self._hdr.setAutoRaise(True)
         self._hdr.setCheckable(False)
-        self._hdr.setFixedHeight(30)
+        self._hdr.setFixedHeight(Sizes.BUTTON_H)
         self._hdr.setCursor(Qt.PointingHandCursor)
         self._hdr.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._hdr.setStyleSheet(
@@ -469,8 +470,8 @@ class _PMSection(QWidget):
 
         # Header inner layout (chevron + title + badge)
         hl = QHBoxLayout(self._hdr)
-        hl.setContentsMargins(12, 0, 12, 0)
-        hl.setSpacing(6)
+        hl.setContentsMargins(Spacing.MD, Spacing.NONE, Spacing.MD, Spacing.NONE)
+        hl.setSpacing(Spacing.PX6)
         self._chev = QLabel()
         self._chev.setFixedSize(12, 12)
         hl.addWidget(self._chev)
@@ -491,14 +492,14 @@ class _PMSection(QWidget):
         # Body
         self._body = QWidget(self)
         self._body_lay = QVBoxLayout(self._body)
-        self._body_lay.setContentsMargins(0, 0, 0, 0)
-        self._body_lay.setSpacing(0)
+        self._body_lay.setContentsMargins(*Margins.NONE)
+        self._body_lay.setSpacing(Spacing.NONE)
         outer.addWidget(self._body)
 
         # Bottom divider
         self._sep = QFrame(self)
         self._sep.setFrameShape(QFrame.HLine)
-        self._sep.setFixedHeight(1)
+        self._sep.setFixedHeight(Sizes.DIVIDER)
         self._sep.setStyleSheet(f"background: {BORDER}; border: 0;")
         outer.addWidget(self._sep)
 
@@ -558,8 +559,8 @@ class _PMStat(QWidget):
 
     def _build(self, label: str) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(2)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.PX2)
         self._k = QLabel(label.upper())
         self._k.setStyleSheet(
             f"color: {SUBTEXT}; font-size: 9px; font-weight: 600; letter-spacing: 1px;"
@@ -599,12 +600,12 @@ class _PMMeter(QWidget):
 
     def _build(self, label: str) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.PX6)
         # Label row
         row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(0)
+        row.setContentsMargins(*Margins.NONE)
+        row.setSpacing(Spacing.NONE)
         self._k = QLabel(label.upper())
         self._k.setStyleSheet(
             f"color: {SUBTEXT}; font-size: 10px; font-weight: 500; letter-spacing: 1px;"
@@ -636,7 +637,7 @@ class _BarFill(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setFixedHeight(4)
+        self.setFixedHeight(Sizes.BAR_H_TALL)
         self._pct = 0.0
 
     def set_pct(self, pct: float) -> None:
@@ -683,13 +684,13 @@ class _PMWorker(QFrame):
             "}"
         )
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 9)
-        lay.setSpacing(6)
+        lay.setContentsMargins(Spacing.PX10, Spacing.SM, Spacing.PX10, Spacing.PX9)
+        lay.setSpacing(Spacing.PX6)
 
         # Header: id + state pill
         hd = QHBoxLayout()
-        hd.setContentsMargins(0, 0, 0, 0)
-        hd.setSpacing(0)
+        hd.setContentsMargins(*Margins.NONE)
+        hd.setSpacing(Spacing.NONE)
         self._id_lbl = QLabel("W-—")
         self._id_lbl.setStyleSheet(
             f"color: {SUBTEXT}; font-family: '{mono_font_family()}', monospace;"
@@ -698,8 +699,8 @@ class _PMWorker(QFrame):
         hd.addWidget(self._id_lbl, 1)
         self._state_wrap = QWidget()
         sw = QHBoxLayout(self._state_wrap)
-        sw.setContentsMargins(0, 0, 0, 0)
-        sw.setSpacing(5)
+        sw.setContentsMargins(*Margins.NONE)
+        sw.setSpacing(Spacing.PX5)
         self._state_dot = QLabel()
         self._state_dot.setFixedSize(7, 7)
         self._state_lbl = QLabel("RUNNING")
@@ -723,13 +724,13 @@ class _PMWorker(QFrame):
 
         # Mini bar
         self._bar = _BarFill()
-        self._bar.setFixedHeight(2)
+        self._bar.setFixedHeight(Sizes.BAR_H)
         lay.addWidget(self._bar)
 
         # Footer: rate · mem
         ft = QHBoxLayout()
-        ft.setContentsMargins(0, 0, 0, 0)
-        ft.setSpacing(0)
+        ft.setContentsMargins(*Margins.NONE)
+        ft.setSpacing(Spacing.NONE)
         self._rate_lbl = QLabel("—")
         self._rate_lbl.setStyleSheet(
             f"color: {SUBTEXT}; font-family: '{mono_font_family()}', monospace;"
@@ -884,18 +885,18 @@ class ProcessPanel(QWidget):
     def _build_ui(self) -> None:
         self.setStyleSheet(f"background: {DARK_BG};")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(*Margins.NONE)
+        outer.setSpacing(Spacing.NONE)
 
         # Header
         hdr = QWidget()
-        hdr.setFixedHeight(38)
+        hdr.setFixedHeight(Sizes.HEADER_H_MD)
         hdr.setStyleSheet(
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
         hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(14, 0, 8, 0)
-        hl.setSpacing(8)
+        hl.setContentsMargins(Spacing.PX14, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        hl.setSpacing(Spacing.SM)
         self._live_dot = _LiveDot()
         self._live_dot.hide()
         hl.addWidget(self._live_dot)
@@ -931,8 +932,8 @@ class ProcessPanel(QWidget):
         self._body = QWidget()
         self._body.setStyleSheet(f"background: {DARK_BG};")
         body_lay = QVBoxLayout(self._body)
-        body_lay.setContentsMargins(0, 0, 0, 0)
-        body_lay.setSpacing(0)
+        body_lay.setContentsMargins(*Margins.NONE)
+        body_lay.setSpacing(Spacing.NONE)
 
         # ── Summary section ──
         self._sec_summary = _PMSection(
@@ -941,7 +942,7 @@ class ProcessPanel(QWidget):
         summary_body = QWidget()
         summary_body.setStyleSheet(f"background: {DARK_BG};")
         sg = QGridLayout(summary_body)
-        sg.setContentsMargins(14, 10, 14, 12)
+        sg.setContentsMargins(Spacing.PX14, Spacing.PX10, Spacing.PX14, Spacing.MD)
         sg.setHorizontalSpacing(14)
         sg.setVerticalSpacing(6)
         self._stat_processed = _PMStat("Processed")
@@ -962,8 +963,8 @@ class ProcessPanel(QWidget):
         meters_body = QWidget()
         meters_body.setStyleSheet(f"background: {DARK_BG};")
         ml = QVBoxLayout(meters_body)
-        ml.setContentsMargins(14, 12, 14, 12)
-        ml.setSpacing(10)
+        ml.setContentsMargins(Spacing.PX14, Spacing.MD, Spacing.PX14, Spacing.MD)
+        ml.setSpacing(Spacing.PX10)
         self._meter_progress = _PMMeter("Progress")
         self._meter_cpu = _PMMeter(f"CPU · {self._cpu_count} cores")
         self._meter_ram = _PMMeter("RAM")
@@ -982,8 +983,8 @@ class ProcessPanel(QWidget):
         workers_body = QWidget()
         workers_body.setStyleSheet(f"background: {DARK_BG};")
         wl = QVBoxLayout(workers_body)
-        wl.setContentsMargins(14, 6, 14, 14)
-        wl.setSpacing(8)
+        wl.setContentsMargins(Spacing.PX14, Spacing.PX6, Spacing.PX14, Spacing.PX14)
+        wl.setSpacing(Spacing.SM)
         # Queue header row
         self._queue_lbl = QLabel("queue · 0")
         self._queue_lbl.setStyleSheet(
@@ -1011,8 +1012,8 @@ class ProcessPanel(QWidget):
         spark_body = QWidget()
         spark_body.setStyleSheet(f"background: {DARK_BG};")
         sl = QVBoxLayout(spark_body)
-        sl.setContentsMargins(14, 8, 14, 12)
-        sl.setSpacing(6)
+        sl.setContentsMargins(Spacing.PX14, Spacing.SM, Spacing.PX14, Spacing.MD)
+        sl.setSpacing(Spacing.PX6)
         self._sparkline = Sparkline(capacity=SPARKLINE_CAPACITY)
         sl.addWidget(self._sparkline)
         self._sec_spark.set_body_widget(spark_body)

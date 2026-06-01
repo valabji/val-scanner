@@ -16,6 +16,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget
 
 from ..constants import ACCENT, DARK_BG
+from ..theme import Sizes
 
 
 class Sparkline(QWidget):
@@ -32,7 +33,7 @@ class Sparkline(QWidget):
         self._samples: Deque[float] = deque(maxlen=capacity)
         self._cache_key: tuple | None = None
         self._cache_paths: tuple[QPainterPath, QPainterPath] | None = None
-        self.setFixedHeight(40)
+        self.setFixedHeight(Sizes.TOAST_H)
         self.setMinimumWidth(60)
 
     def add_sample(self, value: float) -> None:

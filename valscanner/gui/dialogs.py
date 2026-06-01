@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .constants import CATEGORY_COLORS, DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, BTN_HOVER
+from .theme import Spacing, Margins
 from ..core.metadata import PIL_AVAILABLE, FFMPEG_AVAILABLE
 from . import persistence
 
@@ -46,12 +47,12 @@ class ScanOptionsDialog(QDialog):
 
     def _build_ui(self, opts: dict) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(*Margins.PANEL)
+        lay.setSpacing(Spacing.MD)
 
         thumb_grp = QGroupBox("Thumbnails")
         tl = QVBoxLayout(thumb_grp)
-        tl.setSpacing(8)
+        tl.setSpacing(Spacing.SM)
 
         self.thumb_chk = QCheckBox("Store thumbnails in database")
         self.thumb_chk.setChecked(opts.get("store_thumbnails", False))
@@ -107,7 +108,7 @@ class ScanOptionsDialog(QDialog):
 
         sample_grp = QGroupBox("Media Samples")
         sl = QVBoxLayout(sample_grp)
-        sl.setSpacing(8)
+        sl.setSpacing(Spacing.SM)
 
         self.sample_chk = QCheckBox("Store audio / video samples in database")
         self.sample_chk.setChecked(opts.get("store_samples", False))
@@ -160,7 +161,7 @@ class ScanOptionsDialog(QDialog):
             )
         )
         fl = QVBoxLayout(filter_grp)
-        fl.setSpacing(6)
+        fl.setSpacing(Spacing.PX6)
 
         folder_lbl = QLabel("Folders")
         folder_lbl.setStyleSheet(f"color:{SUBTEXT}; font-size:10px; font-weight:bold;")
@@ -326,13 +327,13 @@ class ViewFiltersDialog(QDialog):
 
     def _build_ui(self, filters: dict) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(*Margins.PANEL)
+        lay.setSpacing(Spacing.MD)
 
         # ── Categories ────────────────────────────────────────────────────────
         cat_grp = QGroupBox("Show categories")
         cg_lay  = QVBoxLayout(cat_grp)
-        cg_lay.setSpacing(6)
+        cg_lay.setSpacing(Spacing.PX6)
 
         cat_grid = QGridLayout()
         cat_grid.setHorizontalSpacing(16)
@@ -363,7 +364,7 @@ class ViewFiltersDialog(QDialog):
         # ── Size range ────────────────────────────────────────────────────────
         size_grp = QGroupBox("Size range  (0 = no limit)")
         sl = QHBoxLayout(size_grp)
-        sl.setSpacing(8)
+        sl.setSpacing(Spacing.SM)
 
         sl.addWidget(QLabel("Min:"))
         self._min_spin = QDoubleSpinBox()
@@ -426,7 +427,7 @@ class ViewFiltersDialog(QDialog):
         # ── Path & file filters ───────────────────────────────────────────────
         pf_grp = QGroupBox("Path & file filters  (hide matching items from view)")
         pf_lay = QVBoxLayout(pf_grp)
-        pf_lay.setSpacing(5)
+        pf_lay.setSpacing(Spacing.PX5)
 
         _sub_lbl_ss = f"color:{SUBTEXT}; font-size:10px; font-weight:bold;"
 
@@ -597,8 +598,8 @@ class AnalysisFiltersDialog(QDialog):
 
     def _build_ui(self, opts: dict) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(*Margins.PANEL)
+        lay.setSpacing(Spacing.MD)
 
         intro = QLabel(
             "Skip these files when looking for similar folders. Changes apply "
@@ -610,7 +611,7 @@ class AnalysisFiltersDialog(QDialog):
 
         grp = QGroupBox("Filters")
         gl  = QVBoxLayout(grp)
-        gl.setSpacing(6)
+        gl.setSpacing(Spacing.PX6)
 
         _sub_ss = f"color:{SUBTEXT}; font-size:10px; font-weight:bold;"
         folder_lbl = QLabel("Folders")
@@ -692,7 +693,7 @@ class DatabaseSettingsDialog(QDialog):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setSpacing(16)
+        root.setSpacing(Spacing.LG)
 
         backend_box = QGroupBox("Backend")
         bl = QHBoxLayout(backend_box)

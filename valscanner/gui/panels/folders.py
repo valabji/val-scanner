@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN, RED, YELLOW, ORANGE, SEL_BG, SEL_TEXT
 from ..widgets.volume_map import VolumeMapWidget
+from ..theme import Spacing, Margins, Sizes
 from ...core.schema import human_size
 from .. import icons as _icons
 
@@ -77,8 +78,8 @@ class FolderPanel(QWidget):
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
 
         self.tree = QTreeView()
         self.tree.setAccessibleName("Folder hierarchy")
@@ -145,10 +146,10 @@ class FolderPanel(QWidget):
 
         hdr = QWidget()
         hdr.setStyleSheet(f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};")
-        hdr.setFixedHeight(36)
+        hdr.setFixedHeight(Sizes.BUTTON_H_LARGE)
         hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(10, 0, 8, 0)
-        hl.setSpacing(6)
+        hl.setContentsMargins(Spacing.PX10, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        hl.setSpacing(Spacing.PX6)
         title_icon = QLabel()
         title_icon.setPixmap(_icons.pixmap("folder-open", 14, color=str(TEXT)))
         hl.addWidget(title_icon)

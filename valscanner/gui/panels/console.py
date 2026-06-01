@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
 from ..constants import PANEL_BG, BORDER, SUBTEXT, TEXT, GREEN, YELLOW, RED
 from ..fonts import mono_font_family
 from .. import icons as _icons
+from ..theme import Spacing, Margins, Sizes
 
 
 class _StderrBridge:
@@ -60,15 +61,15 @@ class ConsolePanel(QWidget):
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
 
         self._hdr = QWidget()
-        self._hdr.setFixedHeight(28)
+        self._hdr.setFixedHeight(Sizes.CTRL_H)
         self._hdr.setStyleSheet(f"background:{PANEL_BG};border-top:1px solid {BORDER};")
         hl = QHBoxLayout(self._hdr)
-        hl.setContentsMargins(12, 0, 8, 0)
-        hl.setSpacing(6)
+        hl.setContentsMargins(Spacing.MD, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        hl.setSpacing(Spacing.PX6)
         icon = QLabel()
         icon.setPixmap(_icons.pixmap("console", 14, color=str(SUBTEXT)))
         hl.addWidget(icon)

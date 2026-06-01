@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 
 from .constants import PANEL_BG, BORDER, SUBTEXT, ACCENT, BG2, DIVIDER2
 from . import icons as _icons
+from .theme import Spacing, Margins, Sizes
 
 RAIL_W  = 28
 _BTN_SZ = 20
@@ -87,19 +88,19 @@ class CollapsiblePanel(QWidget):
         self._rail.clicked.connect(lambda: self.set_expanded(True))
 
         self._rail_lay = QVBoxLayout(self._rail)
-        self._rail_lay.setContentsMargins(0, 4, 0, 4)
-        self._rail_lay.setSpacing(0)
+        self._rail_lay.setContentsMargins(Spacing.NONE, Spacing.XS, Spacing.NONE, Spacing.XS)
+        self._rail_lay.setSpacing(Spacing.NONE)
 
         # border_side="right" → rail on LEFT → chevron points right (›)
         # border_side="left"  → rail on RIGHT → chevron points left (‹)
         chev_expand = "›" if border_side == "right" else "‹"
         self._chev_lbl = QLabel(chev_expand)
-        self._chev_lbl.setFixedHeight(28)
+        self._chev_lbl.setFixedHeight(Sizes.CTRL_H)
         self._chev_lbl.setAlignment(Qt.AlignCenter)
         self._rail_lay.addWidget(self._chev_lbl)
 
         self._icon_lbl = QLabel()
-        self._icon_lbl.setFixedHeight(26)
+        self._icon_lbl.setFixedHeight(Sizes.STRIP_H)
         self._icon_lbl.setAlignment(Qt.AlignCenter)
         if icon_name:
             self._icon_lbl.setPixmap(_icons.pixmap(icon_name, 14, color=str(SUBTEXT)))
@@ -123,8 +124,8 @@ class CollapsiblePanel(QWidget):
         self.collapse_button.clicked.connect(lambda: self.set_expanded(False))
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
         lay.addWidget(self._rail)
         lay.addWidget(self._content, 1)
 
@@ -197,8 +198,8 @@ class _StackedRail(QWidget):
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(*Margins.NONE)
+        outer.setSpacing(Spacing.NONE)
 
         self._insp_half = _ClickWidget()
         self._insp_half.setCursor(Qt.PointingHandCursor)
@@ -206,14 +207,14 @@ class _StackedRail(QWidget):
         self._insp_half.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._insp_half.clicked.connect(self.inspector_clicked)
         ih = QVBoxLayout(self._insp_half)
-        ih.setContentsMargins(0, 4, 0, 4)
-        ih.setSpacing(0)
+        ih.setContentsMargins(Spacing.NONE, Spacing.XS, Spacing.NONE, Spacing.XS)
+        ih.setSpacing(Spacing.NONE)
         self._insp_chev = QLabel("›")
-        self._insp_chev.setFixedHeight(28)
+        self._insp_chev.setFixedHeight(Sizes.CTRL_H)
         self._insp_chev.setAlignment(Qt.AlignCenter)
         ih.addWidget(self._insp_chev)
         self._insp_icon = QLabel()
-        self._insp_icon.setFixedHeight(26)
+        self._insp_icon.setFixedHeight(Sizes.STRIP_H)
         self._insp_icon.setAlignment(Qt.AlignCenter)
         ih.addWidget(self._insp_icon)
         self._insp_lbl = VerticalLabel("INSPECTOR")
@@ -225,7 +226,7 @@ class _StackedRail(QWidget):
 
         # Thin divider between the two halves
         self._div = QWidget()
-        self._div.setFixedHeight(1)
+        self._div.setFixedHeight(Sizes.DIVIDER)
         outer.addWidget(self._div)
 
         self._mon_half = _ClickWidget()
@@ -234,14 +235,14 @@ class _StackedRail(QWidget):
         self._mon_half.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._mon_half.clicked.connect(self.monitor_clicked)
         mh = QVBoxLayout(self._mon_half)
-        mh.setContentsMargins(0, 4, 0, 4)
-        mh.setSpacing(0)
+        mh.setContentsMargins(Spacing.NONE, Spacing.XS, Spacing.NONE, Spacing.XS)
+        mh.setSpacing(Spacing.NONE)
         self._mon_chev = QLabel("›")
-        self._mon_chev.setFixedHeight(28)
+        self._mon_chev.setFixedHeight(Sizes.CTRL_H)
         self._mon_chev.setAlignment(Qt.AlignCenter)
         mh.addWidget(self._mon_chev)
         self._mon_icon = QLabel()
-        self._mon_icon.setFixedHeight(26)
+        self._mon_icon.setFixedHeight(Sizes.STRIP_H)
         self._mon_icon.setAlignment(Qt.AlignCenter)
         mh.addWidget(self._mon_icon)
         self._mon_lbl = VerticalLabel("MONITOR")
@@ -330,8 +331,8 @@ class RightZone(QWidget):
         self._inner.setSizes([320, 296])
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
         lay.addWidget(self._insp_rail)
         lay.addWidget(self._inner, 1)
         lay.addWidget(self._mon_rail)
@@ -350,16 +351,16 @@ class RightZone(QWidget):
         rail._icon_name = icon_name
 
         lay = QVBoxLayout(rail)
-        lay.setContentsMargins(0, 4, 0, 4)
-        lay.setSpacing(0)
+        lay.setContentsMargins(Spacing.NONE, Spacing.XS, Spacing.NONE, Spacing.XS)
+        lay.setSpacing(Spacing.NONE)
 
         rail._chev = QLabel("›")
-        rail._chev.setFixedHeight(28)
+        rail._chev.setFixedHeight(Sizes.CTRL_H)
         rail._chev.setAlignment(Qt.AlignCenter)
         lay.addWidget(rail._chev)
 
         rail._icon_lbl = QLabel()
-        rail._icon_lbl.setFixedHeight(26)
+        rail._icon_lbl.setFixedHeight(Sizes.STRIP_H)
         rail._icon_lbl.setAlignment(Qt.AlignCenter)
         lay.addWidget(rail._icon_lbl)
 

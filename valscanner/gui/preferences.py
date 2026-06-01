@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from .constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, SEL_TEXT
-from .theme import THEMES, THEME_LABELS, DEFAULT_THEME, ORG_NAME, APP_NAME, _hex9_to_rgba
+from .theme import THEMES, THEME_LABELS, DEFAULT_THEME, ORG_NAME, APP_NAME, Spacing, _hex9_to_rgba
 
 
 SETTINGS_DEFAULTS = {
@@ -104,8 +104,8 @@ class PreferencesDialog(QDialog):
         """)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 12)
-        lay.setSpacing(12)
+        lay.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.MD)
+        lay.setSpacing(Spacing.MD)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_appearance_tab(), "Appearance")
@@ -125,8 +125,8 @@ class PreferencesDialog(QDialog):
     def _build_appearance_tab(self) -> QWidget:
         w   = QWidget()
         f   = QFormLayout(w)
-        f.setContentsMargins(14, 14, 14, 14)
-        f.setSpacing(10)
+        f.setContentsMargins(Spacing.PX14, Spacing.PX14, Spacing.PX14, Spacing.PX14)
+        f.setSpacing(Spacing.PX10)
 
         self.theme_combo = QComboBox()
         for key in THEMES:
@@ -277,8 +277,8 @@ class PreferencesDialog(QDialog):
     def _build_behavior_tab(self) -> QWidget:
         w = QWidget()
         f = QFormLayout(w)
-        f.setContentsMargins(14, 14, 14, 14)
-        f.setSpacing(10)
+        f.setContentsMargins(Spacing.PX14, Spacing.PX14, Spacing.PX14, Spacing.PX14)
+        f.setSpacing(Spacing.PX10)
 
         db_row = QHBoxLayout()
         self.db_edit = QLineEdit()

@@ -119,7 +119,7 @@ class DetailPanel(QWidget):
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(*Margins.NONE)
-        outer.setSpacing(0)
+        outer.setSpacing(Spacing.NONE)
 
         hdr = QWidget()
         hdr.setFixedHeight(Sizes.BUTTON_H_LARGE)
@@ -127,8 +127,8 @@ class DetailPanel(QWidget):
             f"background: {PANEL_BG}; border-bottom: 1px solid {BORDER};"
         )
         hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(10, 0, 8, 0)
-        hl.setSpacing(6)
+        hl.setContentsMargins(Spacing.PX10, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        hl.setSpacing(Spacing.PX6)
         title_icon = QLabel()
         from .. import icons as _ic
         title_icon.setPixmap(_ic.pixmap("mdi.eye-outline", 14, color=str(SUBTEXT)))
@@ -206,8 +206,8 @@ class DetailPanel(QWidget):
         # Collapsible EXIF section
         self._exif_section = QWidget()
         exif_outer = QVBoxLayout(self._exif_section)
-        exif_outer.setContentsMargins(0, 4, 0, 0)
-        exif_outer.setSpacing(2)
+        exif_outer.setContentsMargins(Spacing.NONE, Spacing.XS, Spacing.NONE, Spacing.NONE)
+        exif_outer.setSpacing(Spacing.PX2)
 
         self._exif_toggle = QPushButton("▼  EXIF")
         self._exif_toggle.setCheckable(True)

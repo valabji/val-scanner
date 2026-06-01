@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QApplica
 
 from ..constants import PANEL_BG, BORDER, TEXT, SUBTEXT, ACCENT, CATEGORY_COLORS
 from .. import icons as _icons
+from ..theme import Spacing, Margins
 
 CARD_W  = 240
 THUMB_H = 120
@@ -67,8 +68,8 @@ class HoverPeekCard(QFrame):
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
 
         # Thumbnail area
         self._thumb_lbl = QLabel()
@@ -84,8 +85,8 @@ class HoverPeekCard(QFrame):
         meta = QFrame()
         meta.setStyleSheet("QFrame { background: transparent; border: none; }")
         ml = QVBoxLayout(meta)
-        ml.setContentsMargins(10, 8, 10, 10)
-        ml.setSpacing(3)
+        ml.setContentsMargins(Spacing.PX10, Spacing.SM, Spacing.PX10, Spacing.PX10)
+        ml.setSpacing(Spacing.PX3)
 
         self._name_lbl = QLabel()
         self._name_lbl.setWordWrap(True)

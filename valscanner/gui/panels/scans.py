@@ -15,6 +15,7 @@ from ..density import get_row_height, on_changed as _density_on_changed
 from ...core.db import list_scans, delete_scan, remap_scan
 from ...core.schema import human_size
 from .. import icons as _icons
+from ..theme import Spacing, Margins, Sizes
 from ..feedback import confirm_destructive, undo_toast
 from .. import persistence
 
@@ -71,15 +72,15 @@ class ScansPanel(QWidget):
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
 
         self._hdr = QWidget()
         self._hdr.setStyleSheet(f"background:{PANEL_BG};border-bottom:1px solid {BORDER};")
-        self._hdr.setFixedHeight(44)
+        self._hdr.setFixedHeight(Sizes.HEADER_H_LG)
         hl = QHBoxLayout(self._hdr)
-        hl.setContentsMargins(16, 0, 16, 0)
-        hl.setSpacing(8)
+        hl.setContentsMargins(Spacing.LG, Spacing.NONE, Spacing.LG, Spacing.NONE)
+        hl.setSpacing(Spacing.SM)
         title_icon = QLabel()
         title_icon.setPixmap(_icons.pixmap("package", 18, color=str(TEXT)))
         hl.addWidget(title_icon)
@@ -173,9 +174,9 @@ class ScansPanel(QWidget):
 
         self._foot = QWidget()
         self._foot.setStyleSheet(f"background:{PANEL_BG};border-top:1px solid {BORDER};")
-        self._foot.setFixedHeight(40)
+        self._foot.setFixedHeight(Sizes.TOAST_H)
         fl = QHBoxLayout(self._foot)
-        fl.setContentsMargins(16, 0, 16, 0)
+        fl.setContentsMargins(Spacing.LG, Spacing.NONE, Spacing.LG, Spacing.NONE)
         self._show_all_btn = QPushButton("Show all scans in Files view")
         self._show_all_btn.setStyleSheet(
             f"QPushButton{{background:transparent;color:{ACCENT};border:1px solid {ACCENT}44;"

@@ -16,6 +16,7 @@ from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER, GREEN,
 from ..dialogs import AnalysisFiltersDialog
 from .. import icons as _icons
 from ..workers import AnalysisWorker
+from ..theme import Spacing, Margins, Sizes
 from .process import ProcessRegistry
 from ...core.db import (
     list_scans, list_analysis_runs, load_analysis_run, delete_analysis_run,
@@ -78,9 +79,9 @@ class FolderGroupCard(QFrame):
 
     def _build(self, r: dict) -> None:
         lay = QVBoxLayout(self)
-        m   = 8 if self._is_child else 14
-        lay.setContentsMargins(m, 10, m, 10)
-        lay.setSpacing(6)
+        m   = Spacing.SM if self._is_child else Spacing.PX14
+        lay.setContentsMargins(m, Spacing.PX10, m, Spacing.PX10)
+        lay.setSpacing(Spacing.PX6)
 
         lc       = LABEL_COLORS.get(r["label"], SUBTEXT)
         children = r.get("children", [])
@@ -88,7 +89,7 @@ class FolderGroupCard(QFrame):
         n_mem    = len(members)
 
         hdr = QHBoxLayout()
-        hdr.setSpacing(8)
+        hdr.setSpacing(Spacing.SM)
 
         if not self._is_child:
             self._collapse_btn = QPushButton("▼")
@@ -154,8 +155,8 @@ class FolderGroupCard(QFrame):
         if not self._is_child:
             self._body = QWidget()
             body_lay = QVBoxLayout(self._body)
-            body_lay.setContentsMargins(0, 0, 0, 0)
-            body_lay.setSpacing(6)
+            body_lay.setContentsMargins(*Margins.NONE)
+            body_lay.setSpacing(Spacing.PX6)
             target = body_lay
         else:
             target = lay
@@ -164,7 +165,7 @@ class FolderGroupCard(QFrame):
             bar = QProgressBar()
             bar.setRange(0, 100)
             bar.setValue(int(r["score"] * 100))
-            bar.setFixedHeight(4)
+            bar.setFixedHeight(Sizes.BAR_H_TALL)
             bar.setTextVisible(False)
             bar.setStyleSheet(
                 f"QProgressBar{{background:{DARK_BG};border:none;border-radius:2px;}}"
@@ -197,7 +198,7 @@ class FolderGroupCard(QFrame):
                 display = abs_path
 
             frow = QHBoxLayout()
-            frow.setSpacing(6)
+            frow.setSpacing(Spacing.PX6)
             icon_lbl = QLabel()
             icon_lbl.setPixmap(_icons.pixmap("folder", 14, color=str(SUBTEXT)))
             icon_lbl.setFixedWidth(18)
@@ -239,8 +240,8 @@ class FolderGroupCard(QFrame):
                 f"border:1px solid {border_color};border-radius:5px;}}"
             )
             wl = QHBoxLayout(wrap)
-            wl.setContentsMargins(6, 1, 6, 1)
-            wl.setSpacing(4)
+            wl.setContentsMargins(Spacing.PX6, Sizes.DIVIDER, Spacing.PX6, Sizes.DIVIDER)
+            wl.setSpacing(Spacing.XS)
             ico = QLabel()
             ico.setPixmap(_icons.pixmap(icon_name, 11, color=text_color))
             wl.addWidget(ico)
@@ -250,7 +251,7 @@ class FolderGroupCard(QFrame):
             return wrap
 
         sigs = QHBoxLayout()
-        sigs.setSpacing(6)
+        sigs.setSpacing(Spacing.PX6)
         for icon_name, label, key in (
             ("tag",     "Names", "name_score"),
             ("package", "Exts",  "ext_score"),
@@ -297,8 +298,8 @@ class FolderGroupCard(QFrame):
                 f"background:{DARK_BG:88};border-radius:6px;border:1px dashed {BORDER:66};"
             )
             cl = QVBoxLayout(self._children_widget)
-            cl.setContentsMargins(6, 6, 6, 6)
-            cl.setSpacing(3)
+            cl.setContentsMargins(Spacing.PX6, Spacing.PX6, Spacing.PX6, Spacing.PX6)
+            cl.setSpacing(Spacing.PX3)
 
             for child in children:
                 enriched   = dict(child, _parent_members=members)
@@ -358,15 +359,15 @@ class SimilarFoldersPanel(QWidget):
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(*Margins.NONE)
+        lay.setSpacing(Spacing.NONE)
 
         self._ctrl = QWidget()
         self._ctrl.setStyleSheet(f"background:{PANEL_BG};border-bottom:1px solid {BORDER};")
-        self._ctrl.setFixedHeight(52)
+        self._ctrl.setFixedHeight(Sizes.HEADER_H_XL)
         cl = QHBoxLayout(self._ctrl)
-        cl.setContentsMargins(16, 0, 16, 0)
-        cl.setSpacing(10)
+        cl.setContentsMargins(Spacing.LG, Spacing.NONE, Spacing.LG, Spacing.NONE)
+        cl.setSpacing(Spacing.PX10)
         title_icon = QLabel()
         title_icon.setPixmap(_icons.pixmap("similar", 18, color=str(TEXT)))
         cl.addWidget(title_icon)
@@ -380,7 +381,7 @@ class SimilarFoldersPanel(QWidget):
         self.min_spin.setRange(1, 9999)
         self.min_spin.setValue(3)
         self.min_spin.setFixedWidth(62)
-        self.min_spin.setFixedHeight(28)
+        self.min_spin.setFixedHeight(Sizes.CTRL_H)
         self.min_spin.setStyleSheet(self._input_ss())
         self.min_spin.setAccessibleName("Minimum files per folder")
         self.min_spin.setAccessibleDescription(
@@ -460,10 +461,10 @@ class SimilarFoldersPanel(QWidget):
 
         self._part_bar = QWidget()
         self._part_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
-        self._part_bar.setFixedHeight(44)
+        self._part_bar.setFixedHeight(Sizes.HEADER_H_LG)
         pl = QHBoxLayout(self._part_bar)
-        pl.setContentsMargins(16, 0, 8, 0)
-        pl.setSpacing(8)
+        pl.setContentsMargins(Spacing.LG, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        pl.setSpacing(Spacing.SM)
         part_lbl = self._sublabel("Partitions:")
         part_lbl.setFixedWidth(68)
         pl.addWidget(part_lbl)
@@ -477,13 +478,13 @@ class SimilarFoldersPanel(QWidget):
             f"QScrollBar:horizontal{{height:3px;background:{DARK_BG};}}"
             f"QScrollBar::handle:horizontal{{background:{BORDER};border-radius:1px;}}"
         )
-        self._part_scroll.setFixedHeight(40)
+        self._part_scroll.setFixedHeight(Sizes.TOAST_H)
 
         self._part_inner  = QWidget()
         self._part_inner.setStyleSheet("background:transparent;")
         self._part_layout = QHBoxLayout(self._part_inner)
-        self._part_layout.setContentsMargins(0, 0, 8, 0)
-        self._part_layout.setSpacing(6)
+        self._part_layout.setContentsMargins(Spacing.NONE, Spacing.NONE, Spacing.SM, Spacing.NONE)
+        self._part_layout.setSpacing(Spacing.PX6)
         self._no_parts_lbl = QLabel("No scans loaded yet.")
         self._no_parts_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:11px;font-style:italic;")
         self._part_layout.addWidget(self._no_parts_lbl)
@@ -494,15 +495,15 @@ class SimilarFoldersPanel(QWidget):
 
         self._view_bar = QWidget()
         self._view_bar.setStyleSheet(f"background:{DARK_BG};border-bottom:1px solid {BORDER};")
-        self._view_bar.setFixedHeight(36)
+        self._view_bar.setFixedHeight(Sizes.BUTTON_H_LARGE)
         vl = QHBoxLayout(self._view_bar)
-        vl.setContentsMargins(16, 0, 16, 0)
-        vl.setSpacing(8)
+        vl.setContentsMargins(Spacing.LG, Spacing.NONE, Spacing.LG, Spacing.NONE)
+        vl.setSpacing(Spacing.SM)
         vl.addWidget(self._sublabel("Sort:"))
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Score ↓", "Total size ↓", "Files ↓", "Name ↑"])
         self.sort_combo.setFixedWidth(130)
-        self.sort_combo.setFixedHeight(24)
+        self.sort_combo.setFixedHeight(Sizes.BUTTON_H_SMALL)
         self.sort_combo.setAccessibleName("Sort results by")
         self.sort_combo.setAccessibleDescription(
             "Order the similar-folder pairs by score, size, file count, or name")
@@ -515,7 +516,7 @@ class SimilarFoldersPanel(QWidget):
         self.min_size_combo.addItems(["0", "1 MB", "10 MB", "100 MB", "500 MB", "1 GB"])
         self.min_size_combo.setCurrentIndex(0)
         self.min_size_combo.setFixedWidth(90)
-        self.min_size_combo.setFixedHeight(24)
+        self.min_size_combo.setFixedHeight(Sizes.BUTTON_H_SMALL)
         self.min_size_combo.setAccessibleName("Minimum folder size")
         self.min_size_combo.setAccessibleDescription(
             "Hide pairs whose folders are smaller than this size")
@@ -529,7 +530,7 @@ class SimilarFoldersPanel(QWidget):
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
-        self.progress.setFixedHeight(4)
+        self.progress.setFixedHeight(Sizes.BAR_H_TALL)
         self.progress.setTextVisible(False)
         self.progress.hide()
         self.progress.setStyleSheet(
@@ -544,8 +545,8 @@ class SimilarFoldersPanel(QWidget):
         self.cards_widget = QWidget()
         self.cards_widget.setStyleSheet(f"background:{DARK_BG};")
         self.cards_lay = QVBoxLayout(self.cards_widget)
-        self.cards_lay.setContentsMargins(0, 8, 0, 16)
-        self.cards_lay.setSpacing(4)
+        self.cards_lay.setContentsMargins(Spacing.NONE, Spacing.SM, Spacing.NONE, Spacing.LG)
+        self.cards_lay.setSpacing(Spacing.XS)
         self.empty_lbl = QLabel("Scan a folder first, then click Analyze to find similar folders.")
         self.empty_lbl.setAlignment(Qt.AlignCenter)
         self.empty_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:13px;padding:60px;")
@@ -580,7 +581,7 @@ class SimilarFoldersPanel(QWidget):
 
         self.footer = QLabel()
         self.footer.setAlignment(Qt.AlignCenter)
-        self.footer.setFixedHeight(30)
+        self.footer.setFixedHeight(Sizes.BUTTON_H)
         self.footer.setStyleSheet(
             f"color:{SUBTEXT};font-size:11px;background:{PANEL_BG};border-top:1px solid {BORDER};"
         )
@@ -700,7 +701,7 @@ class SimilarFoldersPanel(QWidget):
             pill  = QPushButton(text)
             pill.setToolTip(f"Root: {s['root']}\nScan ID: {s['id']}")
             pill.setCheckable(True)
-            pill.setFixedHeight(26)
+            pill.setFixedHeight(Sizes.STRIP_H)
             pill.setStyleSheet(_pill_ss)
             pill.setAccessibleName(f"Limit analysis to scan: {label}")
             pill.setAccessibleDescription(
