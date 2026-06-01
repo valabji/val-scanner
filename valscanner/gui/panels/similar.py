@@ -452,7 +452,7 @@ class SimilarFoldersPanel(QWidget):
         )
         self.analyze_btn.setAccessibleName("Analyze similarity")
         self.analyze_btn.setAccessibleDescription(
-            "Compare folders in this database to find duplicates and overlaps")
+            "Analyze folders in this database to find duplicates and overlaps")
         self.analyze_btn.clicked.connect(self._run_analysis)
         self.analyze_btn.setEnabled(False)
         cl.addWidget(self.analyze_btn)
@@ -889,7 +889,7 @@ class SimilarFoldersPanel(QWidget):
             self.analyze_btn.setText("Analyze")
             self.analyze_btn.setAccessibleName("Analyze similarity")
             self.analyze_btn.setAccessibleDescription(
-                "Compare folders in this database to find duplicates and overlaps")
+                "Analyze folders in this database to find duplicates and overlaps")
             self.analyze_btn.setIcon(_icons.icon("scan", color="#ffffff"))
             self.analyze_btn.setStyleSheet(
                 f"QPushButton{{background:{ACCENT};color:white;border:none;"
@@ -1071,7 +1071,7 @@ class SimilarFoldersPanel(QWidget):
         if not confirm_destructive(
             self, "Delete saved analysis runs",
             f"Delete all {len(runs)} saved analysis run(s)?\n\n"
-            "This only removes the stored results — your indexed files are not affected.",
+            "This only removes the stored results — your scanned files are not affected.",
             confirm_label="Delete all",
         ):
             return

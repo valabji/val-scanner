@@ -505,7 +505,7 @@ class DetailPanel(QWidget):
         if not p.exists():
             from ..feedback import notify_error
             notify_error(self, "File no longer exists",
-                f"'{p.name}' was indexed previously but is missing now. "
+                f"'{p.name}' was scanned previously but is missing now. "
                 "Re-scan to refresh.",
                 detail=str(p))
             return

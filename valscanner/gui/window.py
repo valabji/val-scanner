@@ -1292,7 +1292,7 @@ class MainWindow(QMainWindow):
         rl.addWidget(scan_lbl)
 
         self.path_edit = _ScanTargetEdit()
-        self.path_edit.setPlaceholderText("Pick a folder to index…")
+        self.path_edit.setPlaceholderText("Pick a folder to scan…")
         self.path_edit.setMinimumWidth(260)
         self.path_edit.setFixedHeight(28)
         self.path_edit.addAction(_icons.icon("folder", color=str(SUBTEXT)), QLineEdit.LeadingPosition)
@@ -2635,7 +2635,7 @@ class MainWindow(QMainWindow):
             mb.setWindowTitle("Interrupted scan found")
             mb.setText(
                 f"A previous scan of this folder was interrupted (scan #{interrupted}).\n\n"
-                "Resume it — skipping already-indexed files?\n"
+                "Resume it — skipping already-scanned files?\n"
                 "Or start fresh with a new scan?"
             )
             mb.addButton("Resume", QMessageBox.AcceptRole)
@@ -2670,7 +2670,7 @@ class MainWindow(QMainWindow):
         self.scan_btn.setText("Stop")
         self.scan_btn.setAccessibleName("Stop scan")
         self.scan_btn.setAccessibleDescription(
-            "Cancel the running scan. Already-indexed files are kept.")
+            "Cancel the running scan. Already-scanned files are kept.")
         self.scan_btn.setIcon(_icons.icon("stop", color="#ffffff"))
         self.scan_btn.setStyleSheet(
             f"QPushButton{{background:{RED};color:white;border:none;"
@@ -2769,7 +2769,7 @@ class MainWindow(QMainWindow):
         elapsed = int(time.time() - self._scan_start)
 
         if stats.get("cancelled"):
-            msg = f"⏹  Scan cancelled — {stats['scanned']:,} files indexed in {elapsed}s"
+            msg = f"⏹  Scan cancelled — {stats['scanned']:,} files scanned in {elapsed}s"
         else:
             msg = f"Scan complete — {stats['scanned']:,} files in {elapsed}s"
             if stats["errors"]:

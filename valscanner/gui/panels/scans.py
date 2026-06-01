@@ -101,7 +101,7 @@ class ScansPanel(QWidget):
         )
         self._del_btn.setAccessibleName("Delete selected scans")
         self._del_btn.setAccessibleDescription(
-            "Permanently delete the selected scans and their indexed files. "
+            "Permanently delete the selected scans and their scanned files. "
             "This cannot be undone after the undo window passes.")
         self._del_btn.clicked.connect(self._delete_selected)
         hl.addWidget(self._del_btn)

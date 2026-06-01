@@ -602,7 +602,7 @@ class AnalysisFiltersDialog(QDialog):
 
         intro = QLabel(
             "Skip these files when looking for similar folders. Changes apply "
-            "immediately — the indexed database is not modified."
+            "immediately — the database is not modified."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color:{SUBTEXT};font-size:11px;")
