@@ -21,9 +21,10 @@ from .. import persistence
 
 
 class ScansPanel(QWidget):
-    scan_deleted  = Signal(int)
-    scan_remapped = Signal(int)
-    scan_selected = Signal(int, str)
+    scan_deleted   = Signal(int)
+    scan_remapped  = Signal(int)
+    scan_selected  = Signal(int, str)
+    status_message = Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -379,19 +380,31 @@ class ScansPanel(QWidget):
         self.count_lbl.setText(f"{n} scan{'s' if n != 1 else ''} in database")
 
     def _undo_delete(self) -> None:
+        n = len(self._pending_ids)
         if self._pending_timer is not None:
             self._pending_timer.stop()
             self._pending_timer = None
         self._pending_ids = []
         self.load(self._db_path)
+        if n:
+            self.status_message.emit(
+                f"Restored {n} scan{'s' if n > 1 else ''}.", "warning"
+            )
 
     def _commit_delete(self, ids: list[int]) -> None:
         self._pending_timer = None
         self._pending_ids   = []
+        committed = 0
         for sid in ids:
             try:
                 delete_scan(self._db_path, sid)
                 self.scan_deleted.emit(sid)
+                committed += 1
             except Exception:
                 pass
         self.load(self._db_path)
+        if committed:
+            self.status_message.emit(
+                f"Deleted {committed} scan{'s' if committed > 1 else ''}.",
+                "success",
+            )

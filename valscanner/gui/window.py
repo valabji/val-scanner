@@ -2200,6 +2200,7 @@ class MainWindow(QMainWindow):
         self.scans_panel.scan_deleted.connect(self._on_scan_deleted)
         self.scans_panel.scan_remapped.connect(self._on_scan_remapped)
         self.scans_panel.scan_selected.connect(self._on_scan_panel_selected)
+        self.scans_panel.status_message.connect(lambda m, lvl: self._set_status(m, lvl))
         self.center_tabs.addTab(self.scans_panel, _icons.icon("package", color=str(SUBTEXT)), "Scans")
 
         self.splitter.addWidget(self.center_tabs)
