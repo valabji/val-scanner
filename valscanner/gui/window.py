@@ -109,6 +109,7 @@ class MainWindow(QMainWindow):
         else:
             self.resize(1440, 880)
         self._closing                = False
+        self._first_show_handled     = False
         self._db_path                = ""
         self._db_url                 = ""  # authoritative SQLAlchemy URL
         self._connect_worker: ConnectWorker | None = None
@@ -713,6 +714,28 @@ class MainWindow(QMainWindow):
         vm.addAction(a_expand); vm.addAction(a_collapse)
         vm.addSeparator(); vm.addAction(a_clear)
         self._view_menu = vm
+
+        hm = mb.addMenu("Help")
+        a_tour = QAction("Show tour", self)
+        a_tour.triggered.connect(self._show_tour)
+        hm.addAction(a_tour)
+        self._help_menu = hm
+
+    def _show_tour(self) -> None:
+        from .onboarding import run_tour
+        run_tour(self, force=True)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._first_show_handled:
+            self._first_show_handled = True
+            QTimer.singleShot(0, self._maybe_run_tour)
+
+    def _maybe_run_tour(self) -> None:
+        if not (self._db_url or self._db_path):
+            return
+        from .onboarding import run_tour
+        run_tour(self)
 
     # ── Recent databases ──────────────────────────────────────────────────────
 
