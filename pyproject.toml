@@ -12,7 +12,7 @@ authors = [{ name = "Abdalrahman Valabji", email = "valabji@gmail.com" }]
 requires-python = ">=3.8"
 keywords = ["scanner", "files", "metadata", "tagging", "thumbnails", "full-text-search", "similar-folders", "sqlite", "postgresql", "pyside6", "gui", "fastapi"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
