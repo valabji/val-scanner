@@ -444,6 +444,25 @@ def enumerate_only(
         }
         return {"row": row, "size": size, "category": category}
 
+    # Batched insert state — collapses N per-row transactions into ~N/200
+    # multi-row transactions. Per-file stats and progress events still happen
+    # inside _commit_one so subscribers see one event per file as before.
+    # Duplicates (rare; resume already filters them) are reconciled at flush.
+    _BATCH_SIZE = 200
+    _pending_rows: list = []
+
+    def _flush_pending() -> None:
+        if not _pending_rows:
+            return
+        rows_batch = _pending_rows[:]
+        _pending_rows.clear()
+        inserted = repo.insert_files_many(rows_batch)
+        n = len(rows_batch)
+        if 0 <= inserted < n:
+            missed = n - inserted
+            stats["skipped"]  += missed
+            stats["scanned"]  = max(0, stats["scanned"] - missed)
+
     def _commit_one(item: dict, result: dict) -> None:
         fpath_str = item["fpath_str"]
         dir_key   = item["dir_key"]
@@ -451,17 +470,7 @@ def enumerate_only(
         size_  = result["size"]
         category_ = result["category"]
 
-        try:
-            repo.insert_file(row)
-        except DuplicateRecordError:
-            stats["skipped"] += 1
-            _skip_emit_counter[0] += 1
-            if _skip_emit_counter[0] >= 10:
-                _emit({"phase": PHASE_ENUMERATE,
-                       "scanned": stats["scanned"], "skipped": stats["skipped"],
-                       "path": fpath_str})
-                _skip_emit_counter[0] = 0
-            return
+        _pending_rows.append(row)
 
         stats["scanned"]     += 1
         stats["total_bytes"] += size_
@@ -477,6 +486,9 @@ def enumerate_only(
         _emit({"phase": PHASE_ENUMERATE,
                "scanned": stats["scanned"], "skipped": stats["skipped"],
                "path": fpath_str})
+
+        if len(_pending_rows) >= _BATCH_SIZE:
+            _flush_pending()
 
     def _iter_walk_items():
         # Hoist locals once — attribute lookups in tight loops are slow.
@@ -543,6 +555,7 @@ def enumerate_only(
         workers=workers, file_timeout=file_timeout,
         cancel_event=cancel_event, stats=stats, verbose_print=_vp,
     )
+    _flush_pending()
 
     # Update folder totals
     if actually_resumed:

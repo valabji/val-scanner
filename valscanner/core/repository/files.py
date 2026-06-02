@@ -24,6 +24,27 @@ class FilesMixin(RepositoryBase):
         except IntegrityError as exc:
             raise DuplicateRecordError(str(exc)) from exc
 
+    def insert_files_many(self, rows: list[dict]) -> int:
+        # Bulk-insert with conflict-tolerance. Returns the number of rows that
+        # actually landed (rowcount where reliable). Each insert is wrapped in
+        # one transaction, so a batch of N replaces N per-row commits with one.
+        if not rows:
+            return 0
+        if self.dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
+            stmt = _sqlite_insert(files).prefix_with("OR IGNORE")
+        elif self.dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as _pg_insert
+            stmt = _pg_insert(files).on_conflict_do_nothing(
+                index_elements=["scan_id", "path"]
+            )
+        else:
+            stmt = insert(files)
+        with self._engine.begin() as conn:
+            result = conn.execute(stmt, rows)
+        rc = result.rowcount
+        return rc if isinstance(rc, int) and rc >= 0 else len(rows)
+
     def file_exists(self, scan_id: int, file_path: str) -> bool:
         """Check if a file already exists in a scan by path."""
         stmt = select(files.c.id).where(
@@ -68,12 +89,15 @@ class FilesMixin(RepositoryBase):
         with self._engine.connect() as conn:
             return [dict(r._mapping) for r in conn.execute(stmt)]
 
-    def iter_files_for_export(self, scan_id: int | None = None) -> Iterator[dict]:
+    def iter_files_for_export(self, scan_id: int | None = None,
+                              batch: int = 1000) -> Iterator[dict]:
+        # Stream results so a multi-million-row export doesn't materialize the
+        # entire table in memory before yielding the first dict.
         stmt = select(files).order_by(files.c.path)
         if scan_id is not None:
             stmt = stmt.where(files.c.scan_id == scan_id)
-        with self._engine.connect() as conn:
-            for row in conn.execute(stmt):
+        with self._engine.connect().execution_options(stream_results=True) as conn:
+            for row in conn.execute(stmt).yield_per(batch):
                 yield dict(row._mapping)
 
     # ------------------------------------------------------------------ #

@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import weakref
+
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from .base import RepositoryBase
+
+
+# Cache the FTS-availability probe per Engine. The probe used to open a fresh
+# connection on every search call just to ask SQLite whether files_fts exists.
+# FTS availability cannot change at runtime once the schema is built, so one
+# probe per engine is enough.
+_FTS_PROBE_CACHE: "weakref.WeakKeyDictionary[object, bool]" = weakref.WeakKeyDictionary()
 
 
 class SearchMixin(RepositoryBase):
@@ -32,13 +41,16 @@ class SearchMixin(RepositoryBase):
 
         use_fts = False
         if search:
-            try:
-                # Probe FTS availability cheaply.
-                with self._engine.connect() as conn:
-                    conn.execute(text("SELECT 1 FROM files_fts LIMIT 1"))
-                use_fts = True
-            except OperationalError:
-                use_fts = False
+            cached = _FTS_PROBE_CACHE.get(self._engine)
+            if cached is None:
+                try:
+                    with self._engine.connect() as conn:
+                        conn.execute(text("SELECT 1 FROM files_fts LIMIT 1"))
+                    cached = True
+                except OperationalError:
+                    cached = False
+                _FTS_PROBE_CACHE[self._engine] = cached
+            use_fts = cached
 
         if search and use_fts:
             from_clause = (
@@ -62,10 +74,9 @@ class SearchMixin(RepositoryBase):
         )
         count_sql = f"SELECT COUNT(*) {from_clause} WHERE {where_sql}"
 
+        count_params = {k: params[k] for k in params if k not in ("lim", "off")}
         with self._engine.connect() as conn:
-            total = conn.execute(text(count_sql),
-                                 {k: v for k, v in params.items()
-                                  if k not in ("lim", "off")}).scalar() or 0
+            total = conn.execute(text(count_sql), count_params).scalar() or 0
             rows = conn.execute(text(select_sql), params).fetchall()
 
         return self._format_paged(rows, total, page, page_size)
@@ -91,26 +102,30 @@ class SearchMixin(RepositoryBase):
         )
         count_sql = f"SELECT COUNT(*) FROM files f WHERE {where_sql}"
 
+        count_params = {k: params[k] for k in params if k not in ("lim", "off")}
         with self._engine.connect() as conn:
-            total = conn.execute(text(count_sql),
-                                 {k: v for k, v in params.items()
-                                  if k not in ("lim", "off")}).scalar() or 0
+            total = conn.execute(text(count_sql), count_params).scalar() or 0
             rows = conn.execute(text(select_sql), params).fetchall()
 
         return self._format_paged(rows, total, page, page_size)
 
     @staticmethod
     def _format_paged(rows, total, page, page_size) -> dict:
-        items = [
-            {
+        items = []
+        items_append = items.append
+        for r in rows:
+            raw_tags = r[6]
+            if raw_tags:
+                tags = [t for t in raw_tags.split(",") if t]
+            else:
+                tags = []
+            items_append({
                 "id": r[0], "path": r[1], "filename": r[2],
                 "size_bytes": r[3] or 0, "size_human": r[4] or "",
                 "category": r[5] or "other",
-                "tags": [t for t in (r[6] or "").split(",") if t],
+                "tags": tags,
                 "has_thumbnail": bool(r[7]),
-            }
-            for r in rows
-        ]
+            })
         return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     # ── CLI search (returns dicts; used by query_db / print_summary) ────────

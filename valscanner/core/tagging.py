@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from pathlib import Path
 
 # Module-level constants — hoisted out of generate_tags() so the dict and tuple
@@ -53,6 +54,15 @@ _SIZE_MEDIUM = 100 * 1024 * 1024
 _SIZE_LARGE = 1024 * 1024 * 1024
 
 
+# Single-pass keyword matcher: scans the filename stem once instead of running
+# N independent `if kw in stem` substring searches per file. Keywords are
+# sorted longest-first so "screen shot" wins over "screen"/"shot" and the
+# regex engine picks the most specific alternative greedily.
+_NAME_KEYWORDS_REGEX = re.compile(
+    "|".join(re.escape(k) for k in sorted(_NAME_KEYWORDS, key=len, reverse=True))
+)
+
+
 def generate_tags(filepath: Path, category: str, size: int) -> list[str]:
     tags: set[str] = set()
     name_lower  = filepath.name.lower()
@@ -101,9 +111,8 @@ def generate_tags(filepath: Path, category: str, size: int) -> list[str]:
         if parent_name not in _SKIP_PARENTS:
             tags.add(f"{parent_name}-folder")
 
-    for kw, tag in _NAME_KEYWORDS.items():
-        if kw in stem_lower:
-            tags.add(tag)
+    for m in _NAME_KEYWORDS_REGEX.findall(stem_lower):
+        tags.add(_NAME_KEYWORDS[m])
 
     if name_lower.startswith("."):
         tags.add("hidden-file")
