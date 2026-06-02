@@ -9,29 +9,80 @@ from .filters import file_is_skipped, path_has_skipped_dir
 
 
 def _cosine(a: dict, b: dict) -> float:
-    keys = set(a) | set(b)
-    if not keys:
+    if not a or not b:
         return 0.0
-    dot  = sum(a.get(k, 0) * b.get(k, 0) for k in keys)
+    # iterate the smaller dict for the dot product
+    if len(a) > len(b):
+        a, b = b, a
+    b_get = b.get
+    dot = 0
+    for k, v in a.items():
+        ov = b_get(k)
+        if ov:
+            dot += v * ov
+    if not dot:
+        return 0.0
     magA = math.sqrt(sum(v * v for v in a.values())) or 1
     magB = math.sqrt(sum(v * v for v in b.values())) or 1
     return dot / (magA * magB)
+
+
+def _cosine_pre(a: dict, ma: float, b: dict, mb: float) -> float:
+    """Cosine with precomputed magnitudes; iterates the smaller dict."""
+    if not a or not b or ma == 0.0 or mb == 0.0:
+        return 0.0
+    if len(a) > len(b):
+        a, b = b, a
+    b_get = b.get
+    dot = 0
+    for k, v in a.items():
+        ov = b_get(k)
+        if ov:
+            dot += v * ov
+    return dot / (ma * mb) if dot else 0.0
 
 
 def _jaccard(a: set, b: set) -> float:
     if not a and not b:
         return 1.0
     inter = len(a & b)
-    union = len(a | b)
+    if not inter:
+        return 0.0
+    union = len(a) + len(b) - inter
     return inter / union if union else 0.0
 
 
+def _jaccard_pre(a: set, la: int, b: set, lb: int) -> float:
+    """Jaccard with precomputed cardinalities; iterates the smaller set."""
+    if la == 0 and lb == 0:
+        return 1.0
+    if la == 0 or lb == 0:
+        return 0.0
+    if la > lb:
+        a, la, b, lb = b, lb, a, la
+    inter = sum(1 for x in a if x in b)
+    if not inter:
+        return 0.0
+    return inter / (la + lb - inter)
+
+
 def _size_sim(s1: int, s2: int) -> float:
-    lo, hi = min(s1, s2), max(s1, s2)
+    if s1 == s2:
+        return 1.0 if s1 else 1.0
+    if s1 < s2:
+        lo, hi = s1, s2
+    else:
+        lo, hi = s2, s1
     return lo / hi if hi else 1.0
 
 
 def _strict_subpath(child: str, parent: str) -> bool:
+    if child == parent:
+        return False
+    # Fast path: pure string compare. Falls back to Path semantics if the
+    # cheap test is ambiguous (e.g. trailing separators, normalization).
+    if parent and (child.startswith(parent + '/') or child.startswith(parent + '\\')):
+        return True
     cp, pp = Path(child), Path(parent)
     if cp == pp:
         return False
@@ -82,13 +133,25 @@ def _compute_folder_data_and_pairs(
     folders    = [((sid, p), d) for (sid, p), d in folder_data.items() if d["count"] >= min_files]
     has_hashes = any(d["hashes"] for _, d in folders)
 
+    # Precompute once per folder: cardinalities and ext-vector magnitudes.
+    for _, d in folders:
+        exts_dict = dict(d["exts"])
+        d["_exts_d"]   = exts_dict
+        d["_exts_mag"] = math.sqrt(sum(v * v for v in exts_dict.values()))
+        d["_names_n"]  = len(d["names"])
+        d["_hashes_n"] = len(d["hashes"])
+
     def _make_pair(keyA, dA, keyB, dB):
         sidA, pA   = keyA
         sidB, pB   = keyB
-        name_score = _jaccard(dA["names"], dB["names"])
+        name_score = _jaccard_pre(dA["names"], dA["_names_n"], dB["names"], dB["_names_n"])
         size_score = _size_sim(dA["total_bytes"], dB["total_bytes"])
-        ext_score  = _cosine(dict(dA["exts"]), dict(dB["exts"]))
-        hash_score = _jaccard(dA["hashes"], dB["hashes"]) if has_hashes else 0.0
+        ext_score  = _cosine_pre(dA["_exts_d"], dA["_exts_mag"],
+                                 dB["_exts_d"], dB["_exts_mag"])
+        hash_score = (
+            _jaccard_pre(dA["hashes"], dA["_hashes_n"], dB["hashes"], dB["_hashes_n"])
+            if has_hashes else 0.0
+        )
         if has_hashes:
             score = name_score * 0.40 + size_score * 0.15 + ext_score * 0.20 + hash_score * 0.25
         else:
@@ -124,15 +187,17 @@ def _compute_folder_data_and_pairs(
 
     all_pairs = []
     n = len(folders)
+    # Stop-flag is cooperative; only re-check at row boundaries (not per inner
+    # iteration) to keep the hot loop tight on large folder counts.
     for i in range(n):
         if stop_flag and stop_flag():
             break
         if progress_cb:
             progress_cb(i, n)
+        keyA, dA = folders[i]
         for j in range(i + 1, n):
-            if stop_flag and stop_flag():
-                break
-            p = _make_pair(folders[i][0], folders[i][1], folders[j][0], folders[j][1])
+            keyB, dB = folders[j]
+            p = _make_pair(keyA, dA, keyB, dB)
             if p:
                 all_pairs.append(p)
     if progress_cb:
@@ -154,8 +219,12 @@ def find_similar_folders(
         db_path, min_files, threshold, scan_ids, filters, stop_flag, progress_cb,
     )
 
+    # Fast depth approximation: counting path separators is equivalent for
+    # ordering purposes and avoids per-pair Path() construction.
     def _depth(r):
-        return len(Path(r["folder_a"]).parts) + len(Path(r["folder_b"]).parts)
+        a = r["folder_a"]
+        b = r["folder_b"]
+        return a.count('/') + a.count('\\') + b.count('/') + b.count('\\')
     all_pairs.sort(key=lambda r: (_depth(r), -r["score"]))
 
     top_level: list = []
@@ -293,7 +362,11 @@ def find_similar_groups(
         })
 
     def _group_depth(g):
-        return sum(len(Path(m["folder"]).parts) for m in g["members"])
+        total = 0
+        for m in g["members"]:
+            f = m["folder"]
+            total += f.count('/') + f.count('\\')
+        return total
     groups.sort(key=lambda g: (_group_depth(g), -g["score"]))
 
     def _is_child_group(child, parent_g):

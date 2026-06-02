@@ -17,6 +17,71 @@ COL_IDX = {c: i for i, c in enumerate(COLUMNS)}
 _GROUP_SENTINEL = "__group__"
 _FOLDER_SENTINEL = "__folder__"
 
+# Column indices hoisted to module level so the data() hot path skips dict
+# lookups for COL_IDX["Filename"] etc.
+_COL_FILENAME = COL_IDX["Filename"]
+_COL_CATEGORY = COL_IDX["Category"]
+_COL_SIZE = COL_IDX["Size"]
+_COL_MODIFIED = COL_IDX["Modified"]
+_COL_HASH = COL_IDX["Hash"]
+_COL_TAGS = COL_IDX["Tags"]
+_COL_PATH = COL_IDX["Path"]
+# Cells whose foreground is the subtext color (path, tags, hash).
+_SUBTEXT_COLS = frozenset((_COL_PATH, _COL_TAGS, _COL_HASH))
+
+# Module-scoped QColor / QFont caches — constructing a QColor or QFont per
+# data() call adds up fast in large tables.
+_qcolor_cache: dict[str, "QColor"] = {}
+
+
+def _qc(key: str) -> "QColor":
+    c = _qcolor_cache.get(key)
+    if c is None:
+        c = QColor(key)
+        _qcolor_cache[key] = c
+    return c
+
+
+def _cat_color(cat: str) -> "QColor":
+    """Cached QColor for a category, falling back to subtext."""
+    key = f"cat:{cat}"
+    c = _qcolor_cache.get(key)
+    if c is None:
+        c = QColor(CATEGORY_COLORS.get(cat, str(SUBTEXT)))
+        _qcolor_cache[key] = c
+    return c
+
+
+# Fonts and alignments — built once.
+def _make_bold_font(px: int | None = None) -> "QFont":
+    f = QFont()
+    f.setBold(True)
+    if px is not None:
+        f.setPixelSize(px)
+    return f
+
+
+_GROUP_FONT: "QFont | None" = None
+_FOLDER_BOLD_FONT: "QFont | None" = None
+
+
+def _group_font() -> "QFont":
+    global _GROUP_FONT
+    if _GROUP_FONT is None:
+        _GROUP_FONT = _make_bold_font(11)
+    return _GROUP_FONT
+
+
+def _folder_bold_font() -> "QFont":
+    global _FOLDER_BOLD_FONT
+    if _FOLDER_BOLD_FONT is None:
+        _FOLDER_BOLD_FONT = _make_bold_font()
+    return _FOLDER_BOLD_FONT
+
+
+_ALIGN_RIGHT_VC = Qt.AlignRight | Qt.AlignVCenter
+_ALIGN_LEFT_VC = Qt.AlignLeft | Qt.AlignVCenter
+
 
 def make_folder_row(path: str, file_count: int, total_bytes: int, human_size: str = "") -> tuple:
     """Create a folder row tuple compatible with FileTableModel.
@@ -102,109 +167,122 @@ class FileTableModel(QAbstractTableModel):
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
-        row = self._rows[index.row()]
+        r_idx = index.row()
+        rows = self._rows
+        if r_idx < 0 or r_idx >= len(rows):
+            return None
+        row = rows[r_idx]
         col = index.column()
+        sentinel = row[2]
 
-        if row[2] == _GROUP_SENTINEL:
+        if sentinel == _GROUP_SENTINEL:
             if role == Qt.DisplayRole:
                 return row[1] if col == 0 else ""
             if role == Qt.BackgroundRole:
-                return QColor(PANEL_BG)
+                return _qc(str(PANEL_BG))
             if role == Qt.ForegroundRole:
-                return QColor(ACCENT)
+                return _qc(str(ACCENT))
             if role == Qt.FontRole:
-                f = QFont(); f.setBold(True); f.setPixelSize(11); return f
+                return _group_font()
             if role == Qt.TextAlignmentRole:
-                return Qt.AlignLeft | Qt.AlignVCenter
+                return _ALIGN_LEFT_VC
             return None
 
-        if row[2] == _FOLDER_SENTINEL:
-            mapping = {
-                COL_IDX["Filename"]: row[1],
-                COL_IDX["Category"]: "folder",
-                COL_IDX["Size"]:     row[4],
-                COL_IDX["Modified"]: "",
-                COL_IDX["Hash"]:     "",
-                COL_IDX["Tags"]:     row[6],
-                COL_IDX["Path"]:     row[0],
-            }
+        if sentinel == _FOLDER_SENTINEL:
             if role == Qt.DisplayRole:
-                return mapping.get(col, "")
-            if role == Qt.DecorationRole and col == COL_IDX["Filename"]:
+                if col == _COL_FILENAME:
+                    return row[1]
+                if col == _COL_CATEGORY:
+                    return "folder"
+                if col == _COL_SIZE:
+                    return row[4]
+                if col == _COL_TAGS:
+                    return row[6]
+                if col == _COL_PATH:
+                    return row[0]
+                return ""
+            if role == Qt.DecorationRole and col == _COL_FILENAME:
                 return _icons.icon("folder", color=str(ACCENT))
             if role == Qt.ForegroundRole:
-                if col == COL_IDX["Category"]:
-                    return QColor(ACCENT)
-                if col in (COL_IDX["Path"], COL_IDX["Tags"], COL_IDX["Hash"]):
-                    return QColor(SUBTEXT)
-                return QColor(str(TEXT))
-            if role == Qt.FontRole and col == COL_IDX["Filename"]:
-                f = QFont(); f.setBold(True); return f
+                if col == _COL_CATEGORY:
+                    return _qc(str(ACCENT))
+                if col in _SUBTEXT_COLS:
+                    return _qc(str(SUBTEXT))
+                return _qc(str(TEXT))
+            if role == Qt.FontRole and col == _COL_FILENAME:
+                return _folder_bold_font()
             if role == Qt.BackgroundRole:
-                return QColor(ROW_ALT if index.row() % 2 else DARK_BG)
+                return _qc(str(ROW_ALT) if (r_idx & 1) else str(DARK_BG))
             if role == Qt.UserRole:
                 return row
-            if role == Qt.TextAlignmentRole and col == COL_IDX["Size"]:
-                return Qt.AlignRight | Qt.AlignVCenter
+            if role == Qt.TextAlignmentRole and col == _COL_SIZE:
+                return _ALIGN_RIGHT_VC
             return None
 
-        mapping = {
-            COL_IDX["Filename"]: row[1],
-            COL_IDX["Category"]: row[2],
-            COL_IDX["Size"]:     row[4],
-            COL_IDX["Modified"]: row[5],
-            COL_IDX["Hash"]:     row[7] if len(row) > 7 else "",
-            COL_IDX["Tags"]:     row[6],
-            COL_IDX["Path"]:     row[0],
-        }
+        # File row.
         if role == Qt.DisplayRole:
-            return mapping.get(col, "")
-        if role == Qt.DecorationRole and col == COL_IDX["Filename"]:
+            if col == _COL_FILENAME:
+                return row[1]
+            if col == _COL_CATEGORY:
+                return row[2]
+            if col == _COL_SIZE:
+                return row[4]
+            if col == _COL_MODIFIED:
+                return row[5]
+            if col == _COL_HASH:
+                return row[7] if len(row) > 7 else ""
+            if col == _COL_TAGS:
+                return row[6]
+            if col == _COL_PATH:
+                return row[0]
+            return ""
+        if role == Qt.DecorationRole and col == _COL_FILENAME:
             cat = row[2]
             return _icons.icon(f"cat-{cat}", color=CATEGORY_COLORS.get(cat, str(SUBTEXT)))
         if role == Qt.ForegroundRole:
-            if col == COL_IDX["Category"]:
-                return QColor(CATEGORY_COLORS.get(row[2], str(SUBTEXT)))
-            if col in (COL_IDX["Path"], COL_IDX["Tags"], COL_IDX["Hash"]):
-                return QColor(SUBTEXT)
+            if col == _COL_CATEGORY:
+                return _cat_color(row[2])
+            if col in _SUBTEXT_COLS:
+                return _qc(str(SUBTEXT))
         if role == Qt.BackgroundRole:
-            return QColor(ROW_ALT if index.row() % 2 else DARK_BG)
+            return _qc(str(ROW_ALT) if (r_idx & 1) else str(DARK_BG))
         if role == Qt.UserRole:
             return row
-        if role == Qt.TextAlignmentRole and col == COL_IDX["Size"]:
-            return Qt.AlignRight | Qt.AlignVCenter
+        if role == Qt.TextAlignmentRole and col == _COL_SIZE:
+            return _ALIGN_RIGHT_VC
         return None
 
     def sort(self, column, order=Qt.AscendingOrder):
         self.beginResetModel()
         reverse = (order == Qt.DescendingOrder)
-        if column == COL_IDX["Size"]:
+        if column == _COL_SIZE:
             inner_key = lambda r: r[3]
+        elif column == _COL_FILENAME:
+            inner_key = lambda r: r[1].lower()
+        elif column == _COL_CATEGORY:
+            inner_key = lambda r: r[2].lower()
+        elif column == _COL_MODIFIED:
+            inner_key = lambda r: r[5]
+        elif column == _COL_HASH:
+            inner_key = lambda r: (r[7] if len(r) > 7 else "") or ""
+        elif column == _COL_TAGS:
+            inner_key = lambda r: r[6]
+        elif column == _COL_PATH:
+            inner_key = lambda r: r[0].lower()
         else:
-            key_map = {
-                COL_IDX["Filename"]: lambda r: r[1].lower(),
-                COL_IDX["Category"]: lambda r: r[2].lower(),
-                COL_IDX["Modified"]: lambda r: r[5],
-                COL_IDX["Hash"]:     lambda r: (r[7] if len(r) > 7 else "") or "",
-                COL_IDX["Tags"]:     lambda r: r[6],
-                COL_IDX["Path"]:     lambda r: r[0].lower(),
-            }
-            inner_key = key_map.get(column, lambda r: r[1].lower())
+            inner_key = lambda r: r[1].lower()
 
-        # Folders always come first regardless of sort direction
-        def composite_key(r):
-            is_folder = (len(r) > 2 and r[2] == _FOLDER_SENTINEL)
-            # Negate the folder flag so folders (True -> 0) precede files (False -> 1)
-            return (0 if is_folder else 1, inner_key(r))
-
-        self._rows.sort(key=composite_key, reverse=False)
-        if reverse:
-            # Sort folders first then files separately, with files reversed
-            folders = [r for r in self._rows if len(r) > 2 and r[2] == _FOLDER_SENTINEL]
-            files = [r for r in self._rows if not (len(r) > 2 and r[2] == _FOLDER_SENTINEL)]
-            folders.sort(key=inner_key, reverse=True)
-            files.sort(key=inner_key, reverse=True)
-            self._rows = folders + files
+        # Single partition pass instead of two list comprehensions on reverse.
+        folders: list = []
+        files: list = []
+        for r in self._rows:
+            if len(r) > 2 and r[2] == _FOLDER_SENTINEL:
+                folders.append(r)
+            else:
+                files.append(r)
+        folders.sort(key=inner_key, reverse=reverse)
+        files.sort(key=inner_key, reverse=reverse)
+        self._rows = folders + files
         self.endResetModel()
 
 

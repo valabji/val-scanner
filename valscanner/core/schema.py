@@ -240,15 +240,39 @@ def drop_all(engine: Engine) -> None:
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+_HS_UNITS = ("B", "KB", "MB", "GB", "TB")
+
+
 def human_size(n: int) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if n < 1024:
-            return f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} PB"
+    # Fast path: most file sizes never leave KB/MB — only one or two
+    # divisions on average, vs the tuple-iteration overhead of the original.
+    size = float(n)
+    for unit in _HS_UNITS:
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} PB"
+
+
+_TS_FORMAT = "%Y-%m-%d %H:%M:%S"
+_TS_CACHE: dict = {}
+# Bounded cache: a single bulk scan can see many distinct timestamps, but most
+# files in a tree share creation/access seconds. A small LRU-ish bound keeps
+# memory predictable.
+_TS_CACHE_MAX = 16384
 
 
 def ts(epoch) -> str:
     if epoch is None:
         return ""
-    return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
+    # Quantize to whole seconds — the format has 1s resolution, so caching by
+    # the integer second avoids storing identical entries for every fractional
+    # variant of the same instant.
+    key = int(epoch)
+    cached = _TS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    s = datetime.fromtimestamp(key).strftime(_TS_FORMAT)
+    if len(_TS_CACHE) < _TS_CACHE_MAX:
+        _TS_CACHE[key] = s
+    return s

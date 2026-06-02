@@ -119,12 +119,17 @@ def extract_pdf_metadata(path: Path) -> dict:
         return {}
 
 
-def file_sha256(path: Path, block: int = 65536) -> str:
+def file_sha256(path: Path, block: int = 1 << 20) -> str:
     h = hashlib.sha256()
     try:
-        with open(path, "rb") as f:
-            while chunk := f.read(block):
-                h.update(chunk)
+        buf = bytearray(block)
+        mv = memoryview(buf)
+        with open(path, "rb", buffering=0) as f:
+            while True:
+                n = f.readinto(buf)
+                if not n:
+                    break
+                h.update(mv[:n] if n < block else mv)
         return h.hexdigest()
     except Exception:
         return ""

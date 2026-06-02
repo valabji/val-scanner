@@ -27,6 +27,11 @@ def _configure_sqlite(engine: Engine) -> None:
         cursor.execute("PRAGMA journal_mode = WAL")
         cursor.execute("PRAGMA synchronous = NORMAL")
         cursor.execute("PRAGMA busy_timeout = 5000")
+        # ~64 MiB of page cache (negative => KiB) reduces I/O on scans.
+        cursor.execute("PRAGMA cache_size = -65536")
+        cursor.execute("PRAGMA temp_store = MEMORY")
+        # 256 MiB memory-mapped read window — fast random reads on warm pages.
+        cursor.execute("PRAGMA mmap_size = 268435456")
         cursor.close()
 
 

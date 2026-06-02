@@ -114,20 +114,32 @@ def count_files(
             return False
         return True
 
+    # Precompile fnmatch patterns once: regex is dramatically faster than
+    # re-parsing the glob for every file.
+    _exclude_regex = None
+    if exclude_patterns:
+        import re as _re
+        _exclude_regex = _re.compile(
+            "|".join(_fnmatch.translate(p) for p in exclude_patterns)
+        )
+
+    _splitext = os.path.splitext
+    _relpath = os.path.relpath
+    root_str = str(root_resolved)
+
     total = 0
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if _keep_dir(d)]
-        dirpath_resolved = Path(dirpath).resolve()
         for fname in filenames:
-            ext = Path(fname).suffix.lower()
+            ext = _splitext(fname)[1].lower()
             if not _keep_file(fname, ext):
                 continue
-            if exclude_patterns:
+            if _exclude_regex is not None:
                 try:
-                    rel = str((dirpath_resolved / fname).relative_to(root_resolved))
+                    rel = _relpath(os.path.join(dirpath, fname), root_str)
                 except ValueError:
                     rel = fname
-                if any(_fnmatch.fnmatch(rel, pat) for pat in exclude_patterns):
+                if _exclude_regex.match(rel):
                     continue
             total += 1
     return total
@@ -345,37 +357,67 @@ def enumerate_only(
         return True
 
     _ancestor_cache: dict = {}
+    root_key = str(root_resolved)
 
-    def _get_ancestors(dirpath_resolved: Path) -> list:
-        key = str(dirpath_resolved)
-        if key not in _ancestor_cache:
-            ancestors: list = []
-            p = dirpath_resolved
-            while True:
-                ancestors.append(str(p))
-                if p == root_resolved:
-                    break
-                parent = p.parent
-                if parent == p:
-                    break
-                p = parent
-            _ancestor_cache[key] = ancestors
-        return _ancestor_cache[key]
+    def _get_ancestors(dirpath_key: str) -> list:
+        """Return the list of ancestor dir strings up to (and including) root.
+
+        Accepts a *string* path key (not a Path), avoiding per-call Path()
+        construction in the inner commit loop. The cache key is the directory
+        string itself.
+        """
+        cached = _ancestor_cache.get(dirpath_key)
+        if cached is not None:
+            return cached
+        ancestors: list = []
+        p = dirpath_key
+        while True:
+            ancestors.append(p)
+            if p == root_key:
+                break
+            parent = os.path.dirname(p)
+            if parent == p or not parent:
+                break
+            p = parent
+        _ancestor_cache[dirpath_key] = ancestors
+        return ancestors
+
+    # Bulk-prefetch existing paths for resume scans — one query beats one
+    # per-file SELECT, which dominated wall time on big resumes.
+    _existing_paths: set
+    if actually_resumed:
+        try:
+            _existing_paths = repo.existing_paths(scan_id)
+        except Exception:
+            _existing_paths = set()
+    else:
+        _existing_paths = set()
+
+    # Precompile fnmatch patterns to regex so each file checks a fast bytecode
+    # automaton instead of re-parsing the glob.
+    if exclude_patterns:
+        import re as _re
+        _exclude_regex = _re.compile(
+            "|".join(_fnmatch.translate(p) for p in exclude_patterns)
+        )
+    else:
+        _exclude_regex = None
 
     def _process_one(item: dict) -> dict | None:
         """Stat + categorize + tag (no metadata/hash/thumb/sample). Thread-safe."""
         fpath = item["fpath"]
         fname = item["fname"]
-        fpath_resolved = item["fpath_resolved"]
+        fpath_str = item["fpath_str"]
 
-        st       = fpath.stat()
+        # os.stat on a string is marginally cheaper than Path.stat().
+        st       = os.stat(fpath_str)
         size     = st.st_size
-        ext      = fpath.suffix.lower()
+        ext      = os.path.splitext(fname)[1].lower()
 
-        mime, _  = mimetypes.guess_type(str(fpath))
+        mime, _  = mimetypes.guess_type(fname)
         category = EXT_CATEGORY.get(ext)
         if not category and mime:
-            category = MIME_CATEGORY.get(mime.split("/")[0], "other")
+            category = MIME_CATEGORY.get(mime.split("/", 1)[0], "other")
         if not category:
             category = "other"
 
@@ -384,7 +426,7 @@ def enumerate_only(
 
         row = {
             "scan_id":     scan_id,
-            "path":        str(fpath_resolved),
+            "path":        fpath_str,
             "filename":    fname,
             "extension":   ext or "(none)",
             "category":    category,
@@ -403,8 +445,8 @@ def enumerate_only(
         return {"row": row, "size": size, "category": category}
 
     def _commit_one(item: dict, result: dict) -> None:
-        fpath_ = item["fpath"]
-        dirpr_ = item["dirpath_resolved"]
+        fpath_str = item["fpath_str"]
+        dir_key   = item["dir_key"]
         row    = result["row"]
         size_  = result["size"]
         category_ = result["category"]
@@ -417,68 +459,83 @@ def enumerate_only(
             if _skip_emit_counter[0] >= 10:
                 _emit({"phase": PHASE_ENUMERATE,
                        "scanned": stats["scanned"], "skipped": stats["skipped"],
-                       "path": str(fpath_)})
+                       "path": fpath_str})
                 _skip_emit_counter[0] = 0
             return
 
         stats["scanned"]     += 1
         stats["total_bytes"] += size_
 
-        for key in _get_ancestors(dirpr_):
+        for key in _get_ancestors(dir_key):
             entry = folder_totals.setdefault(key, [0, 0])
             entry[0] += 1
             entry[1] += size_
 
         if verbose:
-            _vp(f"  [{category_:14s}] {fpath_}")
+            _vp(f"  [{category_:14s}] {fpath_str}")
 
         _emit({"phase": PHASE_ENUMERATE,
                "scanned": stats["scanned"], "skipped": stats["skipped"],
-               "path": str(fpath_)})
+               "path": fpath_str})
 
     def _iter_walk_items():
+        # Hoist locals once — attribute lookups in tight loops are slow.
+        _path_join = os.path.join
+        _path_dirname = os.path.dirname
+        _path_abspath = os.path.abspath
+        _norm_path = os.path.normpath
+        _splitext = os.path.splitext
+        # Dir-string -> resolved dir-string cache (resolve is a syscall).
+        _dir_resolve_cache: dict = {}
+
         for dirpath, dirnames, filenames in os.walk(root):
             if cancel_event is not None and cancel_event.is_set():
                 return
             dirnames[:] = [d for d in dirnames if _keep_dir(d)]
-            dirpath_resolved = Path(dirpath).resolve()
+
+            # Resolve the directory once and derive every file path from it
+            # via string concatenation (avoids per-file Path().resolve() calls).
+            dir_resolved = _dir_resolve_cache.get(dirpath)
+            if dir_resolved is None:
+                dir_resolved = _norm_path(_path_abspath(dirpath))
+                _dir_resolve_cache[dirpath] = dir_resolved
 
             for fname in filenames:
                 if cancel_event is not None and cancel_event.is_set():
                     return
 
-                ext_check = Path(fname).suffix.lower()
+                ext_check = _splitext(fname)[1].lower()
                 if not _keep_file(fname, ext_check):
                     stats["skipped"] += 1
                     continue
 
-                fpath = Path(dirpath) / fname
-                fpath_resolved = fpath.resolve()
+                fpath_str = _path_join(dir_resolved, fname)
 
-                if exclude_patterns:
+                if _exclude_regex is not None:
                     try:
-                        rel = str(fpath_resolved.relative_to(root_resolved))
+                        rel = os.path.relpath(fpath_str, root_key)
                     except ValueError:
                         rel = fname
-                    if any(_fnmatch.fnmatch(rel, pat) for pat in exclude_patterns):
+                    if _exclude_regex.match(rel):
                         stats["skipped"] += 1
                         continue
 
-                if repo.file_exists(scan_id, str(fpath_resolved)):
+                # Resume fast path: O(1) set lookup, no DB roundtrip.
+                if _existing_paths and fpath_str in _existing_paths:
                     stats["skipped"] += 1
                     _skip_emit_counter[0] += 1
                     if _skip_emit_counter[0] >= 10:
                         _emit({"phase": PHASE_ENUMERATE,
                                "scanned": stats["scanned"], "skipped": stats["skipped"],
-                               "path": str(fpath_resolved)})
+                               "path": fpath_str})
                         _skip_emit_counter[0] = 0
                     continue
 
                 yield {
-                    "fpath": fpath,
+                    "fpath": Path(fpath_str),
+                    "fpath_str": fpath_str,
                     "fname": fname,
-                    "fpath_resolved": fpath_resolved,
-                    "dirpath_resolved": dirpath_resolved,
+                    "dir_key": dir_resolved,
                 }
 
     _run_pool(

@@ -32,6 +32,16 @@ class FilesMixin(RepositoryBase):
         with self._engine.connect() as conn:
             return conn.execute(stmt).fetchone() is not None
 
+    def existing_paths(self, scan_id: int) -> set[str]:
+        """Bulk-load every indexed path for a scan into a set.
+
+        Used by the resume path of enumerate_only() to replace O(N) per-file
+        `file_exists` round-trips with a single query + O(1) hash lookups.
+        """
+        stmt = select(files.c.path).where(files.c.scan_id == scan_id)
+        with self._engine.connect() as conn:
+            return {row[0] for row in conn.execute(stmt)}
+
     def get_file(self, file_id: int) -> dict | None:
         with self._engine.connect() as conn:
             row = conn.execute(select(files).where(files.c.id == file_id)).fetchone()
