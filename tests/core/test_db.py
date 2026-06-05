@@ -2,7 +2,7 @@
 
 These wrappers are thin pass-throughs to Repository methods, but they also
 own (a) the per-URL Repository cache and (b) the human-readable formatting
-emitted by ``query_db`` / ``print_summary``.
+emitted by ``search_db`` / ``print_summary``.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from valscanner.core import db as db_mod
 from valscanner.core.bootstrap import ensure_schema
 from valscanner.core.db import (
     delete_analysis_run, delete_scan, list_analysis_runs, list_scans,
-    load_analysis_run, print_summary, query_db, repo_for, reset_repos,
+    load_analysis_run, print_summary, search_db, repo_for, reset_repos,
     save_analysis_run,
 )
 from valscanner.core.db_config import reset_engines
@@ -138,20 +138,20 @@ def test_load_analysis_run_missing_returns_none(db_url):
     assert load_analysis_run(db_url, 9_999) is None
 
 
-# ─── query_db ──────────────────────────────────────────────────────────────
+# ─── search_db ─────────────────────────────────────────────────────────────
 
-def test_query_db_prints_hits_and_count(db_url, capsys):
+def test_search_db_prints_hits_and_count(db_url, capsys):
     _seed_one_file(db_url)
-    query_db(db_url, "readme")
+    search_db(db_url, "readme")
     out = capsys.readouterr().out
     assert "Searching for: 'readme'" in out
     assert "readme.txt" in out
     assert "Found 1 result" in out
 
 
-def test_query_db_no_hits_still_prints_banner(db_url, capsys):
+def test_search_db_no_hits_still_prints_banner(db_url, capsys):
     _seed_one_file(db_url)
-    query_db(db_url, "this-will-not-match-anything-12345")
+    search_db(db_url, "this-will-not-match-anything-12345")
     out = capsys.readouterr().out
     assert "Searching for:" in out
     assert "Found 0 result(s)" in out

@@ -106,7 +106,7 @@ val-scanner/                ← repo root
     │   ├── scanner.py      ← scan()
     │   ├── similarity.py   ← find_similar_folders(), math helpers
     │   ├── export.py       ← export_csv(), export_json()
-    │   └── db.py           ← query_db(), print_summary(), list_scans(), delete_scan()
+    │   └── db.py           ← search_db(), print_summary(), list_scans(), delete_scan()
     │
     └── gui/                ← PySide6 front-end
         ├── constants.py    ← CATEGORY_COLORS, DARK_BG, PANEL_BG, …

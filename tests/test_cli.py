@@ -167,12 +167,17 @@ def test_cli_path_does_not_exist(tmp_path, cli_db, monkeypatch, capsys):
     assert "does not exist" in capsys.readouterr().out
 
 
-def test_cli_query_after_scan(tmp_path, cli_db, monkeypatch, capsys):
+def test_cli_search_standalone(tmp_path, cli_db, monkeypatch, capsys):
+    """--search runs without a path against the existing DB."""
     _build_tree(tmp_path)
     _run_cli(monkeypatch, str(tmp_path),
              "--db", str(cli_db),
-             "--no-hash", "--no-progress-bar", "--no-precount",
-             "--query", "readme")
+             "--no-hash", "--no-progress-bar", "--no-precount")
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as e:
+        _run_cli(monkeypatch, "--db", str(cli_db), "--search", "readme")
+    assert e.value.code == 0
     out = capsys.readouterr().out
     assert "Searching for: 'readme'" in out
     assert "readme.txt" in out

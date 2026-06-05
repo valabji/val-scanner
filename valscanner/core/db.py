@@ -62,12 +62,24 @@ def delete_analysis_run(db_path: str, run_id: int) -> None:
     repo_for(db_path).delete_analysis_run(run_id)
 
 
-def query_db(db_path: str, term: str) -> None:
-    results = repo_for(db_path).search_files(term)
-    print(f"\n🔍 Searching for: '{term}'\n{'─'*60}")
+def search_db(db_path: str, term: str, *,
+              scan_id: int | None = None,
+              category: str | None = None,
+              limit: int = 50) -> None:
+    results = repo_for(db_path).search_files(
+        term, limit=limit, scan_id=scan_id, category=category,
+    )
+    filters = []
+    if scan_id is not None:
+        filters.append(f"scan #{scan_id}")
+    if category:
+        filters.append(f"category={category}")
+    suffix = f" [{', '.join(filters)}]" if filters else ""
+    print(f"\n🔍 Searching for: '{term}'{suffix}\n{'─'*60}")
     for row in results:
         print(f"  {row['category']:14s}  {row['size_human']:>10s}  {row['path']}")
-        print(f"  {'':14s}  tags: {row['tags']}\n")
+        tag_line = row['tags'] or ""
+        print(f"  {'':14s}  scan #{row['scan_id']}  tags: {tag_line}\n")
     print(f"{'─'*60}\n  Found {len(results)} result(s).")
 
 

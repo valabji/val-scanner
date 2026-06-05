@@ -269,16 +269,16 @@ valscanner ~/Projects \
   --skip-binaries --skip-temp --skip-logs
 ```
 
-### Search after scanning
+### Search the database
 
 ```bash
-valscanner /path --query "invoice"
+valscanner --search "invoice" --db my.db
 ```
 
-Runs an FTS5 query against the database and prints matching files after the scan completes. You can also query an existing database without re-scanning:
+Runs an FTS5 query against the database and prints matching files. The command is standalone — no scan is needed. Combine with filters:
 
 ```bash
-valscanner --query "contract" --db my.db --list-scans
+valscanner --search "contract" --db my.db --scan-id 3 --category document --limit 20
 ```
 
 ### Export results
@@ -395,7 +395,7 @@ valscanner --load-from-sqlite slim.db --zip-blobs arch.zip --db ~/valscanner.db
 | `--resume` | off | Resume an interrupted scan of the same path |
 | `--export-csv` | off | Write `<db-name>.csv` after scan |
 | `--export-json` | off | Write `<db-name>.json` after scan |
-| `--query TERM` | — | FTS5 query to run against the database after scanning |
+| `--search TERM` | — | Standalone FTS5 query against the database; supports `--scan-id`, `--category CAT`, `--limit N` |
 | `--verbose` | off | Print each file path as it is indexed |
 | `--list-scans` | — | Print all scans in the database and exit |
 | `--delete-scan ID` | — | Delete a scan by numeric ID and exit |
@@ -742,7 +742,7 @@ valscanner-gui --db /path/to/copied/audit.db
 
 ```bash
 # Find all files matching "contract" in an existing database
-valscanner --query contract --db ~/Documents/docs.db --list-scans
+valscanner --search contract --db ~/Documents/docs.db
 ```
 
 ---

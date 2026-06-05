@@ -22,7 +22,7 @@ from .core.logging_config import setup_logging
 from .core.metadata import PIL_AVAILABLE, MUTAGEN_AVAILABLE, PYPDF_AVAILABLE, FFMPEG_AVAILABLE
 from .core.scanner import scan, count_files, ALL_PHASES, PHASE_ENUMERATE
 from .core.export import export_csv, export_json
-from .core.db import query_db, print_summary, print_db_status, list_scans, delete_scan, remap_scan, repo_for
+from .core.db import search_db, print_summary, print_db_status, list_scans, delete_scan, remap_scan, repo_for
 from .core.schema import human_size
 from .core.transfer import transfer_db
 from .core.similarity import find_similar_folders
@@ -349,7 +349,13 @@ def main() -> None:
                         help="Print each file as indexed")
     parser.add_argument("--no-progress-bar", action="store_true", default=_defs["no_progress_bar"],
                         help="Disable progress bar output")
-    parser.add_argument("--query",        metavar="TERM", help="Query the database after scanning")
+    parser.add_argument("--search",       metavar="TERM",
+                        help="Full-text search the database and exit "
+                             "(combine with --scan-id, --category, --limit)")
+    parser.add_argument("--category",     metavar="CAT",
+                        help="With --search: restrict to this category")
+    parser.add_argument("--limit",        type=int, default=50, metavar="N",
+                        help="With --search: max rows to print (default: 50)")
     parser.add_argument("--db-status",     action="store_true",
                         help="Show DB size, table counts, per-scan breakdown, and orphan entries")
     parser.add_argument("--list-scans",    action="store_true", help="List all scans in the database")
@@ -491,6 +497,15 @@ def main() -> None:
         for s in scans:
             print(f"  [{s['id']:3d}]  {s['label'] or s['root']:40s}  "
                   f"{s['file_count']:>8,} files  {s['total_human']:>10s}  {s['scanned_at']}")
+        sys.exit(0)
+
+    if args.search:
+        search_db(
+            url, args.search,
+            scan_id=args.scan_id,
+            category=args.category,
+            limit=args.limit,
+        )
         sys.exit(0)
 
     if args.delete_scan is not None:
@@ -650,7 +665,7 @@ def main() -> None:
 
     if not args.path and not enrichment_only:
         parser.error("path is required unless using --db-status, --list-scans, --delete-scan, "
-                     "--configure, --open-settings, --dump-to-sqlite, "
+                     "--search, --configure, --open-settings, --dump-to-sqlite, "
                      "--load-from-sqlite, --scan-status, --analyze, or "
                      "--scan-id with --phases that exclude 'enumerate'")
 
@@ -824,13 +839,11 @@ def main() -> None:
         export_csv(url, f"{db_stem}.csv", scan_id=stats["scan_id"])
     if args.export_json:
         export_json(url, f"{db_stem}.json", scan_id=stats["scan_id"])
-    if args.query:
-        query_db(url, args.query)
 
     if args.analyze:
         _run_analysis(url, args, scan_id=stats["scan_id"])
 
-    print(f"  💡 Run with --query photos, --list-scans, or open the GUI:\n"
+    print(f"  💡 Run with --search photos, --list-scans, or open the GUI:\n"
           f"     valscanner-gui\n")
 
 
