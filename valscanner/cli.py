@@ -256,8 +256,11 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         "skip_logs":         args.skip_logs,
     }
 
+    from .core.similarity import _resolve_workers as _resolve_w
+    _w_eff = _resolve_w(args.analysis_workers)
     print(f"\n🔍 Running similarity analysis "
-          f"(min-files={args.min_files}, threshold={args.threshold:.2f})…")
+          f"(min-files={args.min_files}, threshold={args.threshold:.2f}, "
+          f"workers={_w_eff})…")
 
     pairs = find_similar_folders(
         url,
@@ -267,6 +270,7 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         scan_ids=scan_ids,
         filters=filters,
         progress_cb=_make_analysis_progress_cb(show_progress=not args.no_progress_bar),
+        workers=_w_eff,
     )
     if not args.no_progress_bar:
         print("\r" + " " * 79 + "\r", end="", flush=True)  # clear progress bar
@@ -443,6 +447,9 @@ def main() -> None:
                           help="Maximum number of folder pairs to report (default: 200)")
     analysis.add_argument("--analysis-scan-id", type=int, default=None, metavar="ID",
                           help="Restrict analysis to a specific scan ID")
+    analysis.add_argument("--analysis-workers", type=int, default=_defs["analysis_workers"], metavar="N",
+                          help="Parallel processes for similarity scoring "
+                               "(0 = auto / CPU count; 1 = sequential)")
 
     logging_group = parser.add_argument_group("logging")
     logging_group.add_argument("--log-file",    metavar="PATH", default=None,
@@ -848,4 +855,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

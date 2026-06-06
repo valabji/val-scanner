@@ -138,7 +138,7 @@ class AnalysisWorker(QThread):
 
     def __init__(self, db_path: str, min_files: int, threshold: float,
                  scan_ids: list | None = None, scope_label: str = "",
-                 filters: dict | None = None):
+                 filters: dict | None = None, workers: int | None = None):
         super().__init__()
         self.db_path     = db_path
         self.min_files   = min_files
@@ -146,6 +146,8 @@ class AnalysisWorker(QThread):
         self.scan_ids    = scan_ids
         self.scope_label = scope_label
         self.filters     = filters or {}
+        # workers=None → auto (CPU count). 1 = sequential.
+        self.workers     = workers
         self._stop       = False
         self._pid        = ""
 
@@ -179,6 +181,7 @@ class AnalysisWorker(QThread):
                 filters=self.filters,
                 stop_flag=lambda: self._stop,
                 progress_cb=_progress,
+                workers=self.workers,
             )
             duration_ms = int((time.monotonic() - t0) * 1000)
 

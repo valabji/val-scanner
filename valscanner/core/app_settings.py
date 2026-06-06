@@ -52,6 +52,7 @@ CLI_DEFAULTS_BUILTIN: dict = {
     "min_files":         3,
     "threshold":         0.40,
     "analysis_results":  200,
+    "analysis_workers":  0,
     "log_level":         "INFO",
     "log_max_size":      10_485_760,
     "log_backup_count":  5,
