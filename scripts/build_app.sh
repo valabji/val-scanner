@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$REPO_DIR")"
 PLATFORM="$(uname)"
 APP_NAME="ValScanner"
-VERSION="0.2.7"
+VERSION="0.2.8"
 MAKE_DMG=0
 SIGN_ID=""
 
