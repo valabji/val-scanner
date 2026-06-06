@@ -378,8 +378,10 @@ def main() -> None:
                         help="New root path for --remap-scan")
     parser.add_argument("--configure",       action="store_true",
                         help="Run the interactive configuration wizard and exit")
-    parser.add_argument("--open-settings",   action="store_true",
-                        help="Open settings.json in the system default editor and exit")
+    parser.add_argument("--open-settings",   nargs="?", const=True, default=False, metavar="EDITOR",
+                        help="Open settings.json and exit. With no value, uses the system "
+                             "default opener; pass an editor (e.g. --open-settings code, "
+                             "--open-settings nano) to launch it with that editor instead.")
     parser.add_argument("--dump-to-sqlite",  metavar="FILE",
                         help="Export the connected database to a SQLite file and exit")
     parser.add_argument("--dump-scan-ids",   metavar="IDS",
@@ -494,7 +496,9 @@ def main() -> None:
     if args.open_settings:
         sf = settings_path()
         print(f"Settings: {sf}")
-        if sys.platform == "darwin":
+        if isinstance(args.open_settings, str):
+            subprocess.run([args.open_settings, str(sf)])
+        elif sys.platform == "darwin":
             subprocess.run(["open", str(sf)])
         elif sys.platform == "win32":
             subprocess.run(["start", "", str(sf)], shell=True)
