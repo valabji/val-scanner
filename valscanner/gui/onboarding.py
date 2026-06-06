@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Literal, Optional
 
-from PySide6.QtCore import Qt, QRect, QPoint, QSettings
-from PySide6.QtGui import QPainter, QColor, QPen, QKeyEvent, QPaintEvent, QResizeEvent
+from PySide6.QtCore import Qt, QRect, QPoint, QSettings, QEvent
+from PySide6.QtGui import QPainter, QColor, QPen, QKeyEvent, QPaintEvent, QResizeEvent, QRegion
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QFrame, QSizePolicy,
 )
@@ -197,12 +197,14 @@ class OnboardingOverlay(QWidget):
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._reposition_card()
+        self._update_passthrough_mask()
         self.update()
 
     def eventFilter(self, obj, event):
-        if obj is self._win and event.type() == event.Resize:
+        if obj is self._win and event.type() == QEvent.Resize:
             self._fit_to_window()
             self._reposition_card()
+            self._update_passthrough_mask()
             self.update()
         return super().eventFilter(obj, event)
 
@@ -227,11 +229,18 @@ class OnboardingOverlay(QWidget):
         except Exception:
             return None
 
+    def _update_passthrough_mask(self) -> None:
+        rect = self._target_rect_padded()
+        if rect.isValid() and not rect.isEmpty():
+            self.setMask(QRegion(self.rect()).subtracted(QRegion(rect)))
+        else:
+            self.clearMask()
+
     def _target_rect_padded(self) -> QRect:
         w = self._target_widget()
         if w is None or not w.isVisible():
             return QRect()
-        top_left = w.mapTo(self, QPoint(0, 0))
+        top_left = self.mapFromGlobal(w.mapToGlobal(QPoint(0, 0)))
         r = QRect(top_left, w.size())
         return r.adjusted(-self.CUTOUT_PADDING, -self.CUTOUT_PADDING,
                           self.CUTOUT_PADDING, self.CUTOUT_PADDING)
@@ -246,6 +255,7 @@ class OnboardingOverlay(QWidget):
         self._card.back_btn.setVisible(self._idx > 0)
         self._card.adjustSize()
         self._reposition_card()
+        self._update_passthrough_mask()
         self.update()
 
     def _reposition_card(self) -> None:
