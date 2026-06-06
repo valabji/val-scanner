@@ -650,9 +650,13 @@ class MainWindow(QMainWindow):
 
     def _open_active_file(self) -> None:
         row = self._active_row()
-        if row:
-            self.detail._current_path = row[0]
-            self.detail._open_file()
+        if not row:
+            return
+        if len(row) > 2 and row[2] == _FOLDER_SENTINEL:
+            self._navigate_to(row[0])
+            return
+        self.detail._current_path = row[0]
+        self.detail._open_file()
 
     def _reveal_active_file(self) -> None:
         row = self._active_row()
