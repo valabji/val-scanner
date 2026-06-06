@@ -139,6 +139,8 @@ def count_files(
                     rel = _relpath(os.path.join(dirpath, fname), root_str)
                 except ValueError:
                     rel = fname
+                if os.sep != "/":
+                    rel = rel.replace(os.sep, "/")
                 if _exclude_regex.match(rel):
                     continue
             total += 1
@@ -528,6 +530,8 @@ def enumerate_only(
                         rel = os.path.relpath(fpath_str, root_key)
                     except ValueError:
                         rel = fname
+                    if os.sep != "/":
+                        rel = rel.replace(os.sep, "/")
                     if _exclude_regex.match(rel):
                         stats["skipped"] += 1
                         continue
