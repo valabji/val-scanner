@@ -25,6 +25,7 @@ from .core.export import export_csv, export_json
 from .core.db import search_db, print_summary, print_db_status, list_scans, delete_scan, remap_scan, repo_for
 from .core.schema import human_size
 from .core.transfer import transfer_db
+from .core.filters import FILTER_KEYS
 from .core.similarity import find_similar_folders
 from ._telemetry import init_sentry
 
@@ -121,6 +122,13 @@ def _make_scan_progress_cb(verbose: bool, total: int, show_progress: bool = True
         print(line[:79], end="", flush=True)
 
     return _cb
+
+
+def _make_skip_logger():
+    # Route --log-skipped through the stdlib logger so it follows --log-file
+    # and --log-no-console; bare print() would bypass both.
+    log = logging.getLogger("valscanner.transfer.skipped")
+    return lambda kind, p: log.info("skip %s: %s", kind, p)
 
 
 def _make_transfer_progress_cb(show_progress: bool = True):
@@ -390,6 +398,10 @@ def main() -> None:
     parser.add_argument("--zip-blobs",           nargs="?", const=True, metavar="FILE",
                         help="Dump: write blobs to FILE (default: <db>.zip) instead of SQLite. "
                              "Load: restore blobs from FILE (default: <db>.zip)")
+    parser.add_argument("--log-skipped",         action="store_true",
+                        help="With --dump-to-sqlite / --load-from-sqlite: print the "
+                             "path of every file/folder dropped by the skip filters "
+                             "(in addition to the aggregate counts).")
 
     thumb = parser.add_argument_group("thumbnails (requires Pillow, on by default)")
     thumb.add_argument("--no-thumbnails",  action="store_true", default=_defs["no_thumbnails"],
@@ -405,7 +417,7 @@ def main() -> None:
     media.add_argument("--sample-duration", type=int, default=_defs["sample_duration"], metavar="SEC",
                        help="Media sample duration in seconds (default: 5)")
 
-    skip = parser.add_argument_group("skip during scan (all off by default)")
+    skip = parser.add_argument_group("skip filters — apply to scan, --dump-to-sqlite, and --load-from-sqlite (all off by default)")
     skip.add_argument("--skip-hidden-dirs",  action="store_true", default=_defs["skip_hidden_dirs"],
                       help="Skip hidden folders (names starting with .)")
     skip.add_argument("--skip-vcs",          action="store_true", default=_defs["skip_vcs"],
@@ -568,7 +580,12 @@ def main() -> None:
         if write_zip:
             print(f"   Blobs  →  {write_zip}")
         print()
+        filter_opts = {k: getattr(args, k, False) for k in FILTER_KEYS}
+        active_filters = [k for k, v in filter_opts.items() if v]
+        if active_filters:
+            print(f"   Filters:  {', '.join(active_filters)}")
         on_prog, on_stage = _make_transfer_progress_cb(show_progress=not args.no_progress_bar)
+        on_skip = _make_skip_logger() if args.log_skipped else None
         stats = transfer_db(url, dst_url, on_progress=on_prog,
                             on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
@@ -576,6 +593,8 @@ def main() -> None:
                             include_thumbnails=not (args.no_dump_thumbnails or args.zip_blobs is not None),
                             include_samples=not (args.no_dump_samples or args.zip_blobs is not None),
                             scan_ids=dump_scan_ids,
+                            filter_options=filter_opts if active_filters else None,
+                            on_skip=on_skip,
                             write_blobs_zip=write_zip)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)
@@ -596,13 +615,20 @@ def main() -> None:
         if read_zip:
             print(f"   Blobs  ←  {read_zip}")
         print(f"         →  {mask_url(url)}\n")
+        filter_opts = {k: getattr(args, k, False) for k in FILTER_KEYS}
+        active_filters = [k for k, v in filter_opts.items() if v]
+        if active_filters:
+            print(f"   Filters:  {', '.join(active_filters)}")
         on_prog, on_stage = _make_transfer_progress_cb(show_progress=not args.no_progress_bar)
+        on_skip = _make_skip_logger() if args.log_skipped else None
         stats = transfer_db(src_url, url, on_progress=on_prog,
                             on_stage_progress=on_stage,
                             include_analysis=args.include_analysis,
                             include_cache=args.include_cache,
                             include_thumbnails=not (args.no_dump_thumbnails or args.zip_blobs is not None),
                             include_samples=not (args.no_dump_samples or args.zip_blobs is not None),
+                            filter_options=filter_opts if active_filters else None,
+                            on_skip=on_skip,
                             read_blobs_zip=read_zip)
         print(f"\n✅ Done — {stats['scans']} scans, {stats['files']:,} files")
         sys.exit(0)

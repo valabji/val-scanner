@@ -61,7 +61,16 @@ def file_is_skipped(filename: str, extension: str, options: dict) -> bool:
 
 
 def path_has_skipped_dir(path_str: str, options: dict) -> bool:
-    parts = PurePath(path_str).parent.parts
+    return _any_part_skipped(PurePath(path_str).parent.parts, options)
+
+
+def path_contains_skipped_dir(path_str: str, options: dict) -> bool:
+    # Like path_has_skipped_dir, but checks the leaf too — use for folder rows
+    # where the basename IS the folder being judged (e.g. ".../.git").
+    return _any_part_skipped(PurePath(path_str).parts, options)
+
+
+def _any_part_skipped(parts, options: dict) -> bool:
     for part in parts:
         if not part or part in ("/", "\\"):
             continue

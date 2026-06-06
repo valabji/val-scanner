@@ -20,6 +20,12 @@ from sqlalchemy import create_engine, select, insert, func
 from sqlalchemy.exc import DatabaseError
 
 from .bootstrap import ensure_schema
+from .filters import (
+    FILTER_KEYS,
+    file_is_skipped,
+    path_contains_skipped_dir,
+    path_has_skipped_dir,
+)
 from .schema import scans, files, folders, thumbnails, media_samples, gui_cache, analysis_runs
 
 _log = logging.getLogger(__name__)
@@ -57,6 +63,8 @@ def transfer_db(
     include_thumbnails: bool = True,
     include_samples: bool = True,
     scan_ids: list[int] | None = None,
+    filter_options: dict | None = None,
+    on_skip: Callable[[str, str], None] | None = None,
     write_blobs_zip: Path | str | None = None,
     read_blobs_zip: Path | str | None = None,
 ) -> dict:
@@ -66,6 +74,10 @@ def transfer_db(
     ``on_stage_progress(stage, done, total)`` is called repeatedly during
     each table copy and is expected to throttle/render its own progress bar.
     ``scan_ids`` restricts the transfer to specific scan IDs; None copies all.
+    ``filter_options`` is a dict of skip-* flags (see filters.FILTER_KEYS) that
+    drops files/folders matching the scan-style skip rules during the copy.
+    ``on_skip(kind, path)`` is called for each dropped row, where kind is
+    "file" or "folder"; pass to list every item filter_options excluded.
     ``write_blobs_zip`` writes thumbnail/sample blobs to a ZIP file keyed by
     destination file ID instead of (or in addition to) storing them in SQLite.
     ``read_blobs_zip`` reads thumbnail/sample blobs from a ZIP file keyed by
@@ -80,6 +92,17 @@ def transfer_db(
     stats: dict[str, int] = {
         "scans": 0, "files": 0, "folders": 0, "thumbnails": 0, "samples": 0,
     }
+
+    filter_opts = {k: bool(filter_options.get(k)) for k in FILTER_KEYS} \
+        if filter_options else {}
+    filter_active = any(filter_opts.values())
+    if filter_active:
+        stats["files_skipped"] = 0
+        stats["folders_skipped"] = 0
+    # Thumbnails/samples queries must constrain to surviving file IDs whenever
+    # the file set is a strict subset of the source — either because of scan_ids
+    # or because rows were dropped by filter_options.
+    file_set_reduced = scan_ids is not None or filter_active
 
     def _emit(msg: str) -> None:
         if on_progress:
@@ -123,6 +146,16 @@ def transfer_db(
         file_id_map: dict[int, int] = {}
         for row in sc.execute(file_q.execution_options(**src_opts)):
             m = row._mapping
+            if filter_active and (
+                file_is_skipped(m["filename"] or "",
+                                (m["extension"] or "").lower(),
+                                filter_opts)
+                or path_has_skipped_dir(m["path"] or "", filter_opts)
+            ):
+                stats["files_skipped"] += 1
+                if on_skip:
+                    on_skip("file", m["path"] or "")
+                continue
             d = {k: m[k] for k in _FILE_COLS}
             d["scan_id"] = scan_id_map[d["scan_id"]]
             new_id = dc.execute(insert(files).values(**d)).inserted_primary_key[0]
@@ -131,6 +164,8 @@ def transfer_db(
             _stage("files", stats["files"], total)
         _stage("files", stats["files"], stats["files"])
         _emit(f"  files:          {stats['files']:>8,}")
+        if filter_active and stats["files_skipped"]:
+            _emit(f"  files skipped:  {stats['files_skipped']:>8,}  (filtered)")
 
         # ── folders ───────────────────────────────────────────────────────────
         folder_q = select(folders)
@@ -139,6 +174,11 @@ def transfer_db(
         total = sc.execute(select(func.count()).select_from(folder_q.subquery())).scalar() or 0
         for row in sc.execute(folder_q.execution_options(**src_opts)):
             m = row._mapping
+            if filter_active and path_contains_skipped_dir(m["path"] or "", filter_opts):
+                stats["folders_skipped"] += 1
+                if on_skip:
+                    on_skip("folder", m["path"] or "")
+                continue
             d = {k: m[k] for k in _FOLDER_COLS}
             d["scan_id"] = scan_id_map[d["scan_id"]]
             dc.execute(insert(folders).values(**d))
@@ -146,6 +186,8 @@ def transfer_db(
             _stage("folders", stats["folders"], total)
         _stage("folders", stats["folders"], stats["folders"])
         _emit(f"  folders:        {stats['folders']:>8,}")
+        if filter_active and stats["folders_skipped"]:
+            _emit(f"  folders skipped:{stats['folders_skipped']:>8,}  (filtered)")
 
         # ── thumbnails ────────────────────────────────────────────────────────
         # Thumbnails and media samples hold only regenerable GUI assets, so a
@@ -155,7 +197,7 @@ def transfer_db(
         if include_thumbnails:
             try:
                 thumb_q = select(thumbnails)
-                if scan_ids is not None:
+                if file_set_reduced:
                     thumb_q = thumb_q.where(thumbnails.c.file_id.in_(src_file_ids))
                 total = sc.execute(select(func.count()).select_from(thumb_q.subquery())).scalar() or 0
                 for row in sc.execute(thumb_q.execution_options(**src_opts)):
@@ -177,7 +219,7 @@ def transfer_db(
         if include_samples:
             try:
                 sample_q = select(media_samples)
-                if scan_ids is not None:
+                if file_set_reduced:
                     sample_q = sample_q.where(media_samples.c.file_id.in_(src_file_ids))
                 total = sc.execute(select(func.count()).select_from(sample_q.subquery())).scalar() or 0
                 for row in sc.execute(sample_q.execution_options(**src_opts)):
@@ -199,7 +241,7 @@ def transfer_db(
         if write_blobs_zip is not None:
             with zipfile.ZipFile(Path(write_blobs_zip), "w", zipfile.ZIP_DEFLATED) as zf:
                 thumb_q = select(thumbnails)
-                if scan_ids is not None:
+                if file_set_reduced:
                     thumb_q = thumb_q.where(thumbnails.c.file_id.in_(src_file_ids))
                 total = sc.execute(select(func.count()).select_from(thumb_q.subquery())).scalar() or 0
                 n = 0
@@ -219,7 +261,7 @@ def transfer_db(
                 _emit(f"  thumbnails:     {stats['thumbnails']:>8,}  (zip)")
 
                 sample_q = select(media_samples)
-                if scan_ids is not None:
+                if file_set_reduced:
                     sample_q = sample_q.where(media_samples.c.file_id.in_(src_file_ids))
                 total = sc.execute(select(func.count()).select_from(sample_q.subquery())).scalar() or 0
                 n = 0
