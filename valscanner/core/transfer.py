@@ -127,11 +127,13 @@ def transfer_db(
             scan_q = scan_q.where(scans.c.id.in_(scan_ids))
         total = sc.execute(select(func.count()).select_from(scan_q.subquery())).scalar() or 0
         scan_id_map: dict[int, int] = {}
+        scan_root_map: dict[int, str] = {}
         for row in sc.execute(scan_q.execution_options(**src_opts)):
             m = row._mapping
             d = {k: m[k] for k in _SCAN_COLS}
             new_id = dc.execute(insert(scans).values(**d)).inserted_primary_key[0]
             scan_id_map[m["id"]] = new_id
+            scan_root_map[m["id"]] = m["root"] or ""
             stats["scans"] += 1
             _stage("scans", stats["scans"], total)
         _stage("scans", stats["scans"], stats["scans"])
@@ -150,7 +152,8 @@ def transfer_db(
                 file_is_skipped(m["filename"] or "",
                                 (m["extension"] or "").lower(),
                                 filter_opts)
-                or path_has_skipped_dir(m["path"] or "", filter_opts)
+                or path_has_skipped_dir(m["path"] or "", filter_opts,
+                                        root=scan_root_map.get(m["scan_id"]))
             ):
                 stats["files_skipped"] += 1
                 if on_skip:
@@ -174,7 +177,10 @@ def transfer_db(
         total = sc.execute(select(func.count()).select_from(folder_q.subquery())).scalar() or 0
         for row in sc.execute(folder_q.execution_options(**src_opts)):
             m = row._mapping
-            if filter_active and path_contains_skipped_dir(m["path"] or "", filter_opts):
+            if filter_active and path_contains_skipped_dir(
+                m["path"] or "", filter_opts,
+                root=scan_root_map.get(m["scan_id"]),
+            ):
                 stats["folders_skipped"] += 1
                 if on_skip:
                     on_skip("folder", m["path"] or "")

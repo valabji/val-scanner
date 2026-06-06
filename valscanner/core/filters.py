@@ -60,14 +60,26 @@ def file_is_skipped(filename: str, extension: str, options: dict) -> bool:
     return False
 
 
-def path_has_skipped_dir(path_str: str, options: dict) -> bool:
-    return _any_part_skipped(PurePath(path_str).parent.parts, options)
+def path_has_skipped_dir(path_str: str, options: dict, root: str | None = None) -> bool:
+    return _any_part_skipped(_parts_below_root(PurePath(path_str).parent, root), options)
 
 
-def path_contains_skipped_dir(path_str: str, options: dict) -> bool:
+def path_contains_skipped_dir(path_str: str, options: dict, root: str | None = None) -> bool:
     # Like path_has_skipped_dir, but checks the leaf too — use for folder rows
     # where the basename IS the folder being judged (e.g. ".../.git").
-    return _any_part_skipped(PurePath(path_str).parts, options)
+    return _any_part_skipped(_parts_below_root(PurePath(path_str), root), options)
+
+
+def _parts_below_root(path: PurePath, root: str | None) -> tuple[str, ...]:
+    # Without a scan root we have no way to tell which parts are part of the
+    # mount/prefix the user intentionally scanned (e.g. /Volumes/Foo, /run/media)
+    # versus parts inside it — return all parts and let the legacy behavior apply.
+    if not root:
+        return path.parts
+    try:
+        return path.relative_to(PurePath(root)).parts
+    except ValueError:
+        return path.parts
 
 
 def _any_part_skipped(parts, options: dict) -> bool:
