@@ -12,12 +12,14 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QScrollArea, QSpinBox, QCheckBox, QMenu, QFileDialog,
     QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView,
+    QToolButton, QSizePolicy,
 )
 
 from ..constants import DARK_BG, PANEL_BG, ACCENT, TEXT, SUBTEXT, BORDER
 from .. import icons as _icons
 from ..workers import QuickAnalysisWorker
 from ..theme import Spacing, Margins, Sizes
+from .process import ProcessRegistry
 from ...core.db import (
     list_quick_analysis_runs,
     load_quick_analysis_run,
@@ -44,28 +46,81 @@ def _mirror_marker(row: dict) -> str:
     return f"  +{n} {noun}"
 
 
-class _CategorySection(QFrame):
-    """A collapsible header + table for one category's rows."""
+_TABLE_MAX_H = 360  # px — cap so cards never push siblings off-screen
 
-    def __init__(self, category: str, rows: list[dict], parent=None):
+
+class _CategorySection(QFrame):
+    """A collapsible header + bounded scrollable table for one category."""
+
+    def __init__(self, category: str, rows: list[dict],
+                 expanded: bool = False, parent=None):
         super().__init__(parent)
-        self._rows = rows
+        self._rows = sorted(rows, key=lambda r: -r.get("total_bytes", 0))
+        self._category = category
+        self._built = False
+        self._expanded = expanded
+
         self.setStyleSheet(
-            f"QFrame{{background:{PANEL_BG};border:1px solid {BORDER};"
+            f"QFrame#qa_card{{background:{PANEL_BG};border:1px solid {BORDER};"
             f"border-radius:8px;}}"
         )
+        self.setObjectName("qa_card")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(Spacing.MD, Spacing.MD, Spacing.MD, Spacing.MD)
-        lay.setSpacing(Spacing.SM)
+        lay.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        lay.setSpacing(Spacing.XS if hasattr(Spacing, "XS") else 4)
 
-        header = QHBoxLayout()
-        header.setSpacing(Spacing.SM)
-        label = QLabel(f"<b>{category}</b>  —  {len(rows)} folder(s)")
-        label.setStyleSheet(f"color:{TEXT};font-size:13px;")
-        header.addWidget(label)
-        header.addStretch()
-        lay.addLayout(header)
+        total_bytes = sum(r.get("total_bytes", 0) for r in rows)
+        total_files = sum(r.get("file_count", 0) for r in rows)
+        with_mirrors = sum(1 for r in rows if r.get("has_mirrors"))
 
+        self._toggle = QToolButton()
+        self._toggle.setText(
+            f"  {category}   —   {len(rows):,} folder(s)  "
+            f"·  {human_size(total_bytes)}  ·  {total_files:,} files"
+            + (f"  ·  {with_mirrors} with mirrors" if with_mirrors else "")
+        )
+        self._toggle.setCheckable(True)
+        self._toggle.setChecked(expanded)
+        self._toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self._toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._toggle.setStyleSheet(
+            f"QToolButton{{background:transparent;color:{TEXT};border:none;"
+            f"text-align:left;padding:6px 4px;font-weight:bold;font-size:12px;}}"
+            f"QToolButton:hover{{color:{ACCENT};}}"
+        )
+        self._toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._toggle.clicked.connect(self._on_toggle)
+        lay.addWidget(self._toggle)
+
+        self._body = QWidget()
+        self._body_lay = QVBoxLayout(self._body)
+        self._body_lay.setContentsMargins(0, 0, 0, Spacing.XS if hasattr(Spacing, "XS") else 4)
+        self._body_lay.setSpacing(0)
+        self._body.setVisible(expanded)
+        lay.addWidget(self._body)
+
+        if expanded:
+            self._build_table()
+
+    def expand(self, expanded: bool = True) -> None:
+        if expanded == self._expanded:
+            return
+        self._toggle.setChecked(expanded)
+        self._on_toggle()
+
+    def _on_toggle(self) -> None:
+        self._expanded = self._toggle.isChecked()
+        self._toggle.setArrowType(Qt.DownArrow if self._expanded else Qt.RightArrow)
+        if self._expanded and not self._built:
+            self._build_table()
+        self._body.setVisible(self._expanded)
+        self.updateGeometry()
+
+    def _build_table(self) -> None:
+        self._built = True
+        rows = self._rows
         tbl = QTableWidget(len(rows), 4)
         tbl.setHorizontalHeaderLabels(["Size", "Files", "Dom.", "Folder"])
         tbl.verticalHeader().setVisible(False)
@@ -86,9 +141,9 @@ class _CategorySection(QFrame):
         hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        tbl.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
 
-        rows_sorted = sorted(rows, key=lambda r: -r.get("total_bytes", 0))
-        for i, r in enumerate(rows_sorted):
+        for i, r in enumerate(rows):
             size_item = QTableWidgetItem(human_size(r.get("total_bytes", 0)))
             size_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             tbl.setItem(i, 0, size_item)
@@ -103,24 +158,28 @@ class _CategorySection(QFrame):
             dom_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             tbl.setItem(i, 2, dom_item)
 
-            folder_text = r.get("folder", "") + _mirror_marker(r)
+            folder_path = r.get("folder", "")
+            folder_text = folder_path + _mirror_marker(r)
             folder_item = QTableWidgetItem(folder_text)
             mirrors = r.get("mirrors") or []
+            tip_lines = [folder_path]
             if mirrors:
-                tip = "Mirrors:\n" + "\n".join(
-                    f"  {m['folder']}  ({m['file_count']:,} files, "
-                    f"Δ={m.get('files_delta', 0):+,})"
-                    for m in mirrors
-                )
-                folder_item.setToolTip(tip)
+                tip_lines.append("")
+                tip_lines.append("Mirrors:")
+                for m in mirrors:
+                    tip_lines.append(
+                        f"  {m['folder']}  ({m['file_count']:,} files, "
+                        f"Δ={m.get('files_delta', 0):+,})"
+                    )
+            folder_item.setToolTip("\n".join(tip_lines))
             tbl.setItem(i, 3, folder_item)
 
         tbl.resizeRowsToContents()
-        row_h = tbl.verticalHeader().defaultSectionSize()
-        tbl.setFixedHeight(
-            row_h * max(1, len(rows_sorted)) + tbl.horizontalHeader().height() + 4
-        )
-        lay.addWidget(tbl)
+        tbl.setMaximumHeight(_TABLE_MAX_H)
+        tbl.setMinimumHeight(min(_TABLE_MAX_H,
+                                 28 * min(len(rows), 6) + 32))
+        tbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._body_lay.addWidget(tbl)
 
 
 class QuickAnalysisPanel(QWidget):
@@ -286,6 +345,15 @@ class QuickAnalysisPanel(QWidget):
             scan_ids=None,
             scope_label="all-scans",
         )
+
+        reg = ProcessRegistry.instance()
+        pid = reg.register(
+            name="Quick folder analysis",
+            cancel_cb=worker.stop,
+            kill_cb=worker.terminate,
+        )
+        worker._pid = pid
+
         worker.finished.connect(self._on_finished)
         worker.error.connect(self._on_error)
         worker.run_saved.connect(self._on_run_saved)
@@ -326,18 +394,91 @@ class QuickAnalysisPanel(QWidget):
             w = item.widget()
             if w is not None:
                 w.setParent(None)
+        self._sections: dict[str, _CategorySection] = {}
+
         by_cat: dict[str, list[dict]] = {}
         for r in results:
             by_cat.setdefault(r.get("category", "other"), []).append(r)
-        for cat in CATEGORY_ORDER:
-            rows = by_cat.get(cat)
-            if not rows:
-                continue
-            self._content_lay.addWidget(_CategorySection(cat, rows))
-        leftovers = [c for c in by_cat if c not in CATEGORY_ORDER]
-        for cat in leftovers:
-            self._content_lay.addWidget(_CategorySection(cat, by_cat[cat]))
+        ordered_cats: list[str] = [c for c in CATEGORY_ORDER if c in by_cat]
+        ordered_cats += [c for c in by_cat if c not in CATEGORY_ORDER]
+
+        if ordered_cats:
+            self._content_lay.addWidget(self._build_jump_bar(ordered_cats, by_cat))
+
+        for idx, cat in enumerate(ordered_cats):
+            sect = _CategorySection(cat, by_cat[cat], expanded=(idx == 0))
+            self._sections[cat] = sect
+            self._content_lay.addWidget(sect)
+
         self._content_lay.addStretch()
+
+    def _build_jump_bar(self, cats: list[str],
+                        by_cat: dict[str, list[dict]]) -> QWidget:
+        bar = QFrame()
+        bar.setStyleSheet(
+            f"QFrame{{background:{PANEL_BG};border:1px solid {BORDER};"
+            f"border-radius:8px;}}"
+        )
+        outer = QVBoxLayout(bar)
+        outer.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        outer.setSpacing(Spacing.XS if hasattr(Spacing, "XS") else 4)
+
+        top = QHBoxLayout()
+        top.setSpacing(Spacing.SM)
+        lbl = QLabel("Jump to category")
+        lbl.setStyleSheet(f"color:{SUBTEXT};font-size:11px;font-weight:bold;")
+        top.addWidget(lbl)
+        top.addStretch()
+
+        ghost = (
+            f"QPushButton{{background:transparent;color:{SUBTEXT};"
+            f"border:1px solid {BORDER};border-radius:6px;"
+            f"padding:3px 10px;font-size:10px;}}"
+            f"QPushButton:hover{{color:{TEXT};border-color:{TEXT};}}"
+        )
+        expand_btn = QPushButton("Expand all")
+        expand_btn.setStyleSheet(ghost)
+        expand_btn.clicked.connect(lambda: self._set_all_expanded(True))
+        top.addWidget(expand_btn)
+        collapse_btn = QPushButton("Collapse all")
+        collapse_btn.setStyleSheet(ghost)
+        collapse_btn.clicked.connect(lambda: self._set_all_expanded(False))
+        top.addWidget(collapse_btn)
+        outer.addLayout(top)
+
+        chip_wrap = QWidget()
+        chip_lay = QHBoxLayout(chip_wrap)
+        chip_lay.setContentsMargins(0, 0, 0, 0)
+        chip_lay.setSpacing(6)
+
+        chip_ss = (
+            f"QPushButton{{background:{DARK_BG};color:{TEXT};"
+            f"border:1px solid {BORDER};border-radius:10px;"
+            f"padding:3px 10px;font-size:10px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
+        )
+        for cat in cats:
+            rows = by_cat[cat]
+            total = sum(r.get("total_bytes", 0) for r in rows)
+            chip = QPushButton(f"{cat}  ({len(rows):,} · {human_size(total)})")
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.setStyleSheet(chip_ss)
+            chip.clicked.connect(lambda _=False, c=cat: self._jump_to(c))
+            chip_lay.addWidget(chip)
+        chip_lay.addStretch()
+        outer.addWidget(chip_wrap)
+        return bar
+
+    def _set_all_expanded(self, expanded: bool) -> None:
+        for sect in getattr(self, "_sections", {}).values():
+            sect.expand(expanded)
+
+    def _jump_to(self, category: str) -> None:
+        sect = getattr(self, "_sections", {}).get(category)
+        if sect is None:
+            return
+        sect.expand(True)
+        self._scroll.ensureWidgetVisible(sect, 0, 12)
 
     # ── history / export / delete ─────────────────────────────────────
     def _refresh_state_buttons(self) -> None:

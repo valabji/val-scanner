@@ -236,6 +236,32 @@ def classify_folders(
         if d["marker_files"]:
             project_keys.add(key)
 
+    # One-category-per-path: any folder whose strict ancestor is a project
+    # root is owned by that ancestor — its own classification (project or
+    # media) is suppressed. Handles React-Native-style trees where the outer
+    # repo has package.json and an inner `android/` carries build.gradle.
+    descendant_of_project: set[tuple[int, str]] = set()
+    if project_keys:
+        proj_by_scan: dict[int, list[str]] = defaultdict(list)
+        for (sid_p, pr_path) in project_keys:
+            if pr_path:
+                proj_by_scan[sid_p].append(pr_path)
+        for sid_p in proj_by_scan:
+            proj_by_scan[sid_p].sort(key=len)
+        for (sid_f, fparent) in folders.keys():
+            if not fparent:
+                continue
+            for pr_path in proj_by_scan.get(sid_f, ()):
+                if fparent == pr_path:
+                    continue
+                if (fparent.startswith(pr_path + "/")
+                        or fparent.startswith(pr_path + "\\")):
+                    descendant_of_project.add((sid_f, fparent))
+                    break
+    # The descendant projects themselves no longer count as "real" project
+    # roots — drop them so their subtree rollup never runs.
+    project_keys -= descendant_of_project
+
     subtree: dict[tuple[int, str], tuple[int, int]] = {}
     if project_keys:
         # Bucket folders by scan_id for cheap inner loop.
@@ -265,6 +291,8 @@ def classify_folders(
         if key in inside_marker and key not in project_keys:
             continue
         if key in project_keys:
+            continue
+        if key in descendant_of_project:
             continue
         if d["count"] < min_files:
             continue
@@ -399,6 +427,8 @@ def classify_folders(
         # `inside_marker` because the parent path doesn't contain the
         # marker segment.
         if key in inside_marker and key not in project_keys:
+            continue
+        if key in descendant_of_project:
             continue
         if key in media_absorbed:
             continue

@@ -221,6 +221,63 @@ def test_media_rollup_respects_project_roots(nested_photo_tree):
     assert "webproj" in proj_names
 
 
+@pytest.fixture
+def react_native_tree(tmp_path: Path):
+    """React-Native-style layout: outer node project with package.json and
+    inner android/ + ios/ subdirectories that each carry their own project
+    markers (build.gradle, *.podspec). Both project-marker classes apply,
+    but the inner ones must be suppressed under one-category-per-path."""
+    root = tmp_path / "tree"
+    root.mkdir()
+
+    app = root / "MyApp"
+    app.mkdir()
+    (app / "package.json").write_text('{"name":"myapp"}')
+    (app / "index.js").write_text("module.exports = 1;\n")
+    src = app / "src"
+    src.mkdir()
+    for i in range(12):
+        (src / f"comp{i}.js").write_text("export default 1;\n")
+
+    android = app / "android"
+    android.mkdir()
+    (android / "build.gradle").write_text("apply plugin: 'java'\n")
+    for i in range(8):
+        (android / f"AndroidManifest{i}.xml").write_text("<x/>")
+
+    ios = app / "ios"
+    ios.mkdir()
+    # python-project marker — fictional but exercises a different category
+    (ios / "requirements.txt").write_text("foo==1.0\n")
+    for i in range(8):
+        (ios / f"file{i}.swift").write_text("// swift\n")
+
+    db = str(tmp_path / "rn.db")
+    scan(root, db, compute_hash=False)
+    return db
+
+
+def test_nested_project_markers_suppressed_under_outer_project(react_native_tree):
+    """If an ancestor is already a project root, descendant folders with
+    their own marker files must not emit their own category row."""
+    results = classify_folders(react_native_tree, min_files=3)
+    by_cat: dict[str, list[dict]] = {}
+    for r in results:
+        by_cat.setdefault(r["category"], []).append(r)
+
+    assert "node-project" in by_cat
+    node_names = {Path(r["folder"]).name for r in by_cat["node-project"]}
+    assert "MyApp" in node_names
+
+    inner = {"android", "ios"}
+    for cat, rows in by_cat.items():
+        for r in rows:
+            assert Path(r["folder"]).name not in inner, (
+                f"nested project leaked as {cat}: {r['folder']}"
+            )
+
+
+
 def test_group_backup_copies_collapses_mirrors():
     """Two rows with same category, identical trailing suffix, and bytes
     within 5% collapse to one primary; the row with more files wins."""
