@@ -339,6 +339,89 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         print(f"\n   {len(pairs)} pair(s) found.\n")
 
 
+def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
+    """Heuristic O(files) folder classifier — see core.quick_analysis."""
+    from .core.quick_analysis import classify_folders, CATEGORY_ORDER
+
+    scan_ids = None
+    if args.analysis_scan_id is not None:
+        scan_ids = [args.analysis_scan_id]
+    elif scan_id is not None:
+        scan_ids = [scan_id]
+
+    filters = {
+        "skip_hidden_files": args.skip_hidden_files,
+        "skip_hidden_dirs":  args.skip_hidden_dirs,
+        "skip_system":       args.skip_system,
+        "skip_caches":       args.skip_caches,
+        "skip_vcs":          args.skip_vcs,
+        "skip_binaries":     args.skip_binaries,
+        "skip_temp":         args.skip_temp,
+        "skip_logs":         args.skip_logs,
+    }
+
+    print(f"\n⚡ Running quick analysis (min-files={args.min_files}, "
+          f"include-mixed={args.include_mixed})…")
+
+    import time as _time
+    t0 = _time.time()
+    results = classify_folders(
+        url,
+        scan_ids=scan_ids,
+        min_files=args.min_files,
+        filters=filters,
+        include_mixed=args.include_mixed,
+    )
+    elapsed = _time.time() - t0
+
+    if not results:
+        _rprint("   [dim]No classified folders found.[/dim]\n",
+                "   No classified folders found.\n")
+        return
+
+    from collections import defaultdict as _dd
+    by_cat: dict = _dd(list)
+    for r in results:
+        by_cat[r["category"]].append(r)
+
+    cap = max(1, args.analysis_results)
+
+    for cat in CATEGORY_ORDER:
+        items = by_cat.get(cat)
+        if not items:
+            continue
+        items.sort(key=lambda r: -r["total_bytes"])
+        shown = items[:cap]
+        header = f"{cat}  —  {len(items)} folder(s), top {len(shown)} by size"
+
+        if _HAS_RICH:
+            _console.print(f"\n[bold]{header}[/bold]")
+            tbl = _RichTable(show_header=True, header_style="bold", box=None,
+                             padding=(0, 1))
+            tbl.add_column("Size",  style="cyan", justify="right", width=10)
+            tbl.add_column("Files", style="cyan", justify="right", width=8)
+            tbl.add_column("Dom.",  style="dim",  justify="right", width=5)
+            tbl.add_column("Folder", no_wrap=False)
+            for r in shown:
+                dom = f"{r['dominance']*100:.0f}%" if r["dominance"] else "—"
+                tbl.add_row(human_size(r["total_bytes"]),
+                            f"{r['file_count']:,}", dom, r["folder"])
+            _console.print(tbl)
+        else:
+            print(f"\n  {header}")
+            print(f"  {'Size':>10}  {'Files':>8}  {'Dom.':>5}  Folder")
+            print(f"  {'─'*10}  {'─'*8}  {'─'*5}  {'─'*40}")
+            for r in shown:
+                dom = f"{r['dominance']*100:.0f}%" if r["dominance"] else "—"
+                print(f"  {human_size(r['total_bytes']):>10}  "
+                      f"{r['file_count']:>8,}  {dom:>5}  {r['folder']}")
+
+    total_folders = len(results)
+    _rprint(f"\n   [bold]{total_folders}[/bold] folder(s) classified "
+            f"in {elapsed:.1f}s.\n",
+            f"\n   {total_folders} folder(s) classified in {elapsed:.1f}s.\n")
+
+
 def main() -> None:
     init_sentry("cli")
     _defs = cli_defaults()
@@ -473,6 +556,13 @@ def main() -> None:
     analysis.add_argument("--analyze",          action="store_true",
                           help="Run folder-similarity analysis after scanning "
                                "(or standalone with --db, no path required)")
+    analysis.add_argument("--quick-analyze",    action="store_true",
+                          help="Run heuristic folder classification "
+                               "(photo/music/video libraries, code projects). "
+                               "O(files) — completes in seconds even on millions of files")
+    analysis.add_argument("--include-mixed",    action="store_true",
+                          help="Include 'mixed' folders in --quick-analyze output "
+                               "(otherwise only classified folders are shown)")
     analysis.add_argument("--min-files",        type=int, default=_defs["min_files"], metavar="N",
                           help="Minimum files per folder for analysis (default: 3)")
     analysis.add_argument("--threshold",        type=float, default=_defs["threshold"], metavar="F",
@@ -703,6 +793,10 @@ def main() -> None:
         _run_analysis(url, args, scan_id=None)
         sys.exit(0)
 
+    if args.quick_analyze and not args.path:
+        _run_quick_analysis(url, args, scan_id=None)
+        sys.exit(0)
+
     # Parse --phases into a tuple (or None for default). Validate names early
     # so a typo doesn't waste a precount before failing.
     phases_arg: tuple | None = None
@@ -723,7 +817,7 @@ def main() -> None:
     if not args.path and not enrichment_only:
         parser.error("path is required unless using --db-status, --list-scans, --delete-scan, "
                      "--search, --configure, --open-settings, --dump-to-sqlite, "
-                     "--load-from-sqlite, --scan-status, --analyze, or "
+                     "--load-from-sqlite, --scan-status, --analyze, --quick-analyze, or "
                      "--scan-id with --phases that exclude 'enumerate'")
 
     if args.path:
@@ -899,6 +993,9 @@ def main() -> None:
 
     if args.analyze:
         _run_analysis(url, args, scan_id=stats["scan_id"])
+
+    if args.quick_analyze:
+        _run_quick_analysis(url, args, scan_id=stats["scan_id"])
 
     print(f"  💡 Run with --search photos, --list-scans, or open the GUI:\n"
           f"     valscanner-gui\n")
