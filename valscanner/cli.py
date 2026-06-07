@@ -398,6 +398,22 @@ def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
                 "   No classified folders found.\n")
         return
 
+    from .core.db import save_quick_analysis_run
+    scope_label = (
+        f"scans={scan_ids}" if scan_ids else "all-scans"
+    )
+    try:
+        run_id = save_quick_analysis_run(
+            url, args.min_files, args.include_mixed,
+            scan_ids, scope_label, int(elapsed * 1000),
+            results, filters,
+        )
+        _rprint(f"   [dim]Saved as quick-analysis run #{run_id}.[/dim]",
+                f"   Saved as quick-analysis run #{run_id}.")
+    except Exception as exc:
+        _rprint(f"   [yellow]Warning:[/yellow] could not persist run ({exc}).",
+                f"   Warning: could not persist run ({exc}).")
+
     if args.analysis_export_csv or args.analysis_export_json:
         from .core.export import (
             export_quick_analysis_csv,
@@ -409,12 +425,19 @@ def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
         if args.analysis_export_json:
             export_quick_analysis_json(results, f"{stem}-analysis.json")
 
+    _render_quick_analysis_results(results, max(1, args.analysis_results),
+                                   elapsed)
+
+
+def _render_quick_analysis_results(results: list[dict], cap: int,
+                                   elapsed: float | None) -> None:
+    """Render quick-analyze rows to the console (shared by live and saved runs)."""
+    from .core.quick_analysis import CATEGORY_ORDER
     from collections import defaultdict as _dd
+
     by_cat: dict = _dd(list)
     for r in results:
         by_cat[r["category"]].append(r)
-
-    cap = max(1, args.analysis_results)
 
     for cat in CATEGORY_ORDER:
         items = by_cat.get(cat)
@@ -449,9 +472,13 @@ def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
                       f"{r['file_count']:>8,}  {dom:>5}  {folder_cell}")
 
     total_folders = len(results)
-    _rprint(f"\n   [bold]{total_folders}[/bold] folder(s) classified "
-            f"in {elapsed:.1f}s.\n",
-            f"\n   {total_folders} folder(s) classified in {elapsed:.1f}s.\n")
+    if elapsed is None:
+        _rprint(f"\n   [bold]{total_folders}[/bold] folder(s) classified.\n",
+                f"\n   {total_folders} folder(s) classified.\n")
+    else:
+        _rprint(f"\n   [bold]{total_folders}[/bold] folder(s) classified "
+                f"in {elapsed:.1f}s.\n",
+                f"\n   {total_folders} folder(s) classified in {elapsed:.1f}s.\n")
 
 
 def main() -> None:
@@ -612,6 +639,12 @@ def main() -> None:
     analysis.add_argument("--analysis-export-json", action="store_true",
                           help="Write the --quick-analyze rows to <db>-analysis.json "
                                "(mirrors nested under each primary)")
+    analysis.add_argument("--list-quick-analyses",   action="store_true",
+                          help="List saved --quick-analyze runs in the database")
+    analysis.add_argument("--load-quick-analysis",   type=int, metavar="ID",
+                          help="Render a saved --quick-analyze run by ID instead of recomputing")
+    analysis.add_argument("--delete-quick-analysis", type=int, metavar="ID",
+                          help="Delete a saved --quick-analyze run by ID")
 
     logging_group = parser.add_argument_group("logging")
     logging_group.add_argument("--log-file",    metavar="PATH", default=None,
@@ -682,6 +715,50 @@ def main() -> None:
     if args.delete_scan is not None:
         delete_scan(url, args.delete_scan)
         print(f"✓ Scan {args.delete_scan} deleted.")
+        sys.exit(0)
+
+    if args.list_quick_analyses:
+        from .core.db import list_quick_analysis_runs
+        runs = list_quick_analysis_runs(url)
+        if not runs:
+            print("No quick-analysis runs saved.")
+        else:
+            for r in runs:
+                mix = "include-mixed" if r["include_mixed"] else "no-mixed"
+                print(f"  [{r['id']:3d}]  {r['ran_at']}  "
+                      f"min-files={r['min_files']:>3}  {mix:<14}  "
+                      f"{r['row_count']:>5} rows  {r['duration_ms']:>5} ms  "
+                      f"{r['scope_label']}")
+        sys.exit(0)
+
+    if args.delete_quick_analysis is not None:
+        from .core.db import delete_quick_analysis_run
+        delete_quick_analysis_run(url, args.delete_quick_analysis)
+        print(f"✓ Quick-analysis run {args.delete_quick_analysis} deleted.")
+        sys.exit(0)
+
+    if args.load_quick_analysis is not None:
+        from .core.db import load_quick_analysis_run
+        run = load_quick_analysis_run(url, args.load_quick_analysis)
+        if run is None:
+            print(f"Quick-analysis run {args.load_quick_analysis} not found.")
+            sys.exit(1)
+        results = run.get("results") or []
+        if args.analysis_export_csv or args.analysis_export_json:
+            from .core.export import (
+                export_quick_analysis_csv,
+                export_quick_analysis_json,
+            )
+            stem = _export_stem(args.db)
+            if args.analysis_export_csv:
+                export_quick_analysis_csv(results, f"{stem}-analysis.csv")
+            if args.analysis_export_json:
+                export_quick_analysis_json(results, f"{stem}-analysis.json")
+        print(f"\n⚡ Quick-analysis run #{run['id']} "
+              f"({run['ran_at']}, {run['scope_label']})")
+        _render_quick_analysis_results(results,
+                                       max(1, args.analysis_results),
+                                       elapsed=None)
         sys.exit(0)
 
     if args.remap_scan is not None:

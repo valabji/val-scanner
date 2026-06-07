@@ -130,6 +130,21 @@ analysis_runs = Table(
     Index("idx_analysis_ran_at", "ran_at"),
 )
 
+quick_analysis_runs = Table(
+    "quick_analysis_runs",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ran_at", Text, nullable=False),
+    Column("scope_label", Text, nullable=False, default=""),
+    Column("min_files", Integer, nullable=False, default=3),
+    Column("include_mixed", Integer, nullable=False, default=0),
+    Column("duration_ms", Integer, default=0),
+    Column("row_count", Integer, default=0),
+    Column("filters_json", Text, nullable=False, default="{}"),
+    Column("results_json", Text, nullable=False, default="[]"),
+    Index("idx_quick_analysis_ran_at", "ran_at"),
+)
+
 # ── SQLite FTS5 ───────────────────────────────────────────────────────────────
 
 _FTS5_STMTS = [

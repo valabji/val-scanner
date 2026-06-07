@@ -39,6 +39,7 @@ from valscanner import __version__
 from .panels.detail import DetailPanel
 from .panels.folders import FolderPanel
 from .panels.similar import SimilarFoldersPanel
+from .panels.quick_analysis import QuickAnalysisPanel
 from .panels.scans import ScansPanel
 from .panels.console import ConsolePanel, _StderrBridge
 from .panels.process import ProcessPanel, ProcessRegistry
@@ -2200,6 +2201,16 @@ class MainWindow(QMainWindow):
         )
         self.center_tabs.addTab(self.similar_panel, _icons.icon("similar", color=str(SUBTEXT)), "Similar Folders")
 
+        self.quick_analysis_panel = QuickAnalysisPanel()
+        self.quick_analysis_panel.status_message.connect(
+            lambda m, lvl="info": self._set_status(m, lvl)
+        )
+        self.center_tabs.addTab(
+            self.quick_analysis_panel,
+            _icons.icon("filters", color=str(SUBTEXT)),
+            "Quick Analysis",
+        )
+
         self.scans_panel = ScansPanel()
         self.scans_panel.scan_deleted.connect(self._on_scan_deleted)
         self.scans_panel.scan_remapped.connect(self._on_scan_remapped)
@@ -2571,6 +2582,8 @@ class MainWindow(QMainWindow):
         self.json_btn.setEnabled(True)
         self.similar_panel.set_db(url)
         self.similar_panel.auto_load_last_run()
+        self.quick_analysis_panel.set_db(url)
+        self.quick_analysis_panel.auto_load_last_run()
         self.detail.set_db(url)
         _THUMB_CACHE.set_db(url)
         self._refresh_scan_combo()
@@ -2593,6 +2606,8 @@ class MainWindow(QMainWindow):
         self.json_btn.setEnabled(True)
         self.similar_panel.set_db(path)
         self.similar_panel.auto_load_last_run()
+        self.quick_analysis_panel.set_db(path)
+        self.quick_analysis_panel.auto_load_last_run()
         self.detail.set_db(path)
         _THUMB_CACHE.set_db(path)
         self._refresh_scan_combo()

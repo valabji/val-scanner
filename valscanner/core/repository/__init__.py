@@ -18,13 +18,14 @@ from .cache import CacheMixin
 from .files import FilesMixin
 from .folders import FoldersMixin
 from .media import MediaMixin
+from .quick_analysis import QuickAnalysisMixin
 from .scans import ScansMixin
 from .search import SearchMixin
 
 
 class Repository(
     ScansMixin, FilesMixin, FoldersMixin,
-    MediaMixin, SearchMixin, AnalysisMixin, CacheMixin,
+    MediaMixin, SearchMixin, AnalysisMixin, QuickAnalysisMixin, CacheMixin,
 ):
     """Single entry point for all database reads and writes.
 

@@ -27,9 +27,10 @@ from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtGui import QImage
 from sqlalchemy import text
 
-from ..core.db import repo_for, save_analysis_run
+from ..core.db import repo_for, save_analysis_run, save_quick_analysis_run
 from ..core.scanner import scan
 from ..core.similarity import find_similar_groups
+from ..core.quick_analysis import classify_folders
 
 PAGE_SIZE = 2_000
 
@@ -191,6 +192,77 @@ class AnalysisWorker(QThread):
                         self.db_path,
                         min_files=self.min_files,
                         threshold=self.threshold,
+                        scope_scan_ids=self.scan_ids,
+                        scope_label=self.scope_label,
+                        duration_ms=duration_ms,
+                        results=results,
+                        filters=self.filters,
+                    )
+                    self.run_saved.emit(run_id)
+                except Exception:
+                    pass
+
+            if self._pid:
+                from .panels.process import ProcessRegistry
+                ProcessRegistry.instance().mark_done(self._pid)
+            self.finished.emit(results)
+        except Exception as e:
+            self.error.emit(str(e))
+            if self._pid:
+                from .panels.process import ProcessRegistry
+                ProcessRegistry.instance().mark_error(self._pid, str(e))
+
+
+class QuickAnalysisWorker(QThread):
+    finished  = Signal(list)
+    error     = Signal(str)
+    run_saved = Signal(int)
+
+    def __init__(self, db_path: str, min_files: int, include_mixed: bool,
+                 scan_ids: list | None = None, scope_label: str = "",
+                 filters: dict | None = None):
+        super().__init__()
+        self.db_path       = db_path
+        self.min_files     = min_files
+        self.include_mixed = include_mixed
+        self.scan_ids      = scan_ids
+        self.scope_label   = scope_label
+        self.filters       = filters or {}
+        self._stop         = False
+        self._pid          = ""
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def run(self) -> None:
+        try:
+            if self._pid:
+                from .panels.process import ProcessRegistry
+                ProcessRegistry.instance().heartbeat(self._pid)
+
+            if self._stop:
+                if self._pid:
+                    from .panels.process import ProcessRegistry
+                    ProcessRegistry.instance().mark_done(self._pid)
+                self.finished.emit([])
+                return
+
+            t0 = time.monotonic()
+            results = classify_folders(
+                self.db_path,
+                scan_ids=self.scan_ids,
+                min_files=self.min_files,
+                filters=self.filters,
+                include_mixed=self.include_mixed,
+            )
+            duration_ms = int((time.monotonic() - t0) * 1000)
+
+            if not self._stop:
+                try:
+                    run_id = save_quick_analysis_run(
+                        self.db_path,
+                        min_files=self.min_files,
+                        include_mixed=self.include_mixed,
                         scope_scan_ids=self.scan_ids,
                         scope_label=self.scope_label,
                         duration_ms=duration_ms,

@@ -14,6 +14,8 @@ from valscanner.core.db import (
     delete_analysis_run, delete_scan, list_analysis_runs, list_scans,
     load_analysis_run, print_summary, search_db, repo_for, reset_repos,
     save_analysis_run,
+    delete_quick_analysis_run, list_quick_analysis_runs,
+    load_quick_analysis_run, save_quick_analysis_run,
 )
 from valscanner.core.db_config import reset_engines
 
@@ -136,6 +138,45 @@ def test_save_list_load_delete_analysis_run(db_url):
 
 def test_load_analysis_run_missing_returns_none(db_url):
     assert load_analysis_run(db_url, 9_999) is None
+
+
+# ─── quick-analysis-run wrappers ────────────────────────────────────────────
+
+def test_save_list_load_delete_quick_analysis_run(db_url):
+    sid, _fid = _seed_one_file(db_url)
+    sample = [{
+        "scan_id": sid, "scan_label": "demo", "folder": "/srv/photos",
+        "category": "photo-library", "subcategory": "jpg 96%",
+        "file_count": 1200, "total_bytes": 5_000_000,
+        "dominance": 0.96, "has_mirrors": False, "mirror_count": 0,
+    }]
+    run_id = save_quick_analysis_run(
+        db_url, min_files=5, include_mixed=True,
+        scope_scan_ids=[sid], scope_label="all-scans",
+        duration_ms=42, results=sample,
+        filters={"cap": 200},
+    )
+    assert isinstance(run_id, int) and run_id > 0
+
+    rows = list_quick_analysis_runs(db_url)
+    assert len(rows) == 1 and rows[0]["id"] == run_id
+    assert rows[0]["row_count"] == 1
+    assert rows[0]["include_mixed"] is True
+
+    loaded = load_quick_analysis_run(db_url, run_id)
+    assert loaded is not None
+    assert loaded["min_files"] == 5
+    assert loaded["include_mixed"] is True
+    assert loaded["scope_scan_ids"] == [sid]
+    assert loaded["filters"]["cap"] == 200
+    assert loaded["results"][0]["folder"] == "/srv/photos"
+
+    delete_quick_analysis_run(db_url, run_id)
+    assert list_quick_analysis_runs(db_url) == []
+
+
+def test_load_quick_analysis_run_missing_returns_none(db_url):
+    assert load_quick_analysis_run(db_url, 9_999) is None
 
 
 # ─── search_db ─────────────────────────────────────────────────────────────

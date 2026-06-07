@@ -62,6 +62,28 @@ def delete_analysis_run(db_path: str, run_id: int) -> None:
     repo_for(db_path).delete_analysis_run(run_id)
 
 
+def save_quick_analysis_run(db_path: str, min_files: int, include_mixed: bool,
+                            scope_scan_ids: list[int] | None, scope_label: str,
+                            duration_ms: int, results: list,
+                            filters: dict | None = None) -> int:
+    return repo_for(db_path).save_quick_analysis_run(
+        min_files, include_mixed, scope_scan_ids, scope_label,
+        duration_ms, results, filters,
+    )
+
+
+def list_quick_analysis_runs(db_path: str) -> list[dict]:
+    return repo_for(db_path).list_quick_analysis_runs()
+
+
+def load_quick_analysis_run(db_path: str, run_id: int) -> dict | None:
+    return repo_for(db_path).load_quick_analysis_run(run_id)
+
+
+def delete_quick_analysis_run(db_path: str, run_id: int) -> None:
+    repo_for(db_path).delete_quick_analysis_run(run_id)
+
+
 def search_db(db_path: str, term: str, *,
               scan_id: int | None = None,
               category: str | None = None,
