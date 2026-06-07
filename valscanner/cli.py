@@ -339,6 +339,25 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         print(f"\n   {len(pairs)} pair(s) found.\n")
 
 
+def _mirror_marker(row: dict, rich: bool) -> str:
+    """Format the trailing '+N copies' annotation for a row whose backup
+    mirrors were collapsed into it. Empty string when there are none."""
+    mirrors = row.get("mirrors") or []
+    if not mirrors:
+        return ""
+    n = len(mirrors)
+    noun = "copy" if n == 1 else "copies"
+    shorter = [m for m in mirrors if m.get("files_delta", 0) < 0]
+    detail = ""
+    if shorter:
+        worst = min(m["files_delta"] for m in shorter)
+        detail = f" ({len(shorter)} short, worst {worst:+,} files)"
+    text = f"  +{n} {noun}{detail}"
+    if rich:
+        return f"[dim]{text}[/dim]"
+    return text
+
+
 def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
     """Heuristic O(files) folder classifier — see core.quick_analysis."""
     from .core.quick_analysis import classify_folders, CATEGORY_ORDER
@@ -404,8 +423,9 @@ def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
             tbl.add_column("Folder", no_wrap=False)
             for r in shown:
                 dom = f"{r['dominance']*100:.0f}%" if r["dominance"] else "—"
+                folder_cell = r["folder"] + _mirror_marker(r, rich=True)
                 tbl.add_row(human_size(r["total_bytes"]),
-                            f"{r['file_count']:,}", dom, r["folder"])
+                            f"{r['file_count']:,}", dom, folder_cell)
             _console.print(tbl)
         else:
             print(f"\n  {header}")
@@ -413,8 +433,9 @@ def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
             print(f"  {'─'*10}  {'─'*8}  {'─'*5}  {'─'*40}")
             for r in shown:
                 dom = f"{r['dominance']*100:.0f}%" if r["dominance"] else "—"
+                folder_cell = r["folder"] + _mirror_marker(r, rich=False)
                 print(f"  {human_size(r['total_bytes']):>10}  "
-                      f"{r['file_count']:>8,}  {dom:>5}  {r['folder']}")
+                      f"{r['file_count']:>8,}  {dom:>5}  {folder_cell}")
 
     total_folders = len(results)
     _rprint(f"\n   [bold]{total_folders}[/bold] folder(s) classified "

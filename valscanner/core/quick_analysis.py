@@ -257,8 +257,141 @@ def classify_folders(
                     tot_bytes += fbytes
             subtree[pr_key] = (tot_files, tot_bytes)
 
+    # ── Media-library subtree rollup.
+    # Step 1: identify "media leaves" — folders whose direct files dominate
+    # to one of the media categories.
+    media_leaves: dict[tuple[int, str], tuple[str, float]] = {}
+    for key, d in folders.items():
+        if key in inside_marker and key not in project_keys:
+            continue
+        if key in project_keys:
+            continue
+        if d["count"] < min_files:
+            continue
+        label, dom = _classify_media(d["cats"], d["count"])
+        if label == "mixed":
+            continue
+        media_leaves[key] = (label, dom)
+
+    # Step 2: per-scan, fetch the scan root path so we can cap rollup
+    # below it (we never collapse to or above the user's scan boundary).
+    scan_roots: dict[int, str] = {}
+    if media_leaves:
+        try:
+            for s in repo.list_scans():
+                scan_roots[int(s["id"])] = str(s.get("root") or "")
+        except Exception:
+            scan_roots = {}
+
+    # Step 3: walk each leaf's ancestor chain and record, for every
+    # ancestor, the set of media labels present below it and the number
+    # of distinct leaves it contains.
+    ancestor_labels: dict[tuple[int, str], set[str]] = defaultdict(set)
+    ancestor_leaf_count: dict[tuple[int, str], int] = defaultdict(int)
+    for leaf_key, (label, _) in media_leaves.items():
+        sid, leaf_path = leaf_key
+        p = _parent(leaf_path)
+        while p:
+            akey = (sid, p)
+            ancestor_labels[akey].add(label)
+            ancestor_leaf_count[akey] += 1
+            np = _parent(p)
+            if np == p:
+                break
+            p = np
+
+    # Step 4: for each leaf, pick the highest ancestor that satisfies:
+    #   - it is strictly below the scan root,
+    #   - all media leaves under it share the leaf's label,
+    #   - it contains at least 2 distinct media leaves (otherwise rollup
+    #     is just a rename — keep the leaf as-is),
+    #   - it is not inside a project tree and is not itself a project root.
+    rollup_root: dict[tuple[int, str], tuple[int, str]] = {}
+    for leaf_key, (label, _) in media_leaves.items():
+        sid, leaf_path = leaf_key
+        scan_root = scan_roots.get(sid, "")
+        best = leaf_key
+        p = _parent(leaf_path)
+        while p:
+            if scan_root and (p == scan_root or len(p) <= len(scan_root)):
+                break
+            akey = (sid, p)
+            if (akey not in inside_marker
+                    and akey not in project_keys
+                    and ancestor_labels.get(akey) == {label}
+                    and ancestor_leaf_count.get(akey, 0) >= 2):
+                best = akey
+            np = _parent(p)
+            if np == p:
+                break
+            p = np
+        rollup_root[leaf_key] = best
+
+    # Step 5: per unique rollup root, aggregate descendant counts/bytes.
+    media_root_data: dict[tuple[int, str], dict] = {}
+    media_absorbed: set[tuple[int, str]] = set()
+    folders_by_scan_paths: dict[int, list[str]] = defaultdict(list)
+    for (sid, parent) in folders.keys():
+        folders_by_scan_paths[sid].append(parent)
+    for sid in folders_by_scan_paths:
+        folders_by_scan_paths[sid].sort()
+
+    roots = set(rollup_root.values())
+    for root_key in roots:
+        sid, root_path = root_key
+        if root_key in media_leaves:
+            label, dom = media_leaves[root_key]
+        else:
+            labels = ancestor_labels.get(root_key, set())
+            if not labels:
+                continue
+            label = next(iter(labels))
+            dom = 1.0
+        if root_key in folders:
+            tot_files = folders[root_key]["count"]
+            tot_bytes = folders[root_key]["total_bytes"]
+            scan_label = folders[root_key]["scan_label"]
+        else:
+            tot_files = 0
+            tot_bytes = 0
+            scan_label = ""
+        absorbed = 0
+        pr_slash_fwd = root_path + "/"
+        pr_slash_bwd = root_path + "\\"
+        for fparent in folders_by_scan_paths.get(sid, ()):
+            if fparent == root_path:
+                continue
+            if not (fparent.startswith(pr_slash_fwd)
+                    or fparent.startswith(pr_slash_bwd)):
+                continue
+            ck = (sid, fparent)
+            if ck in project_keys or ck in inside_marker:
+                continue
+            cd = folders[ck]
+            tot_files += cd["count"]
+            tot_bytes += cd["total_bytes"]
+            absorbed += 1
+            if not scan_label:
+                scan_label = cd["scan_label"]
+        media_root_data[root_key] = {
+            "label":       label,
+            "dominance":   dom,
+            "files":       tot_files,
+            "bytes":       tot_bytes,
+            "absorbed":    absorbed,
+            "scan_label":  scan_label,
+            "sid":         sid,
+        }
+
+    # Step 6: leaves whose rollup root is an ancestor (not themselves)
+    # are absorbed and won't surface as their own row.
+    for leaf_key, root_key in rollup_root.items():
+        if root_key != leaf_key:
+            media_absorbed.add(leaf_key)
+
     # ── Build final result list.
     results: list[dict] = []
+    emitted_media_roots: set[tuple[int, str]] = set()
     for key, d in folders.items():
         sid, parent = key
         # Suppress folders inside a known marker tree (the project root
@@ -266,6 +399,8 @@ def classify_folders(
         # `inside_marker` because the parent path doesn't contain the
         # marker segment.
         if key in inside_marker and key not in project_keys:
+            continue
+        if key in media_absorbed:
             continue
 
         marker_files = d["marker_files"]
@@ -286,6 +421,15 @@ def classify_folders(
             total_bytes = sub_bytes
             if file_count < min_files:
                 continue
+        elif key in media_root_data:
+            info = media_root_data[key]
+            category    = info["label"]
+            dominance   = info["dominance"]
+            file_count  = info["files"]
+            total_bytes = info["bytes"]
+            subcategory = (f"+{info['absorbed']} subfolders"
+                           if info["absorbed"] else "")
+            emitted_media_roots.add(key)
         else:
             if d["count"] < min_files:
                 continue
@@ -307,8 +451,94 @@ def classify_folders(
             "dominance":   round(dominance, 3),
         })
 
+    # Emit promoted-ancestor rows that weren't visited by the main loop
+    # because the folder has no direct files (e.g. a device-backup folder
+    # whose children are DCIM/, Pictures/, etc.).
+    for root_key, info in media_root_data.items():
+        if root_key in emitted_media_roots:
+            continue
+        if root_key in folders:
+            continue
+        if info["files"] < min_files:
+            continue
+        sid, parent = root_key
+        results.append({
+            "scan_id":     sid,
+            "scan_label":  info["scan_label"],
+            "folder":      parent,
+            "category":    info["label"],
+            "subcategory": (f"+{info['absorbed']} subfolders"
+                            if info["absorbed"] else ""),
+            "file_count":  info["files"],
+            "total_bytes": info["bytes"],
+            "dominance":   round(info["dominance"], 3),
+        })
+
+    results = group_backup_copies(results)
+
     # Sort by category-display-order then size desc.
     cat_rank = {c: i for i, c in enumerate(CATEGORY_ORDER)}
     results.sort(key=lambda r: (cat_rank.get(r["category"], len(CATEGORY_ORDER)),
                                 -r["total_bytes"]))
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cross-drive backup grouping.
+
+_MIRROR_SUFFIX_DEPTH = 4
+_MIRROR_BYTES_TOLERANCE = 0.05
+
+
+def _trailing_suffix_key(folder: str, depth: int = _MIRROR_SUFFIX_DEPTH) -> str:
+    parts = [p for p in _split_segments(folder) if p]
+    tail = parts[-depth:]
+    return "/".join(s.strip().lower() for s in tail)
+
+
+def group_backup_copies(
+    results: list[dict],
+    suffix_depth: int = _MIRROR_SUFFIX_DEPTH,
+    bytes_tolerance: float = _MIRROR_BYTES_TOLERANCE,
+) -> list[dict]:
+    """Collapse rows that look like backup copies of the same folder living
+    on different drives. Two rows group when they share the same category,
+    the same trailing N path segments, and have total_bytes within ±tol of
+    each other. Within a group, the row with the highest file_count becomes
+    the *primary* and carries the others under `mirrors`.
+    """
+    buckets: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for idx, r in enumerate(results):
+        key = (r["category"], _trailing_suffix_key(r["folder"], suffix_depth))
+        buckets[key].append(idx)
+
+    absorbed: set[int] = set()
+    for indices in buckets.values():
+        if len(indices) < 2:
+            continue
+        rows = sorted(
+            ((i, results[i]) for i in indices),
+            key=lambda t: (-t[1]["file_count"], -t[1]["total_bytes"]),
+        )
+        primary_idx, primary = rows[0]
+        primary_bytes = primary["total_bytes"] or 1
+        mirrors: list[dict] = []
+        for idx, r in rows[1:]:
+            delta = abs(r["total_bytes"] - primary["total_bytes"]) / primary_bytes
+            if delta > bytes_tolerance:
+                continue
+            mirrors.append({
+                "folder":      r["folder"],
+                "scan_id":     r["scan_id"],
+                "scan_label":  r["scan_label"],
+                "file_count":  r["file_count"],
+                "total_bytes": r["total_bytes"],
+                "files_delta": r["file_count"] - primary["file_count"],
+            })
+            absorbed.add(idx)
+        if mirrors:
+            primary["mirrors"] = mirrors
+            primary["mirror_count"] = len(mirrors)
+            primary["has_mirrors"] = True
+
+    return [r for i, r in enumerate(results) if i not in absorbed]

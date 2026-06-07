@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from valscanner.core.scanner import scan
-from valscanner.core.quick_analysis import classify_folders
+from valscanner.core.quick_analysis import classify_folders, group_backup_copies
 
 
 @pytest.fixture
@@ -151,3 +151,130 @@ def test_min_files_filters_small_folders(mixed_tree):
     names = {Path(r["folder"]).name for r in results}
     assert "Photos2024" not in names
     assert "Music" not in names
+
+
+@pytest.fixture
+def nested_photo_tree(tmp_path: Path):
+    """Photo library spread across nested folders + a node project sibling
+    so we can verify the media-rollup behaviour without absorbing projects."""
+    root = tmp_path / "tree"
+    root.mkdir()
+
+    device = root / "Y9_backup"
+    device.mkdir()
+    dcim = device / "DCIM" / "Camera"
+    dcim.mkdir(parents=True)
+    for i in range(15):
+        (dcim / f"IMG_{i:03d}.jpg").write_bytes(b"\xff\xd8" + b"x" * 200)
+    screenshots = device / "Pictures" / "Screenshots"
+    screenshots.mkdir(parents=True)
+    for i in range(10):
+        (screenshots / f"Screenshot_{i:03d}.png").write_bytes(b"\x89PNG" + b"x" * 100)
+
+    nested_proj = device / "webproj"
+    nested_proj.mkdir()
+    (nested_proj / "package.json").write_text('{"name":"x"}')
+    for i in range(10):
+        (nested_proj / f"f{i}.js").write_text("x")
+
+    db = str(tmp_path / "nested.db")
+    scan(root, db, compute_hash=False)
+    return db
+
+
+def test_media_subtree_rollup(nested_photo_tree):
+    """A photo-library parent absorbs its photo-dominated descendants so
+    only one row surfaces with combined file_count / total_bytes."""
+    results = classify_folders(nested_photo_tree, min_files=5)
+    photo_rows = [r for r in results if r["category"] == "photo-library"]
+    by = {Path(r["folder"]).name: r for r in photo_rows}
+    # The DCIM/Camera + Pictures/Screenshots subtrees should collapse into
+    # Y9_backup (the outermost photo-dominated ancestor).
+    assert "Y9_backup" in by
+    parent = by["Y9_backup"]
+    assert parent["file_count"] >= 25, (
+        "Expected parent to roll up Camera (15) + Screenshots (10) = 25"
+    )
+    # The descendants must NOT appear as separate photo-library rows.
+    assert "Camera" not in by
+    assert "Screenshots" not in by
+    assert "+" in (parent.get("subcategory") or ""), (
+        "Rolled-up row should annotate the absorbed-subfolder count"
+    )
+
+
+def test_media_rollup_respects_project_roots(nested_photo_tree):
+    """A node-project nested inside a photo-library parent must still surface
+    as its own row — the photo rollup must not absorb projects."""
+    results = classify_folders(nested_photo_tree, min_files=5)
+    by_cat: dict[str, list[dict]] = {}
+    for r in results:
+        by_cat.setdefault(r["category"], []).append(r)
+    assert "node-project" in by_cat, "node project must survive media rollup"
+    proj_names = {Path(r["folder"]).name for r in by_cat["node-project"]}
+    assert "webproj" in proj_names
+
+
+def test_group_backup_copies_collapses_mirrors():
+    """Two rows with same category, identical trailing suffix, and bytes
+    within 5% collapse to one primary; the row with more files wins."""
+    base = "Personal/Backups/My Personal Files/Photos/DCIM/Camera"
+    rows = [
+        {
+            "scan_id": 1, "scan_label": "drive-N",
+            "folder": "/Volumes/Valabji N/" + base,
+            "category": "photo-library", "subcategory": "",
+            "file_count": 1123, "total_bytes": 13_500_000_000,
+            "dominance": 0.94,
+        },
+        {
+            "scan_id": 2, "scan_label": "drive-01D4",
+            "folder": "/run/media/valabji/01D40E0F1BF498A0/Should be secured/" + base,
+            "category": "photo-library", "subcategory": "",
+            "file_count": 1100, "total_bytes": 13_300_000_000,
+            "dominance": 0.94,
+        },
+        {
+            "scan_id": 3, "scan_label": "drive-X",
+            "folder": "/Volumes/Other/Music/Library/Albums/Jazz",
+            "category": "music-library", "subcategory": "",
+            "file_count": 200, "total_bytes": 5_000_000_000,
+            "dominance": 0.80,
+        },
+    ]
+    out = group_backup_copies(rows)
+    photo_rows = [r for r in out if r["category"] == "photo-library"]
+    assert len(photo_rows) == 1, "two photo mirrors should collapse into one"
+    primary = photo_rows[0]
+    assert primary["file_count"] == 1123, "primary must be the more-complete copy"
+    assert primary["has_mirrors"] is True
+    assert primary["mirror_count"] == 1
+    assert primary["mirrors"][0]["folder"].startswith("/run/media/")
+    assert primary["mirrors"][0]["files_delta"] == 1100 - 1123
+    # Unrelated music row passes through untouched.
+    assert any(r["category"] == "music-library" for r in out)
+
+
+def test_group_backup_copies_skips_when_bytes_diverge():
+    """Folders with the same suffix but >5% byte difference are NOT grouped —
+    they may be different snapshots, not mirrors."""
+    rows = [
+        {
+            "scan_id": 1, "scan_label": "a",
+            "folder": "/A/Photos/2024/Camera",
+            "category": "photo-library", "subcategory": "",
+            "file_count": 500, "total_bytes": 10_000_000_000,
+            "dominance": 0.9,
+        },
+        {
+            "scan_id": 2, "scan_label": "b",
+            "folder": "/B/Photos/2024/Camera",
+            "category": "photo-library", "subcategory": "",
+            "file_count": 500, "total_bytes": 5_000_000_000,
+            "dominance": 0.9,
+        },
+    ]
+    out = group_backup_copies(rows)
+    assert len(out) == 2, "rows with >5% byte gap must stay separate"
+    for r in out:
+        assert not r.get("has_mirrors")
