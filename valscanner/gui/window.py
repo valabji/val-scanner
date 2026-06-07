@@ -2205,6 +2205,7 @@ class MainWindow(QMainWindow):
         self.quick_analysis_panel.status_message.connect(
             lambda m, lvl="info": self._set_status(m, lvl)
         )
+        self.quick_analysis_panel.open_folder.connect(self._filter_by_folder)
         self.center_tabs.addTab(
             self.quick_analysis_panel,
             _icons.icon("filters", color=str(SUBTEXT)),

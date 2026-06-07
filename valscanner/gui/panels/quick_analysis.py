@@ -52,6 +52,8 @@ _TABLE_MAX_H = 360  # px — cap so cards never push siblings off-screen
 class _CategorySection(QFrame):
     """A collapsible header + bounded scrollable table for one category."""
 
+    open_folder = Signal(str)
+
     def __init__(self, category: str, rows: list[dict],
                  expanded: bool = False, parent=None):
         super().__init__(parent)
@@ -161,6 +163,10 @@ class _CategorySection(QFrame):
             folder_path = r.get("folder", "")
             folder_text = folder_path + _mirror_marker(r)
             folder_item = QTableWidgetItem(folder_text)
+            folder_item.setData(Qt.UserRole, folder_path)
+            size_item.setData(Qt.UserRole, folder_path)
+            files_item.setData(Qt.UserRole, folder_path)
+            dom_item.setData(Qt.UserRole, folder_path)
             mirrors = r.get("mirrors") or []
             tip_lines = [folder_path]
             if mirrors:
@@ -179,6 +185,17 @@ class _CategorySection(QFrame):
         tbl.setMinimumHeight(min(_TABLE_MAX_H,
                                  28 * min(len(rows), 6) + 32))
         tbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        def _emit(row: int, _col: int = 0) -> None:
+            item = tbl.item(row, 3)
+            if item is None:
+                return
+            path = item.data(Qt.UserRole) or ""
+            if path:
+                self.open_folder.emit(str(path))
+
+        tbl.cellDoubleClicked.connect(_emit)
+        tbl.cellActivated.connect(_emit)
         self._body_lay.addWidget(tbl)
 
 
@@ -186,6 +203,7 @@ class QuickAnalysisPanel(QWidget):
     """Run, browse, and export heuristic folder-classification runs."""
 
     status_message = Signal(str, str)  # (msg, level)
+    open_folder = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -407,6 +425,7 @@ class QuickAnalysisPanel(QWidget):
 
         for idx, cat in enumerate(ordered_cats):
             sect = _CategorySection(cat, by_cat[cat], expanded=(idx == 0))
+            sect.open_folder.connect(self.open_folder)
             self._sections[cat] = sect
             self._content_lay.addWidget(sect)
 
