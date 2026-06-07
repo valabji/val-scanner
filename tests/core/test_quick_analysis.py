@@ -1,12 +1,18 @@
 """Tests for valscanner.core.quick_analysis — heuristic folder classifier."""
 from __future__ import annotations
 
+import csv
+import json
 from pathlib import Path
 
 import pytest
 
 from valscanner.core.scanner import scan
 from valscanner.core.quick_analysis import classify_folders, group_backup_copies
+from valscanner.core.export import (
+    export_quick_analysis_csv,
+    export_quick_analysis_json,
+)
 
 
 @pytest.fixture
@@ -253,6 +259,77 @@ def test_group_backup_copies_collapses_mirrors():
     assert primary["mirrors"][0]["files_delta"] == 1100 - 1123
     # Unrelated music row passes through untouched.
     assert any(r["category"] == "music-library" for r in out)
+
+
+def _sample_grouped_results() -> list[dict]:
+    base = "MyFiles/Photos/DCIM/Camera"
+    rows = [
+        {
+            "scan_id": 1, "scan_label": "drive-N",
+            "folder": "/Volumes/N/" + base,
+            "category": "photo-library", "subcategory": "jpg 94%",
+            "file_count": 1123, "total_bytes": 13_500_000_000,
+            "dominance": 0.94,
+        },
+        {
+            "scan_id": 2, "scan_label": "drive-X",
+            "folder": "/run/media/valabji/X/" + base,
+            "category": "photo-library", "subcategory": "jpg 94%",
+            "file_count": 1100, "total_bytes": 13_300_000_000,
+            "dominance": 0.94,
+        },
+        {
+            "scan_id": 3, "scan_label": "drive-Y",
+            "folder": "/Volumes/Y/Music/Jazz",
+            "category": "music-library", "subcategory": "",
+            "file_count": 200, "total_bytes": 5_000_000_000,
+            "dominance": 0.80,
+        },
+    ]
+    return group_backup_copies(rows)
+
+
+def test_export_quick_analysis_json_round_trip(tmp_path: Path):
+    """JSON keeps the nested mirrors list with files_delta intact."""
+    results = _sample_grouped_results()
+    out = tmp_path / "qa.json"
+    export_quick_analysis_json(results, str(out))
+
+    loaded = json.loads(out.read_text(encoding="utf-8"))
+    assert len(loaded) == len(results)
+
+    photo = next(r for r in loaded if r["category"] == "photo-library")
+    assert photo["file_count"] == 1123
+    assert photo["mirrors"], "primary must carry its mirror list in JSON"
+    assert photo["mirrors"][0]["folder"].startswith("/run/media/")
+    assert photo["mirrors"][0]["files_delta"] == 1100 - 1123
+
+
+def test_export_quick_analysis_csv_flattens_mirrors(tmp_path: Path):
+    """CSV exposes mirror_count + mirror_paths instead of nested rows."""
+    results = _sample_grouped_results()
+    out = tmp_path / "qa.csv"
+    export_quick_analysis_csv(results, str(out))
+
+    with out.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 2, "music row + collapsed photo primary"
+    expected_cols = {
+        "scan_id", "scan_label", "folder", "category", "subcategory",
+        "file_count", "total_bytes", "dominance",
+        "mirror_count", "mirror_paths",
+    }
+    assert expected_cols.issubset(set(rows[0].keys()))
+
+    photo = next(r for r in rows if r["category"] == "photo-library")
+    assert photo["mirror_count"] == "1"
+    assert photo["mirror_paths"].startswith("/run/media/")
+    assert ";" not in photo["mirror_paths"], "only one mirror, no separator"
+
+    music = next(r for r in rows if r["category"] == "music-library")
+    assert music["mirror_count"] == "0"
+    assert music["mirror_paths"] == ""
 
 
 def test_group_backup_copies_skips_when_bytes_diverge():

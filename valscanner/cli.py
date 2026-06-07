@@ -398,6 +398,17 @@ def _run_quick_analysis(url: str, args, scan_id: int | None) -> None:
                 "   No classified folders found.\n")
         return
 
+    if args.analysis_export_csv or args.analysis_export_json:
+        from .core.export import (
+            export_quick_analysis_csv,
+            export_quick_analysis_json,
+        )
+        stem = _export_stem(args.db)
+        if args.analysis_export_csv:
+            export_quick_analysis_csv(results, f"{stem}-analysis.csv")
+        if args.analysis_export_json:
+            export_quick_analysis_json(results, f"{stem}-analysis.json")
+
     from collections import defaultdict as _dd
     by_cat: dict = _dd(list)
     for r in results:
@@ -595,6 +606,12 @@ def main() -> None:
     analysis.add_argument("--analysis-workers", type=int, default=_defs["analysis_workers"], metavar="N",
                           help="Parallel processes for similarity scoring "
                                "(0 = auto / CPU count; 1 = sequential)")
+    analysis.add_argument("--analysis-export-csv",  action="store_true",
+                          help="Write the --quick-analyze rows to <db>-analysis.csv "
+                               "(mirrors flattened: mirror_count + mirror_paths columns)")
+    analysis.add_argument("--analysis-export-json", action="store_true",
+                          help="Write the --quick-analyze rows to <db>-analysis.json "
+                               "(mirrors nested under each primary)")
 
     logging_group = parser.add_argument_group("logging")
     logging_group.add_argument("--log-file",    metavar="PATH", default=None,
