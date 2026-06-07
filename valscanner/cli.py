@@ -202,14 +202,18 @@ def _make_transfer_progress_cb(show_progress: bool = True):
 
 
 def _make_analysis_progress_cb(show_progress: bool = True):
-    """Return an on_progress callback for find_similar_folders()."""
+    """Return (on_progress, on_stage) callbacks for find_similar_folders().
+
+    The bar's prefix tracks the current stage ("scoring" → "ranking" →
+    "nesting") so reaching 100% in one stage doesn't look like the whole
+    analysis is done.
+    """
     if not show_progress:
-        return None
+        return None, None
 
     import time as _time
-    BAR_W  = 25
-    start  = _time.time()
-    _last  = [0.0]  # last print time — throttle to 10 Hz
+    BAR_W  = 20
+    state  = {"stage": "scoring", "start": _time.time(), "last": 0.0}
 
     def _fmt_eta(secs: float) -> str:
         secs = int(secs)
@@ -223,14 +227,14 @@ def _make_analysis_progress_cb(show_progress: bool = True):
 
     def _cb(done: int, total: int) -> None:
         now = _time.time()
-        if now - _last[0] < 0.1:
+        if now - state["last"] < 0.1:
             return
-        _last[0] = now
+        state["last"] = now
 
         if total <= 0:
             return
 
-        elapsed = max(now - start, 0.001)
+        elapsed = max(now - state["start"], 0.001)
         rate    = done / elapsed
 
         pct    = done / total
@@ -238,12 +242,24 @@ def _make_analysis_progress_cb(show_progress: bool = True):
         bar    = "=" * filled + (">" if filled < BAR_W else "") + " " * (BAR_W - filled - (1 if filled < BAR_W else 0))
         remaining = total - done
         eta    = _fmt_eta(remaining / rate) if rate > 0 else "?"
-        line   = (f"\r   [{bar}] {done:>6,}/{total:,}  "
+        line   = (f"\r   {state['stage']:<8s} [{bar}] {done:>6,}/{total:,}  "
                   f"{pct*100:4.1f}%  {rate:,.0f} p/s  ETA {eta}")
 
         print(line[:79], end="", flush=True)
 
-    return _cb
+    def _stage(stage: str) -> None:
+        state["stage"] = stage
+        # Reset rate/ETA timing — carrying scoring's elapsed into ranking
+        # would produce nonsense ETAs for the new phase.
+        state["start"] = _time.time()
+        state["last"]  = 0.0
+        # Clear the line and print an initial "stage starting" frame so the
+        # user sees the transition even before the next progress tick.
+        print("\r" + " " * 79 + "\r", end="", flush=True)
+        print(f"\r   {stage:<8s} [{' ' * BAR_W}]  starting…",
+              end="", flush=True)
+
+    return _cb, _stage
 
 
 def _run_analysis(url: str, args, scan_id: int | None) -> None:
@@ -270,6 +286,9 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
           f"(min-files={args.min_files}, threshold={args.threshold:.2f}, "
           f"workers={_w_eff})…")
 
+    progress_cb, stage_cb = _make_analysis_progress_cb(
+        show_progress=not args.no_progress_bar,
+    )
     pairs = find_similar_folders(
         url,
         min_files=args.min_files,
@@ -277,7 +296,8 @@ def _run_analysis(url: str, args, scan_id: int | None) -> None:
         max_results=args.analysis_results,
         scan_ids=scan_ids,
         filters=filters,
-        progress_cb=_make_analysis_progress_cb(show_progress=not args.no_progress_bar),
+        progress_cb=progress_cb,
+        stage_cb=stage_cb,
         workers=_w_eff,
     )
     if not args.no_progress_bar:

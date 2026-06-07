@@ -635,12 +635,17 @@ def find_similar_folders(
     stop_flag: Callable[[], bool] | None = None,
     progress_cb: Callable[[int, int], None] | None = None,
     workers: int | None = 1,
+    stage_cb: Callable[[str], None] | None = None,
 ) -> list:
+    if stage_cb:
+        stage_cb("scoring")
     _, all_pairs = _compute_folder_data_and_pairs(
         db_path, min_files, threshold, scan_ids, filters, stop_flag, progress_cb,
         workers=workers,
     )
 
+    if stage_cb:
+        stage_cb("ranking")
     # Fast depth approximation: counting path separators is equivalent for
     # ordering purposes and avoids per-pair Path() construction.
     def _depth(r):
@@ -649,11 +654,18 @@ def find_similar_folders(
         return a.count('/') + a.count('\\') + b.count('/') + b.count('\\')
     all_pairs.sort(key=lambda r: (_depth(r), -r["score"]))
 
+    if stage_cb:
+        stage_cb("nesting")
+    total_pairs = len(all_pairs)
     top_level: list = []
     child_set: set  = set()
-    for pair in all_pairs:
-        if stop_flag and stop_flag():
-            break
+    check_mask = 1023
+    for k, pair in enumerate(all_pairs):
+        if k & check_mask == 0:
+            if stop_flag and stop_flag():
+                break
+            if progress_cb:
+                progress_cb(k, total_pairs)
         pid = id(pair)
         if pid in child_set:
             continue
@@ -673,6 +685,8 @@ def find_similar_folders(
                 break
         if not placed:
             top_level.append(pair)
+    if progress_cb and total_pairs:
+        progress_cb(total_pairs, total_pairs)
 
     top_level.sort(key=lambda r: r["score"], reverse=True)
     for t in top_level:
@@ -690,12 +704,17 @@ def find_similar_groups(
     stop_flag: Callable[[], bool] | None = None,
     progress_cb: Callable[[int, int], None] | None = None,
     workers: int | None = 1,
+    stage_cb: Callable[[str], None] | None = None,
 ) -> list:
+    if stage_cb:
+        stage_cb("scoring")
     folder_data, all_pairs = _compute_folder_data_and_pairs(
         db_path, min_files, threshold, scan_ids, filters, stop_flag, progress_cb,
         workers=workers,
     )
 
+    if stage_cb:
+        stage_cb("grouping")
     parent: dict = {}
 
     def _root(x):
@@ -805,11 +824,18 @@ def find_similar_groups(
                 return False
         return True
 
+    if stage_cb:
+        stage_cb("nesting")
+    total_groups = len(groups)
     top_level: list = []
     child_set: set  = set()
-    for g in groups:
-        if stop_flag and stop_flag():
-            break
+    check_mask = 1023
+    for k, g in enumerate(groups):
+        if k & check_mask == 0:
+            if stop_flag and stop_flag():
+                break
+            if progress_cb:
+                progress_cb(k, total_groups)
         gid = id(g)
         if gid in child_set:
             continue
@@ -822,6 +848,8 @@ def find_similar_groups(
                 break
         if not placed:
             top_level.append(g)
+    if progress_cb and total_groups:
+        progress_cb(total_groups, total_groups)
 
     top_level.sort(key=lambda g: g["score"], reverse=True)
     for t in top_level:

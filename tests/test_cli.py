@@ -78,14 +78,17 @@ def test_make_transfer_progress_cb_disabled_returns_plain_emitter():
 
 
 def test_make_analysis_progress_cb_disabled_returns_none():
-    assert cli._make_analysis_progress_cb(show_progress=False) is None
+    assert cli._make_analysis_progress_cb(show_progress=False) == (None, None)
 
 
 def test_make_analysis_progress_cb_runs_without_error():
-    cb = cli._make_analysis_progress_cb(show_progress=True)
+    cb, stage_cb = cli._make_analysis_progress_cb(show_progress=True)
     assert cb is not None
+    assert stage_cb is not None
     cb(0, 0)  # total==0 path
     cb(1, 10)  # normal path; throttle window may swallow output — that's fine
+    stage_cb("ranking")  # stage transition resets timing
+    cb(5, 10)
 
 
 # ─── full CLI flows ──────────────────────────────────────────────────────────
