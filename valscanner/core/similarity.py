@@ -354,7 +354,7 @@ def _compute_folder_data_and_pairs(
                 ext = ""
             if file_is_skipped(r["filename"] or "", ext, fopts):
                 continue
-            if path_has_skipped_dir(r["path"], fopts):
+            if path_has_skipped_dir(r["path"], fopts, root=r.get("scan_root")):
                 continue
         parent = str(Path(r["path"]).parent)
         key    = (r["scan_id"], parent)

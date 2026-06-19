@@ -367,6 +367,7 @@ class FilesMixin(RepositoryBase):
     def iter_similarity_rows(self, scan_ids: list[int] | None = None) -> Iterator[dict]:
         sql = (
             "SELECT f.scan_id, COALESCE(NULLIF(s.label,''), s.root) AS scan_label, "
+            "       s.root AS scan_root, "
             "       f.path, f.filename, f.extension, f.size_bytes, f.sha256, "
             "       LOWER(REPLACE(REPLACE(f.filename,' ',''),'_','')) AS norm_name "
             "FROM files f JOIN scans s ON s.id = f.scan_id"

@@ -192,13 +192,6 @@ def load_palette() -> dict[str, str]:
     return Theme.instance().palette()
 
 
-def _initial_mode(s) -> str:
-    """Determine default mode for a user who has never explicitly set theme/mode."""
-    if s.contains("windowGeometry") or s.contains("geometry"):
-        return "dark"   # upgrading user — preserve current look
-    return "system"     # fresh install — follow OS
-
-
 _instance: "Theme | None" = None
 
 
@@ -223,10 +216,7 @@ class Theme:
                 return
             from PySide6.QtCore import QSettings
             s = QSettings(ORG_NAME, APP_NAME)
-            if s.contains("theme/mode"):
-                choice = s.value("theme/mode") or DEFAULT_THEME
-            else:
-                choice = _initial_mode(s)
+            choice = s.value("theme/mode") or DEFAULT_THEME
             self._choice   = choice
             self._resolved = self._resolve(choice)
             self._settings_loaded = True
