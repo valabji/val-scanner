@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QSettings, QSize, QEvent
@@ -144,6 +145,16 @@ class MainWindow(QMainWindow):
         self._browser_file_offset    = 0           # files loaded so far this view
         self._browser_history: list[str] = []
         self._current_view_index     = 0           # 0=table 1=grid 2=list
+        # Navigation prefetch cache: the *next* hop (a child of the current dir,
+        # the parent, or a scan root) is loaded in the background and served
+        # instantly. Keyed by (scan_id, path, recursive) → raw worker payload.
+        self._browser_cache: "OrderedDict[tuple, dict]" = OrderedDict()
+        self._browser_cache_max      = 64
+        self._prefetch_budget        = 10          # max neighbours kept warm
+        self._prefetch_workers: list = []          # in-flight quiet loaders
+        self._prefetch_inflight: set = set()       # cache keys being fetched
+        self._browser_child_folders: list[str] = []  # immediate subdirs, big→small
+        self._browser_dead_workers: list = []      # stopped loaders kept alive
 
         self.recent_dbs = RecentDBsModel.instance()
         self.recent_dbs.changed.connect(self._rebuild_recent_menu)
@@ -2869,6 +2880,7 @@ class MainWindow(QMainWindow):
             return
         self._browser_path = ""
         self._browser_history = []
+        self._clear_browser_cache()
         self._load_browser_view()
 
     def _load_browser_view(self) -> None:
@@ -2878,16 +2890,19 @@ class MainWindow(QMainWindow):
         self._breadcrumb_bar.show()
         self._update_breadcrumb()
 
-        self.center_tabs.setTabText(1, "Files (loading…)")
-        self._stat_showing.setText("Loading…")
-
         # Cancel any in-flight navigation so its result can't overwrite this one.
+        # Keep the stopped worker referenced until it actually finishes so the
+        # QThread is never garbage-collected mid-run.
         if self._browser_worker is not None:
+            old = self._browser_worker
             try:
-                self._browser_worker.contents_ready.disconnect(self._on_browser_loaded)
+                old.contents_ready.disconnect(self._on_browser_loaded)
             except (RuntimeError, TypeError):
                 pass
-            self._browser_worker.stop()
+            old.stop()
+            self._browser_dead_workers.append(old)
+            old.finished.connect(lambda w=old: self._reap_dead_browser_worker(w))
+            self._browser_worker = None
 
         # Detach any in-flight lazy page so it can't append to the new view.
         self._browser_recursive_paging = False
@@ -2897,6 +2912,17 @@ class MainWindow(QMainWindow):
             except (RuntimeError, TypeError):
                 pass
 
+        # Fast path: this hop was prefetched while sitting on the previous dir.
+        cached = self._browser_cache.get(
+            self._browser_cache_key(self._browser_path, self._folder_filter_recursive)
+        )
+        if cached is not None:
+            self._on_browser_loaded(cached)
+            return
+
+        self.center_tabs.setTabText(1, "Files (loading…)")
+        self._stat_showing.setText("Loading…")
+
         self._browser_worker = BrowserLoadWorker(
             self._db_path, self._active_scan_id, self._browser_path,
             recursive=self._folder_filter_recursive,
@@ -2905,15 +2931,109 @@ class MainWindow(QMainWindow):
         self._browser_worker.error.connect(lambda e: self._set_status(f"Error: {e}"))
         self._browser_worker.start()
 
+    # ── Navigation prefetch cache ─────────────────────────────────────────────
+    def _browser_cache_key(self, path: str, recursive: bool) -> tuple:
+        return (self._active_scan_id or 0, path, bool(recursive))
+
+    def _cache_store(self, data: dict) -> None:
+        """Stash a raw worker payload, evicting the least-recently-used entry."""
+        key = self._browser_cache_key(data.get("path", ""),
+                                      data.get("recursive", False))
+        self._browser_cache[key] = data
+        self._browser_cache.move_to_end(key)
+        while len(self._browser_cache) > self._browser_cache_max:
+            self._browser_cache.popitem(last=False)
+
+    def _clear_browser_cache(self) -> None:
+        """Drop the cache and abandon any in-flight prefetches (DB/scan changed)."""
+        self._browser_cache.clear()
+        self._prefetch_inflight.clear()
+        for w in self._prefetch_workers:
+            try:
+                w.contents_ready.disconnect(self._on_prefetch_loaded)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                w.stop()
+            except Exception:
+                pass
+        self._prefetch_workers.clear()
+
+    def _prefetch_neighbors(self) -> None:
+        """Warm the cache with the likely next hops from the current dir.
+
+        Candidates, in priority order: the parent dir, the scan-roots view, and
+        each immediate child folder (largest first). Anything already cached or
+        in flight is skipped, and the total kept-warm set is bounded.
+        """
+        if not self._db_path:
+            return
+        recursive = self._folder_filter_recursive
+        targets: list[str] = []
+
+        if self._browser_path:
+            par = str(Path(self._browser_path).parent)
+            up = "" if (par == "." or par == self._browser_path) else par
+            targets.append(up)          # parent
+            targets.append("")          # scan roots
+        targets.extend(self._browser_child_folders)   # drill-down children
+
+        seen: set = set()
+        spawned = 0
+        for path in targets:
+            if spawned >= self._prefetch_budget:
+                break
+            key = self._browser_cache_key(path, recursive)
+            if key in seen or key in self._browser_cache or key in self._prefetch_inflight:
+                continue
+            seen.add(key)
+            self._prefetch_inflight.add(key)
+            w = BrowserLoadWorker(
+                self._db_path, self._active_scan_id, path,
+                recursive=recursive, quiet=True,
+            )
+            w.contents_ready.connect(self._on_prefetch_loaded)
+            w.finished.connect(lambda w=w: self._reap_prefetch_worker(w))
+            self._prefetch_workers.append(w)
+            spawned += 1
+            w.start()
+
+    def _on_prefetch_loaded(self, data: dict) -> None:
+        key = self._browser_cache_key(data.get("path", ""),
+                                      data.get("recursive", False))
+        self._prefetch_inflight.discard(key)
+        self._cache_store(data)
+
+    def _reap_prefetch_worker(self, w) -> None:
+        try:
+            self._prefetch_workers.remove(w)
+        except ValueError:
+            pass
+
+    def _reap_dead_browser_worker(self, w) -> None:
+        try:
+            self._browser_dead_workers.remove(w)
+        except ValueError:
+            pass
+
     def _on_browser_loaded(self, data: dict) -> None:
         """Render the first page of folders + files at the current browser path."""
         folders = data["folders"]
         files = data["files"]
         path = data["path"]
 
+        # Keep the payload warm regardless of whether we render it now — a
+        # stale response still answers a future visit to that same path.
+        self._cache_store(data)
+
         if path != self._browser_path:
             # Stale response — ignore
             return
+
+        # Immediate subdirs (largest first) are the most likely drill-down hop.
+        self._browser_child_folders = [
+            f[0] for f in sorted(folders, key=lambda f: -(f[2] or 0))
+        ]
 
         recursive   = data.get("recursive", False)
         total_files = data.get("total_files", -1)
@@ -2981,6 +3101,9 @@ class MainWindow(QMainWindow):
             self.center_tabs.setTabText(
                 1, f"{label} ({len(folders)} folders, {len(files)} files)"
             )
+
+        # Now that the current dir is on screen, warm the likely next hops.
+        self._prefetch_neighbors()
 
 
     def _navigate_to(self, path: str) -> None:

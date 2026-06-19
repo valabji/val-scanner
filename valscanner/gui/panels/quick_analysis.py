@@ -485,7 +485,25 @@ class QuickAnalysisPanel(QWidget):
             chip.clicked.connect(lambda _=False, c=cat: self._jump_to(c))
             chip_lay.addWidget(chip)
         chip_lay.addStretch()
-        outer.addWidget(chip_wrap)
+
+        chip_scroll = QScrollArea()
+        chip_scroll.setWidget(chip_wrap)
+        chip_scroll.setWidgetResizable(True)
+        chip_scroll.setFrameShape(QFrame.NoFrame)
+        chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        chip_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        chip_scroll.setStyleSheet(
+            f"QScrollArea{{background:transparent;border:none;}}"
+            f"QScrollBar:horizontal{{height:8px;background:transparent;}}"
+            f"QScrollBar::handle:horizontal{{background:{BORDER};"
+            f"border-radius:4px;min-width:24px;}}"
+            f"QScrollBar::handle:horizontal:hover{{background:{SUBTEXT};}}"
+            f"QScrollBar::add-line:horizontal,"
+            f"QScrollBar::sub-line:horizontal{{width:0;}}"
+        )
+        chip_scroll.setFixedHeight(chip_wrap.sizeHint().height() + 10)
+        outer.addWidget(chip_scroll)
         return bar
 
     def _set_all_expanded(self, expanded: bool) -> None:

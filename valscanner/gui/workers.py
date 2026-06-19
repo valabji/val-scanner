@@ -291,7 +291,7 @@ class BrowserLoadWorker(QThread):
 
     def __init__(self, db_path: str, scan_id: int | None, path: str,
                  recursive: bool = False, offset: int = 0,
-                 page_size: int = PAGE_SIZE):
+                 page_size: int = PAGE_SIZE, quiet: bool = False):
         super().__init__()
         self.db_path    = db_path
         self.scan_id    = scan_id
@@ -299,6 +299,7 @@ class BrowserLoadWorker(QThread):
         self.recursive  = recursive
         self.offset     = offset
         self.page_size  = page_size
+        self.quiet      = quiet          # prefetch: skip ProcessRegistry noise
         self._interrupt = threading.Event()
         self._pid: str  = ""
 
@@ -308,8 +309,11 @@ class BrowserLoadWorker(QThread):
     def run(self) -> None:
         from .panels.process import ProcessRegistry
         reg = ProcessRegistry.instance()
-        label = Path(self.path).name if self.path else "root"
-        self._pid = reg.register(name=f"Loading: {label}", cancel_cb=self.stop)
+        if self.quiet:
+            self._pid = ""
+        else:
+            label = Path(self.path).name if self.path else "root"
+            self._pid = reg.register(name=f"Loading: {label}", cancel_cb=self.stop)
         ok = False
         try:
             if self._interrupt.is_set():
@@ -441,10 +445,11 @@ class BrowserLoadWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
         finally:
-            if ok or self._interrupt.is_set():
-                reg.mark_done(self._pid)
-            else:
-                reg.mark_error(self._pid)
+            if self._pid:
+                if ok or self._interrupt.is_set():
+                    reg.mark_done(self._pid)
+                else:
+                    reg.mark_error(self._pid)
 
 
 class FolderLoadWorker(QThread):
